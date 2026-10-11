@@ -2,7 +2,7 @@
 // numa HOME falsa em pasta temporária.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { appendFileSync, chmodSync, copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, copyFileSync, mkdirSync, readdirSync, readFileSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Activity, AgentInfo, FeedItem, Notice, OfficeSnapshot, PermissionRequestInfo, RecentSession, RoomInfo } from '../../shared/types';
@@ -20,6 +20,7 @@ import type { SessionLookup } from '../sources/source';
 import { tempDir } from '../test/fixtures';
 import { isPrivatePath, loadQodeConfig, mentionsPrivate, parseConfig, PRIVATE_ROOM_PREFIX, projectOf } from './config';
 import { PRIVATE_SESSION_ERROR, setupQode, TranscriptScanner, type QodeSetup } from './index';
+import { createTerminalParser } from '../sources/terminal';
 import {
   ACTIVITY_RULES,
   AGENT_RULES,
@@ -418,8 +419,9 @@ describe('o que não passa pelo Office', () => {
     expect(calls).toHaveLength(0);
     expect(view.get('c')).toBeUndefined();
     expect(routes.register({ session_id: 'outra', tool_name: 'Read', tool_input: { file_path: '/x' } })).toEqual({ id: 'p', expiresAt: 0 });
+    expect(routes.detail('p')).toBeDefined();
     expect(routes.detail('sujo')).toBeUndefined();
-    expect(routes.detail('limpo')).toBeDefined();
+    expect(routes.detail('limpo')).toBeUndefined();
   });
 
   it('o leitor de transcript procura só nos bytes novos e acha o trecho partido entre blocos', () => {
@@ -653,7 +655,7 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
       main(e, 'c', clinicas(e));
       e.office.addActivity('c', act('c', { kind: 'run', detail: `cat ${troca}/a.md` }), true);
       expect(e.qode.privacy!.isPrivate('c')).toBe(false);
-      rmSync(troca);
+      unlinkSync(troca);
       symlinkSync(vida(e), troca);
       vi.setSystemTime(Date.now() + 5_000);
       main(e, 'd', clinicas(e));
@@ -817,5 +819,93 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     const cfg = parseConfig({ projetos: [{ nome: 'P', caminhos: ['~/p'] }] }, '/h');
     const p = new Privacy(cfg, { agent: () => undefined, agents: () => [], changed: () => undefined });
     expect(p.isPrivate('qualquer')).toBe(false);
+  });
+
+  it('caminho absoluto com espaço (aspas ou barra invertida) contamina', () => {
+    const run = (detail: (alias: string) => string) => {
+      const e = setup();
+      mkdirSync(vida(e), { recursive: true });
+      const alias = join(e.dataDir, 'qode alias');
+      symlinkSync(vida(e), alias);
+      expect(isPrivatePath(e.qode.config!, `${alias}/secret.txt`)).toBe(true);
+      main(e, 'c', clinicas(e));
+      e.office.addActivity('c', act('c', { kind: 'run', text: SENT, detail: detail(alias) }), true);
+      expect(e.qode.privacy!.isPrivate('c')).toBe(true);
+      expect(published(e, ['c'])).not.toContain(SENT);
+      expect(published(e, ['c'])).not.toContain('qode alias');
+    };
+    run((alias) => `cat "${alias}/secret.txt"`);
+    run((alias) => `cat '${alias}/secret.txt'`);
+    run((alias) => `cat ${alias.replace(' ', '\\ ')}/secret.txt`);
+  });
+
+  it('transcript JSON com \\u002f é inspecionado já decodificado; linha que não parseia fecha', () => {
+    const e = setup();
+    main(e, 'c', clinicas(e), 'sc');
+    const file = join(e.dataDir, 'u.jsonl');
+    const hidden = JSON.stringify({ type: 'assistant', cwd: clinicas(e), message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: vida(e, 'a.md') } }] } }).replace(/\//g, '\\u002f');
+    expect(hidden).not.toContain('/Documents/Vida');
+    writeFileSync(file, `${hidden}\n`);
+    expect(new TranscriptScanner((t) => mentionsPrivate(e.qode.config!, t)).scan(file)).toBe('hit');
+    const leaked: string[] = [];
+    const h = e.qode.history({
+      list: async () => [],
+      resolve: () => ({
+        path: file,
+        createParser: () => ({
+          push: (line) => {
+            leaked.push(line);
+            return [];
+          },
+        }),
+      }),
+    });
+    expect(h.resolve('.claude', 'sc')).toEqual({ status: 404, error: PRIVATE_SESSION_ERROR });
+    const parser = e.qode.parserFor(() => createTerminalParser())('c')!;
+    expect(parser.push(hidden)).toEqual([]);
+    expect(parser.push(`{"cwd":"${clinicas(e)}", quebrado`)).toEqual([]);
+    expect(e.qode.privacy!.isPrivate('c')).toBe(true);
+    expect(leaked).toEqual([]);
+  });
+
+  it('vínculo pedido→sessão não é descartado; sem identidade, decide/detail fecham', () => {
+    const e = setup();
+    main(e, 'c', clinicas(e), 'sc');
+    const decided: string[] = [];
+    let n = 0;
+    const routes = e.qode.permissionRoutes({
+      register: () => ({ id: `p${n++}`, expiresAt: 0 }),
+      wait: () => undefined,
+      decide: (id: string) => (decided.push(id), 'ok' as const),
+      detail: (id: string) => ({ id, tool: 'Bash', title: `Bash(${SENT})`, text: 'Rodando', icon: '⚙️', createdAt: 0, expiresAt: 0 }),
+    } as unknown as PermissionRegistry);
+    const first = routes.register({ session_id: 'sc', tool_name: 'Bash', tool_input: { command: 'npm test' } });
+    const id = (first as { id: string }).id;
+    for (let i = 0; i < 500; i++) {
+      const r = routes.register({ session_id: 'outra', tool_name: 'Bash', tool_input: { command: 'ls' } });
+      expect(routes.decide((r as { id: string }).id, { behavior: 'allow' })).toBe('ok');
+    }
+    e.office.addActivity('c', act('c', { detail: vida(e, 'a.md') }), true);
+    expect(routes.detail(id)).toBeUndefined();
+    expect(routes.decide(id, { behavior: 'allow' })).toBe('not-found');
+    expect(decided).not.toContain(id);
+    expect(routes.detail('sumiu')).toBeUndefined();
+    expect(routes.decide('sumiu', { behavior: 'allow' })).toBe('not-found');
+  });
+
+  it('mentionsPrivate é linear mesmo com 64 KB de barras invertidas', () => {
+    const cfg = parseConfig({ projetos: [{ nome: 'P', caminhos: ['~/Documents/Vida'], privado: true }] }, '/Users/teste');
+    const junk = '\\'.repeat(64 * 1024);
+    const t0 = performance.now();
+    expect(mentionsPrivate(cfg, junk)).toBe(false);
+    expect(mentionsPrivate(cfg, `${junk} cat /Users/teste/Documents/Vida/a.md`)).toBe(true);
+    expect(performance.now() - t0).toBeLessThan(200);
+  });
+
+  it('/api/health não ecoa chave inválida que é um caminho privado', () => {
+    const e = setup(JSON.stringify({ '~/Documents/Vida/secret.md': true, projetos: [{ nome: 'X', caminhos: ['~/p'] }] }));
+    const body = JSON.stringify(e.qode.health());
+    expect(e.qode.health()).toMatchObject({ config: 'invalida' });
+    expect(body.toLowerCase()).not.toMatch(/vida|documents|secret|~\//);
   });
 });
