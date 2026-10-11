@@ -18,7 +18,7 @@ import { RoomAliases } from '../model/room-aliases';
 import type { PermissionRegistry } from '../permissions/registry';
 import type { SessionLookup } from '../sources/source';
 import { tempDir } from '../test/fixtures';
-import { isPrivatePath, loadQodeConfig, mentionsPrivate, parseConfig, PRIVATE_ROOM_PREFIX, projectOf } from './config';
+import { isPrivatePath, loadQodeConfig, mentionsPrivate, MENTIONS_TOKENS_MAX, parseConfig, PRIVATE_ROOM_PREFIX, projectOf } from './config';
 import { PRIVATE_SESSION_ERROR, setupQode, TranscriptScanner, type QodeSetup } from './index';
 import { createTerminalParser } from '../sources/terminal';
 import {
@@ -839,6 +839,21 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     run((alias) => `cat ${alias.replace(' ', '\\ ')}/secret.txt`);
   });
 
+  it('file:// com %20 no nome não parte o token (nem file://localhost)', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    const alias = join(e.dataDir, 'qode alias');
+    symlinkSync(vida(e), alias);
+    const enc = alias.replace(/ /g, '%20');
+    main(e, 'c', clinicas(e));
+    e.office.addActivity('c', act('c', { kind: 'read', text: SENT, detail: `open file://${enc}/secret.txt` }), true);
+    expect(e.qode.privacy!.isPrivate('c')).toBe(true);
+    main(e, 'd', clinicas(e));
+    e.office.addActivity('d', act('d', { kind: 'read', text: SENT, detail: `open file://localhost${enc}/secret.txt` }), true);
+    expect(e.qode.privacy!.isPrivate('d')).toBe(true);
+    expect(published(e, ['c', 'd'])).not.toContain(SENT);
+  });
+
   it('transcript JSON com \\u002f é inspecionado já decodificado; linha que não parseia fecha', () => {
     const e = setup();
     main(e, 'c', clinicas(e), 'sc');
@@ -900,6 +915,18 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     expect(mentionsPrivate(cfg, junk)).toBe(false);
     expect(mentionsPrivate(cfg, `${junk} cat /Users/teste/Documents/Vida/a.md`)).toBe(true);
     expect(performance.now() - t0).toBeLessThan(200);
+  });
+
+  it('JSON com milhares de caminhos: teto de inspeção, falha fechada, sem travar', () => {
+    const cfg = parseConfig({ projetos: [{ nome: 'P', caminhos: ['~/Documents/Vida'], privado: true }] }, '/Users/teste');
+    const files = Array.from({ length: 8_000 }, (_, i) => `/tmp/pub/f${i}.md`);
+    const text = JSON.stringify({ files });
+    expect(files.length).toBeGreaterThan(MENTIONS_TOKENS_MAX);
+    const t0 = performance.now();
+    expect(mentionsPrivate(cfg, text)).toBe(true);
+    expect(performance.now() - t0).toBeLessThan(200);
+    const small = JSON.stringify({ files: files.slice(0, 8) });
+    expect(mentionsPrivate(cfg, small)).toBe(false);
   });
 
   it('/api/health não ecoa chave inválida que é um caminho privado', () => {
