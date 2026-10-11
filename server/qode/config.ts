@@ -13,6 +13,7 @@ export const PRIVATE_ROOM_PREFIX = 'qode-privado:';
 const NAME_MAX = 40;
 const TOKEN_MAX = 4_096;
 const REAL_CACHE_MAX = 20_000;
+const REAL_CACHE_TTL_MS = 2_000;
 
 export interface QodeRoot {
   /** Caminho canônico em minúsculas. */
@@ -52,27 +53,50 @@ export function lexical(p: string): string {
   return s.length > 1 ? s.replace(/\/+$/, '') : s;
 }
 
-const realCache = new Map<string, string>();
+// Só acertos, e por pouco tempo: um symlink criado ou trocado depois precisa valer na próxima consulta.
+const realCache = new Map<string, { real: string; at: number }>();
 
-/** realpath do caminho ou, se ele não existe, do ancestral mais próximo que existe (com o resto colado). */
-export function realish(p: string): string {
+function realOf(p: string): string | undefined {
+  const now = Date.now();
   const hit = realCache.get(p);
-  if (hit !== undefined) return hit;
-  let out: string;
+  if (hit && now - hit.at < REAL_CACHE_TTL_MS) return hit.real;
   try {
-    out = realpathSync.native(p);
+    const real = realpathSync.native(p);
+    if (realCache.size >= REAL_CACHE_MAX) realCache.clear();
+    realCache.set(p, { real, at: now });
+    return real;
   } catch {
-    const parent = posix.dirname(p);
-    out = parent === p ? p : posix.join(realish(parent), posix.basename(p));
+    realCache.delete(p);
+    return undefined;
   }
-  if (realCache.size >= REAL_CACHE_MAX) realCache.clear();
-  realCache.set(p, out);
-  return out;
+}
+
+/**
+ * Caminho físico, como o kernel o leria: ".." vale depois de seguir o symlink (ponte/../Vida sai de dentro do alvo
+ * da ponte). Se o caminho não existe, resolve o maior prefixo que existe e só então aplica o resto como texto.
+ */
+export function realish(p: string): string {
+  const raw = p.trim().replace(/\\/g, '/');
+  if (!raw.startsWith('/')) return lexical(raw);
+  const whole = realOf(raw);
+  if (whole !== undefined) return whole;
+  const segs = raw.split('/').filter((s) => s && s !== '.');
+  let cur = '/';
+  for (let i = 0; i < segs.length; i++) {
+    if (segs[i] === '..') {
+      cur = posix.dirname(cur);
+      continue;
+    }
+    const next = realOf(posix.join(cur, segs[i]));
+    if (next === undefined) return lexical(posix.join(cur, ...segs.slice(i)));
+    cur = next;
+  }
+  return cur;
 }
 
 /** Forma canônica (com symlinks resolvidos) de um caminho absoluto. */
 export function canonical(p: string): string {
-  return realish(lexical(p));
+  return realish(p);
 }
 
 function expandHome(p: string, home: string): string | undefined {
@@ -135,7 +159,7 @@ export function parseConfig(raw: unknown, home: string, file = QODE_CONFIG_FILE)
         const base = slash ? '' : posix.basename(lex);
         for (const d of new Set([dir, realish(dir)])) roots.push({ path: posix.join(d, base).toLowerCase() + (slash ? '/' : ''), prefix: true });
       } else {
-        const real = realish(lex);
+        const real = realish(abs);
         for (const v of new Set([lex, real])) roots.push({ path: v.toLowerCase(), prefix: false });
         first ??= real;
       }
@@ -192,7 +216,7 @@ export function projectOf(cfg: QodeConfig, cwd: string): QodeProject | undefined
   const lex = lexical(abs);
   const a = bestIn(cfg, lex.toLowerCase());
   if (a?.project.privado) return a.project;
-  const b = bestIn(cfg, realish(lex).toLowerCase());
+  const b = bestIn(cfg, realish(abs).toLowerCase());
   if (b?.project.privado) return b.project;
   return a?.project ?? b?.project;
 }
@@ -223,6 +247,7 @@ export function unshell(text: string, home: string): string {
   let t = text;
   if (t.includes('%')) t = t.replace(/%([0-9a-f]{2})/gi, (_, h: string) => String.fromCharCode(Number.parseInt(h, 16)));
   t = t.replace(/\\+\//g, '/').replace(/\\+["'`]|["'`]/g, '');
+  t = t.replace(/file:\/\/(?:localhost)?(?=\/)/gi, '');
   t = t.replace(/\$\{HOME\}|\$HOME(?![A-Za-z0-9_])/gi, home);
   const users = posix.dirname(lexical(home));
   t = t.replace(/(^|[\s=:(,;{[|&>])~([A-Za-z0-9._-]*)(?=\/|\s|$)/g, (_m, pre: string, user: string) => `${pre}${user ? posix.join(users, user) : home}`);
@@ -243,13 +268,17 @@ export function isPrivateToken(cfg: QodeConfig, token: string): boolean {
   const g = tok.search(GLOB);
   if (g >= 0) {
     // Glob que começa com parte do nome da pasta privada (ex.: ~/Documents/Vi*) pode casar com ela.
-    const lit = lexical(tok.slice(0, g)).toLowerCase() + (tok[g - 1] === '/' ? '/' : '');
-    if (cfg.privateRoots.some((r) => r.path.startsWith(lit) && lit.length > posix.dirname(r.path).length + 1)) return true;
+    const raw = tok.slice(0, g);
+    const cut = raw.lastIndexOf('/');
+    const tail = tok[g - 1] === '/' ? '/' : '';
+    const lits = [lexical(raw), posix.join(realish(raw.slice(0, cut) || '/'), raw.slice(cut + 1))].map((l) => l.toLowerCase() + tail);
+    for (const lit of lits) {
+      if (cfg.privateRoots.some((r) => r.path.startsWith(lit) && lit.length > posix.dirname(r.path).length + 1)) return true;
+    }
     tok = tok.slice(0, tok.lastIndexOf('/', g) + 1) || '/';
   }
-  const lex = lexical(tok);
-  if (privateLower(cfg, lex.toLowerCase())) return true;
-  return privateLower(cfg, realish(lex).toLowerCase());
+  if (privateLower(cfg, lexical(tok).toLowerCase())) return true;
+  return privateLower(cfg, realish(tok).toLowerCase());
 }
 
 /** Os caminhos absolutos de um texto (depois de unshell). */
