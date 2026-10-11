@@ -2,7 +2,7 @@
 // numa HOME falsa em pasta temporária.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { appendFileSync, copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Activity, AgentInfo, FeedItem, Notice, OfficeSnapshot, PermissionRequestInfo, RecentSession, RoomInfo } from '../../shared/types';
@@ -576,6 +576,43 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     fill(e, 'w');
     expect(['c', 'g', 'w'].map((id) => e.qode.privacy!.isPrivate(id))).toEqual([true, true, true]);
     expect(published(e, ['c', 'g', 'w'])).not.toContain(SENT);
+  });
+
+  it('".." depois de um componente que não existe ainda revela a ponte', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    mkdirSync(clinicas(e), { recursive: true });
+    symlinkSync(vida(e), join(clinicas(e), 'ponte'));
+    main(e, 'c', clinicas(e));
+    e.office.addActivity('c', act('c', { kind: 'run', text: SENT, detail: `cat ${clinicas(e)}/nao-existe/../ponte/secret.md` }), true);
+    main(e, 'g', clinicas(e));
+    e.office.addActivity('g', act('g', { kind: 'run', text: SENT, detail: `rg x "${clinicas(e)}/nao-existe/../ponte/Vi"*` }), true);
+    main(e, 'w', `${clinicas(e)}/nao-existe/../ponte`);
+    fill(e, 'w');
+    expect(['c', 'g', 'w'].map((id) => e.qode.privacy!.isPrivate(id))).toEqual([true, true, true]);
+    expect(published(e, ['c', 'g', 'w'])).not.toContain(SENT);
+  });
+
+  it('chmod 000 no meio não esconde a ponte (pula se root)', () => {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return;
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    mkdirSync(clinicas(e), { recursive: true });
+    symlinkSync(vida(e), join(clinicas(e), 'ponte'));
+    const locked = join(clinicas(e), 'fechado');
+    mkdirSync(locked);
+    chmodSync(locked, 0);
+    try {
+      main(e, 'c', clinicas(e));
+      e.office.addActivity('c', act('c', { kind: 'run', text: SENT, detail: `cat ${locked}/../ponte/secret.md` }), true);
+      main(e, 'w', `${locked}/../ponte`);
+      fill(e, 'w');
+      expect(e.qode.privacy!.isPrivate('c')).toBe(true);
+      expect(e.qode.privacy!.isPrivate('w')).toBe(true);
+      expect(published(e, ['c', 'w'])).not.toContain(SENT);
+    } finally {
+      chmodSync(locked, 0o755);
+    }
   });
 
   it('na dúvida entre a leitura do texto e a física, o privado ganha', () => {
