@@ -34,8 +34,9 @@ funciona igual ao upstream.
 - **Quem cita o Vida OS vira privado.** Um agente em outra pasta que lê, busca ou roda algo com um caminho do projeto
   privado também vira privado. O detector reconhece estas formas:
   - caminho absoluto, `~/…`, `~usuario/…`, `$HOME/…` e `${HOME}/…`, inclusive com aspas no meio (`"$HOME"/Documents/…`,
-    `$HOME"/Documents/Vida"`);
-  - URL-encoding (`%2F`), `file://` e `file://localhost/`, barras escapadas de JSON (`\/`), `.`, `..` e `//` no meio;
+    `$HOME"/Documents/Vida"`) e com espaço no nome (`"/tmp/qode alias/…"`, `/tmp/qode\ alias/…`);
+  - URL-encoding (`%2F`), `\u002f` no JSON, `file://` e `file://localhost/`, barras escapadas de JSON (`\/`), `.`, `..`
+    e `//` no meio;
   - globs que incluem parte do nome da pasta (`~/Documents/Vi*`);
   - a pasta codificada do Claude Code (`-Users-…-Documents-Vida`);
   - qualquer combinação de maiúsculas e minúsculas.
@@ -43,7 +44,10 @@ funciona igual ao upstream.
   `~/Documents/Vidal` **não** conta, porque a comparação é por pasta inteira. Junto com o agente ficam privados o
   principal, todos os subagentes e a sessão inteira (pelo `sessionId`, mesmo que o pedido de permissão chegue antes
   de o agente aparecer). Isso não se desfaz enquanto o servidor estiver rodando.
-- **Permissões já registradas** antes da contaminação também somem: não dá para ler nem aprovar pelo escritório.
+- **Permissões já registradas** antes da contaminação também somem: o vínculo pedido→sessão vale enquanto o pedido
+  existir (não é descartado para “fazer espaço”). Sem identidade do pedido, leitura e aprovação fecham.
+- **Transcript em JSON:** cada linha é inspecionada já decodificada (`JSON.parse`). Uma linha que parece JSON e não
+  parseia fecha o acesso. Assim um `\u002f` no arquivo não passa do filtro.
 - **Subagentes herdam** a privacidade do principal. Um subagente sem principal conhecido é tratado como privado
   (só quando existe algum projeto privado). O papel do subagente aparece sempre genérico ("Subagente"), porque nomes
   de agentes customizados podem revelar o projeto.
@@ -53,8 +57,8 @@ funciona igual ao upstream.
   `"privado"`), `*` fora do fim do caminho ou caminho relativo deixam **todos** os agentes privados. As salas viram
   "Privado xxxx", com um id que é um hash e não o caminho, inclusive na linha do tempo, nas estatísticas e no
   `rooms.json`. Os logs escondem qualquer caminho da sua home. O log avisa em vermelho até você corrigir, e
-  `/api/health` mostra `"qode": {"config": "invalida", "erro": "…"}`. Com o arquivo certo aparece `"config": "ok"`, e
-  sem arquivo, `"ausente"`.
+  `/api/health` mostra `"qode": {"config": "invalida", "erro": "…"}` — o erro é só o diagnóstico, sem ecoar a chave ou
+  o caminho que quebraram o arquivo. Com o arquivo certo aparece `"config": "ok"`, e sem arquivo, `"ausente"`.
 - **Logs:** a linha é cortada no primeiro caminho privado. Tudo o que vem depois vira `[privado]`.
 
 ## Configurar no Mac
