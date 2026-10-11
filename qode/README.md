@@ -20,17 +20,22 @@ funciona igual ao upstream.
 - **Caminhos canônicos.** Antes de classificar, a pasta do agente e cada caminho citado são lidos de dois jeitos, e
   se um deles cair no privado, o privado ganha:
   - **como texto:** `.`, `..` e barras duplas resolvidos;
-  - **como o disco lê:** symlinks seguidos com o `..` ainda no lugar. O caminho cru vai para o realpath; se ele não
-    existe, entra no realpath o maior prefixo que existe, e só o resto é aplicado como texto.
+  - **como o disco lê:** symlinks seguidos com o `..` ainda no lugar. O caminho cru vai para o realpath; se um
+    componente não existe ou não pode ser lido (EACCES, ELOOP…), o resto é colapsado como texto e a caminhada
+    **continua** a partir daí, até não haver mais `..` nem symlink resolvível.
 
-  Assim caem no Vida OS: `~/atalho-vida` apontando para `~/Documents/Vida`, `~/Documents/GitHub/clinicas/../../Vida` e
-  `clinicas/ponte/../Vida`, quando `ponte` aponta para o Vida. As respostas do disco ficam guardadas só por 2 segundos,
-  e só quando o caminho existe, então um symlink criado ou trocado depois vale logo.
+  As três leituras (só texto, física estrita e texto+física) são candidatas: se qualquer uma cair no privado, o
+  privado ganha. Um erro numa leitura não torna o caminho público se outra for privada.
+
+  Assim caem no Vida OS: `~/atalho-vida` apontando para `~/Documents/Vida`, `~/Documents/GitHub/clinicas/../../Vida`,
+  `clinicas/ponte/../Vida` e também `clinicas/nao-existe/../ponte/secret.md`, quando `ponte` aponta para o Vida. As
+  respostas do disco ficam guardadas só por 2 segundos, e só quando o caminho existe, então um symlink criado ou
+  trocado depois vale logo.
 - **Quem cita o Vida OS vira privado.** Um agente em outra pasta que lê, busca ou roda algo com um caminho do projeto
   privado também vira privado. O detector reconhece estas formas:
   - caminho absoluto, `~/…`, `~usuario/…`, `$HOME/…` e `${HOME}/…`, inclusive com aspas no meio (`"$HOME"/Documents/…`,
     `$HOME"/Documents/Vida"`);
-  - URL-encoding (`%2F`), `file://`, barras escapadas de JSON (`\/`), `.`, `..` e `//` no meio;
+  - URL-encoding (`%2F`), `file://` e `file://localhost/`, barras escapadas de JSON (`\/`), `.`, `..` e `//` no meio;
   - globs que incluem parte do nome da pasta (`~/Documents/Vi*`);
   - a pasta codificada do Claude Code (`-Users-…-Documents-Vida`);
   - qualquer combinação de maiúsculas e minúsculas.
