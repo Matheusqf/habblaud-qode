@@ -34,7 +34,8 @@ funciona igual ao upstream.
 - **Quem cita o Vida OS vira privado.** Um agente em outra pasta que lê, busca ou roda algo com um caminho do projeto
   privado também vira privado. O detector reconhece estas formas:
   - caminho absoluto, `~/…`, `~usuario/…`, `$HOME/…` e `${HOME}/…`, inclusive com aspas no meio (`"$HOME"/Documents/…`,
-    `$HOME"/Documents/Vida"`) e com espaço no nome (`"/tmp/qode alias/…"`, `/tmp/qode\ alias/…`);
+    `$HOME"/Documents/Vida"`) e com espaço no nome (`"/tmp/qode alias/…"`, `/tmp/qode\ alias/…`, aspas concatenadas
+    no estilo do shell e `bash -c 'cat "…/qode alias/…"'`);
   - URL-encoding (`%2F`, `%20` no meio do nome), `\u002f` no JSON, `file://` e `file://localhost/`, barras escapadas
     de JSON (`\/`), `.`, `..` e `//` no meio;
   - globs que incluem parte do nome da pasta (`~/Documents/Vi*`);
@@ -46,10 +47,11 @@ funciona igual ao upstream.
   de o agente aparecer). Isso não se desfaz enquanto o servidor estiver rodando.
 - **Permissões já registradas** antes da contaminação também somem: o vínculo pedido→sessão vale enquanto o pedido
   existir (não é descartado para “fazer espaço”). Sem identidade do pedido, leitura e aprovação fecham.
-- **Transcript em JSON:** cada linha é inspecionada já decodificada (`JSON.parse`). Uma linha que parece JSON e não
-  parseia fecha o acesso. Assim um `\u002f` no arquivo não passa do filtro. Num texto grande demais (muitos
+- **Transcript em JSON:** cada linha é inspecionada já decodificada (`JSON.parse`). Uma linha completa que parece
+  JSON e não parseia fecha o acesso. Uma linha ainda incompleta (escrita pela metade) só bloqueia na hora, sem
+  marcar a sessão para sempre; quando a linha termina, o servidor olha de novo. Num texto grande demais (muitos
   caminhos ou muitos bytes), a inspeção para e o agente é tratado como privado — falha fechada, para não travar o
-  servidor.
+  servidor. O mesmo teto vale no scanner do transcript e no histórico.
 - **Subagentes herdam** a privacidade do principal. Um subagente sem principal conhecido é tratado como privado
   (só quando existe algum projeto privado). O papel do subagente aparece sempre genérico ("Subagente"), porque nomes
   de agentes customizados podem revelar o projeto.
