@@ -2,8 +2,8 @@
 // numa HOME falsa em pasta temporária.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { appendFileSync, copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { appendFileSync, copyFileSync, mkdirSync, readdirSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Activity, AgentInfo, FeedItem, Notice, OfficeSnapshot, PermissionRequestInfo, RecentSession, RoomInfo } from '../../shared/types';
 import { AccountsService } from '../accounts/service';
@@ -425,16 +425,18 @@ describe('o que não passa pelo Office', () => {
   it('o leitor de transcript procura só nos bytes novos e acha o trecho partido entre blocos', () => {
     const tmp = tempDir();
     cleanups.push(tmp.cleanup);
+    const cfg = parseConfig({ projetos: [{ nome: 'P', caminhos: ['~/Documents/Vida'], privado: true }] }, '/Users/teste');
+    const has = (t: string) => mentionsPrivate(cfg, t);
     const file = join(tmp.dir, 't.jsonl');
-    const needle = '/users/teste/documents/vida';
-    writeFileSync(file, `${'x'.repeat((1 << 20) - 10)}/Users/teste/Documents/Vida/a\n`);
-    expect(new TranscriptScanner([needle]).mentions(file)).toBe(true);
-    const sc = new TranscriptScanner([needle]);
+    writeFileSync(file, `${'x '.repeat(((1 << 20) - 10) / 2)}/Users/teste/Documents/Vida/a\n`);
+    expect(new TranscriptScanner(has).scan(file)).toBe('hit');
+    const sc = new TranscriptScanner(has);
     const other = join(tmp.dir, 'u.jsonl');
     writeFileSync(other, 'limpo\n');
-    expect(sc.mentions(other)).toBe(false);
-    appendFileSync(other, 'cat /USERS/teste/Documents/Vida-Context\n');
-    expect(sc.mentions(other)).toBe(true);
+    expect(sc.scan(other)).toBe('clean');
+    appendFileSync(other, 'cat /USERS/teste/Documents/Vida/x\n');
+    expect(sc.scan(other)).toBe('hit');
+    expect(sc.scan(join(tmp.dir, 'nao-existe.jsonl'))).toBe('error');
   });
 });
 
@@ -484,5 +486,235 @@ describe('allowlist: campo novo do upstream não passa sem decisão', () => {
   it('campo desconhecido num agente privado não sai', () => {
     const a = { id: 'a', kind: 'main', roomId: 'r', name: 'n', look: 'f', role: 'r', sessionId: 's', account: 'a', status: 'idle', recent: [], tasks: [], startedAt: 0, lastEventAt: 0, statusSince: 0, seed: 0, stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }, campoNovo: SENT } as AgentInfo;
     expect(JSON.stringify(privateAgent(a))).not.toContain(SENT);
+  });
+});
+
+describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
+  /** Tudo o que o escritório publica (snapshot, feed, avisos, feed recente, detalhe) e o que vai para o disco. */
+  function published(e: Env, ids: string[]): string {
+    const c = e.office.commit();
+    const tmp = tempDir();
+    cleanups.push(tmp.cleanup);
+    const tl = new TimelineRecorder({ dir: join(tmp.dir, 'tl') });
+    tl.ingest(c.snapshot);
+    tl.stop();
+    const stats = new DayStatsService({ dir: join(tmp.dir, 'st'), snapshot: () => c.snapshot });
+    stats.sample();
+    stats.flush();
+    const disk = ['tl', 'st'].flatMap((d) => readdirSync(join(tmp.dir, d)).map((f) => readFileSync(join(tmp.dir, d, f), 'utf8')));
+    return [JSON.stringify(c), JSON.stringify(e.office.recentFeed(50)), ...ids.map((id) => JSON.stringify(e.office.detail(id))), ...disk].join('\n');
+  }
+
+  it('config inválida: id da sala, roomId, feed, avisos, timeline, stats e rooms.json sem o caminho', () => {
+    const e = setup('{"projetos": [{"nome": "Vida", "caminhos": ["~/Documents/Vida"], "privada": true}]}');
+    main(e, 'v', vida(e, 'notas'));
+    main(e, 'v2', vida(e, 'outra'));
+    main(e, 'c', clinicas(e));
+    e.office.addActivity('v', act('v', { text: SENT, detail: vida(e, 'a.md') }), true);
+    const out = published(e, ['v', 'c']);
+    expect(out).not.toContain(SENT);
+    expect(out.toLowerCase()).not.toContain(e.home.toLowerCase());
+    expect(out.toLowerCase()).not.toContain('documents');
+    expect(out).not.toContain('notas');
+    const snap = e.office.commit().snapshot;
+    expect(snap.rooms).toHaveLength(3);
+    for (const r of snap.rooms) expect(r.id.startsWith(PRIVATE_ROOM_PREFIX)).toBe(true);
+
+    const file = join(e.dataDir, 'rooms.json');
+    const aliases = new RoomAliases(file);
+    aliases.set(e.office.roomPath(snap.rooms[0].id)!, 'Renomeada');
+    expect(readFileSync(file, 'utf8').toLowerCase()).not.toContain('documents');
+    expect(e.qode.health()).toMatchObject({ config: 'invalida' });
+    expect(JSON.stringify(e.qode.health())).not.toContain('Vida');
+  });
+
+  it('/api/health indica a config inválida', async () => {
+    const e = setup('{ quebrado');
+    const tmp = tempDir();
+    cleanups.push(tmp.cleanup);
+    mkdirSync(join(tmp.dir, '.claude', 'sessions'), { recursive: true });
+    const accounts = new AccountsService({ dirs: [join(tmp.dir, '.claude')], home: tmp.dir, env: {}, onChange: () => undefined });
+    const hub = new Hub(e.office);
+    const api = createApiHandler({ office: e.office, hub, accounts, sources: () => [], version: 't', inDocker: false, health: () => ({ qode: e.qode.health() }) });
+    const server = http.createServer((req, res) => void (api(req, res, new URL(req.url ?? '/', 'http://x')) || res.end()));
+    await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+    const body = (await (await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/health`)).json()) as { ok: boolean; qode: { config: string } };
+    server.closeAllConnections();
+    await new Promise<void>((ok) => server.close(() => ok()));
+    expect(body.ok).toBe(true);
+    expect(body.qode.config).toBe('invalida');
+  });
+
+  it('symlink para o Vida OS: cwd no atalho e leitura pelo atalho ficam privados', () => {
+    const e = setup();
+    mkdirSync(vida(e, 'notas'), { recursive: true });
+    mkdirSync(clinicas(e), { recursive: true });
+    symlinkSync(vida(e), join(e.home, 'atalho-vida'));
+    symlinkSync(vida(e), join(clinicas(e), 'notas-link'));
+    main(e, 'a', join(e.home, 'atalho-vida', 'notas'));
+    fill(e, 'a');
+    main(e, 'c', clinicas(e));
+    e.office.addActivity('c', act('c', { detail: `cat ${join(clinicas(e), 'notas-link', 'x.md')}`, text: SENT }), true);
+    main(e, 'd', join(e.home, 'outro'));
+    e.office.addActivity('d', act('d', { detail: 'cat ~/atalho-vida/diario.md', text: SENT }), true);
+    const out = published(e, ['a', 'c', 'd']);
+    expect(out).not.toContain(SENT);
+    expect(out).not.toContain('atalho-vida');
+    expect(e.office.commit().snapshot.rooms.find((r) => r.name === 'Vida OS')).toBeDefined();
+  });
+
+  it.each([
+    ['..', (e: Env) => join(e.home, 'Documents', 'GitHub') + '/../Vida/notas'],
+    ['.', (e: Env) => join(e.home, 'Documents') + '/./Vida'],
+    ['barra dupla', (e: Env) => join(e.home, 'Documents') + '//Vida/'],
+  ])('cwd com %s cai na sala privada', (_why, cwd) => {
+    const e = setup();
+    main(e, 'v', cwd(e));
+    fill(e, 'v');
+    const out = published(e, ['v']);
+    expect(out).not.toContain(SENT);
+    expect(out.toLowerCase()).not.toContain('documents');
+  });
+
+  const forms: Array<[string, (e: Env) => string]> = [
+    ['"$HOME"/', () => 'cat "$HOME"/Documents/Vida/diario.md'],
+    ['$HOME"/…"', () => 'cat $HOME"/Documents/Vida"/diario.md'],
+    ['${HOME}', () => 'cat ${HOME}/Documents/Vida/diario.md'],
+    ['~usuário/', (e) => `cat ~${basename(e.home)}/Documents/Vida/diario.md`],
+    ['barra dupla', (e) => `cat ${e.home}/Documents//Vida/a.md`],
+    ['/./', (e) => `cat ${e.home}/Documents/./Vida/a.md`],
+    ['/../', (e) => `cat ${e.home}/Documents/GitHub/../Vida/a.md`],
+    ['%2F', (e) => `abrir ${encodeURIComponent(`${e.home}/Documents/Vida/a.md`)}`],
+    ['file://', (e) => `file://${e.home}/Documents/Vida/a.md`],
+    ['JSON com \\/', (e) => JSON.stringify({ p: `${e.home}/Documents/Vida/a.md` }).replace(/\//g, '\\/')],
+    ['aspas simples', () => "cat '~/Documents/Vida/a.md'"],
+    ['glob no nome', () => 'rg senha ~/Documents/Vi*'],
+    ['maiúsculas', (e) => `cat ${e.home}/DOCUMENTS/vida/a.md`],
+  ];
+  it.each(forms)('contamina pela forma %s', (_why, text) => {
+    const e = setup();
+    main(e, 'c', clinicas(e));
+    e.office.addActivity('c', act('c', { kind: 'run', text: SENT, detail: text(e) }), true);
+    expect(published(e, ['c'])).not.toContain(SENT);
+  });
+
+  it.each([
+    ['pasta vizinha com nome parecido', (e: Env) => `cat ${e.home}/Documents/Vidal/a.md`],
+    ['projeto público', (e: Env) => `cat ${clinicas(e)}/a.md`],
+    ['caminho relativo (limite documentado)', () => 'cat ../../Documents/Vida/a.md'],
+  ])('não contamina: %s', (_why, text) => {
+    const e = setup();
+    main(e, 'c', clinicas(e));
+    e.office.addActivity('c', act('c', { kind: 'run', text: SENT, detail: text(e) }), true);
+    expect(e.qode.privacy!.isPrivate('c')).toBe(false);
+  });
+
+  it('log: some o caminho inteiro, inclusive o sufixo e com espaços', () => {
+    const e = setup();
+    setQuiet(false);
+    const lines: string[] = [];
+    vi.spyOn(console, 'warn').mockImplementation((m: string) => void lines.push(m));
+    log.warn(`Falha ao ler ${vida(e, 'diario/senhas.md')} (ENOENT)`);
+    log.warn('Falha ao ler "$HOME"/Documents/Vida/minhas notas secretas.md');
+    log.warn(`Arquivo ${clinicas(e)}/ok.md lido`);
+    expect(lines[0]).toBe('[habblaud] Falha ao ler [privado]');
+    expect(lines[1]).toBe('[habblaud] Falha ao ler [privado]');
+    expect(lines.join('\n')).not.toMatch(/senhas|notas|secretas/);
+    expect(lines[2]).toContain('ok.md');
+  });
+
+  it('log com config inválida: caminhos da home somem', () => {
+    const e = setup('{ quebrado');
+    setQuiet(false);
+    const lines: string[] = [];
+    vi.spyOn(console, 'warn').mockImplementation((m: string) => void lines.push(m));
+    log.warn(`Falha ao ler ${vida(e, 'diario/senhas.md')}`);
+    log.warn('Habblaud em http://127.0.0.1:4747');
+    expect(lines[0]).toBe('[habblaud] Falha ao ler [privado]');
+    expect(lines[1]).toContain('127.0.0.1:4747');
+  });
+
+  function fakeRegistry(e: Env) {
+    const decided: string[] = [];
+    const inner = {
+      register: () => ({ id: `p${decided.length}-${Math.random()}`, expiresAt: 0 }),
+      wait: () => undefined,
+      decide: (id: string) => (decided.push(id), 'ok' as const),
+      detail: (id: string) => ({ id, tool: 'Bash', title: `Bash(${SENT})`, text: 'Rodando', icon: '⚙️', createdAt: 0, expiresAt: 0 }),
+    } as unknown as PermissionRegistry;
+    return { routes: e.qode.permissionRoutes(inner), decided };
+  }
+
+  it('permissão registrada antes da contaminação deixa de ser legível e aprovável', () => {
+    const e = setup();
+    main(e, 'c', clinicas(e), 'sc');
+    const { routes, decided } = fakeRegistry(e);
+    const r = routes.register({ session_id: 'sc', tool_name: 'Bash', tool_input: { command: 'npm test' } });
+    expect('id' in r).toBe(true);
+    const id = (r as { id: string }).id;
+    expect(routes.detail(id)).toBeDefined();
+    e.office.addActivity('c', act('c', { detail: vida(e, 'a.md') }), true);
+    expect(routes.detail(id)).toBeUndefined();
+    expect(routes.decide(id, { behavior: 'allow' })).toBe('not-found');
+    expect(decided).toEqual([]);
+  });
+
+  it('pedido que cita o Vida OS antes de o agente existir: a sessão fica marcada', () => {
+    const e = setup();
+    const { routes } = fakeRegistry(e);
+    expect(routes.register({ session_id: 'sx', agent_id: 'ag', tool_name: 'Read', tool_input: { file_path: vida(e, 'a.md') } })).toEqual({ skip: 'unknown-session' });
+    main(e, 'x', clinicas(e), 'sx');
+    fill(e, 'x');
+    e.office.addSub({ id: 'sx:ag', parentId: 'x', sessionId: 'sx', role: 'Explore', title: SENT, background: false, startedAt: now() });
+    expect(published(e, ['x', 'sx:ag'])).not.toContain(SENT);
+    expect(routes.register({ session_id: 'sx', tool_name: 'Bash', tool_input: { command: 'ls' } })).toEqual({ skip: 'unknown-session' });
+  });
+
+  it('papel do subagente privado vira genérico', () => {
+    const e = setup();
+    main(e, 'v', vida(e));
+    e.office.addSub({ id: 'v:s', parentId: 'v', sessionId: 'sv', role: `revisor-${SENT}`, background: false, startedAt: now() });
+    const out = published(e, ['v:s']);
+    expect(out).not.toContain(SENT);
+    expect(e.office.commit().snapshot.agents.find((a) => a.id === 'v:s')!.role).toBe('Subagente');
+  });
+
+  it('model, gitBranch e permissionMode também contaminam', () => {
+    for (const k of ['model', 'gitBranch', 'permissionMode'] as const) {
+      const e = setup();
+      main(e, 'c', clinicas(e));
+      e.office.applyTranscript('c', { title: SENT, tasks: [], stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }, [k]: `x ${vida(e)}` });
+      expect(published(e, ['c']), k).not.toContain(SENT);
+    }
+  });
+
+  it('transcript ilegível ou ausente: falha fechada (sem terminal, sem sessão), sem contaminar', () => {
+    const e = setup();
+    main(e, 'c', clinicas(e));
+    expect(e.qode.transcriptPathOf(() => join(e.dataDir, 'sumiu.jsonl'))('c')).toBeUndefined();
+    expect(e.qode.privacy!.isPrivate('c')).toBe(false);
+    const h = e.qode.history({ list: async () => [], resolve: () => ({ path: join(e.dataDir, 'sumiu.jsonl'), createParser: () => ({ push: () => [] }) }) });
+    expect(h.resolve('.claude', 'x')).toEqual({ status: 404, error: PRIVATE_SESSION_ERROR });
+  });
+
+  it('transcript reescrito no lugar com o mesmo tamanho é varrido de novo', () => {
+    const tmp = tempDir();
+    cleanups.push(tmp.cleanup);
+    const cfg = parseConfig({ projetos: [{ nome: 'P', caminhos: ['~/Documents/Vida'], privado: true }] }, '/Users/teste');
+    const sc = new TranscriptScanner((t) => mentionsPrivate(cfg, t));
+    const file = join(tmp.dir, 't.jsonl');
+    const dirty = 'cat /Users/teste/Documents/Vida/a\n';
+    writeFileSync(file, 'x'.repeat(dirty.length));
+    utimesSync(file, 1, 1);
+    expect(sc.scan(file)).toBe('clean');
+    writeFileSync(file, dirty);
+    utimesSync(file, 2, 2);
+    expect(sc.scan(file)).toBe('hit');
+  });
+
+  it('sem projeto privado, subagente órfão não é escondido', () => {
+    const cfg = parseConfig({ projetos: [{ nome: 'P', caminhos: ['~/p'] }] }, '/h');
+    const p = new Privacy(cfg, { agent: () => undefined, agents: () => [], changed: () => undefined });
+    expect(p.isPrivate('qualquer')).toBe(false);
   });
 });
