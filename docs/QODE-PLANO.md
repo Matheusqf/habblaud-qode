@@ -22,7 +22,26 @@ Criado em 11/10/2026 a partir da v0.8.0 (`d5f3718`). **Status: em espera** — M
 - Única saída externa: checagem de versão no GitHub (`HABBLAUD_UPDATE_CHECK=0` desliga).
 - Risco aceito: com os plugins de permissões/mensagens ligados, quem tem a aba aberta aprova comandos dos agentes. Usar só no Mac pessoal; não instalar no computador cloud dos bots.
 
-## Próximos passos (ordem proposta)
+## Estado (júri de 11/10/2026)
+
+Avaliado por um júri de 3 (segurança, manutenção/upstream, produto) em [QODE-JURI-2026-10-11.md](QODE-JURI-2026-10-11.md).
+O júri mandou mudar o passo 1 (aprovações do OpenCode adiadas e privacidade do Vida OS antes de qualquer fonte nova),
+então **nada foi implementado**: o PR PR_LINK traz só os documentos e a proposta revisada, à espera da decisão do Matheus.
+
+| Passo | Veredito do júri | Estado |
+| --- | --- | --- |
+| Portfólio: sala por projeto + Vida OS privado (`server/qode/`) | Aprovar com mudanças, **primeiro** | Proposto (PR 1 da proposta revisada); aguarda decisão |
+| 1. OpenCode — fonte de leitura | Aprovar com mudanças | Proposto (PR 2); aguarda decisão e versão do OpenCode no Mac |
+| 1. OpenCode — plugin | Só status ao vivo (P1), opt-in, PR separado; aprovações adiadas | Proposto (PR 3); aprovações num passo 1b |
+| 2. Cursor | Aprovar com mudanças (só hooks de status, sem banco interno, sem aprovações) | Não iniciado |
+| 3. Ponte para os bots na nuvem | Só desenho, até exceção escrita às regras de rede | Não iniciado |
+| 4. Visual QODE | Aprovar com mudanças, baixa prioridade (assets isolados) | Não iniciado |
+| 5. Marca | Rejeitar por ora (só se distribuir) | Não iniciado |
+
+Ordem recomendada pelo júri: portfólio/privacidade → OpenCode leitura → plugin P1 → Cursor → aprovações do OpenCode
+(1b) → visual → desenho da ponte → marca.
+
+## Próximos passos (ordem original, antes do júri)
 
 1. **OpenCode** — nova fonte em `server/sources/` (seguindo o padrão de `server/sources/codex`) lendo as sessões locais do OpenCode, mais plugin (`tool.execute.before`) para atividade ao vivo e aprovações pelo escritório. PR `socio/*` com testes; validação no Mac.
 2. **Cursor** — hooks do Cursor (`preToolUse` etc.) para atividade ao vivo e aprovações; histórico completo é mais trabalhoso (fica no banco interno do Cursor) — fazer depois, se valer a pena.
