@@ -178,7 +178,7 @@ const PROJECT_KEYS = new Set(['nome', 'caminhos', 'privado', 'nota']);
 export function parseConfig(raw: unknown, home: string, file = QODE_CONFIG_FILE): QodeConfig {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('esperado um objeto {"projetos": [...]}');
   const top = raw as Record<string, unknown>;
-  for (const k of Object.keys(top)) if (k !== 'projetos' && !isComment(k)) throw new Error(`chave desconhecida "${k.slice(0, 40)}"`);
+  for (const k of Object.keys(top)) if (k !== 'projetos' && !isComment(k)) throw new Error('chave desconhecida');
   if (!Array.isArray(top.projetos)) throw new Error('"projetos" precisa ser uma lista');
   const homeLex = lexical(home);
   const projects: QodeProject[] = [];
@@ -187,7 +187,7 @@ export function parseConfig(raw: unknown, home: string, file = QODE_CONFIG_FILE)
     const where = `projetos[${i}]`;
     if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error(`${where} precisa ser um objeto`);
     const p = item as Record<string, unknown>;
-    for (const k of Object.keys(p)) if (!PROJECT_KEYS.has(k) && !isComment(k)) throw new Error(`${where}: chave desconhecida "${k.slice(0, 40)}"`);
+    for (const k of Object.keys(p)) if (!PROJECT_KEYS.has(k) && !isComment(k)) throw new Error(`${where}: chave desconhecida`);
     const nome = typeof p.nome === 'string' ? p.nome.replace(/\s+/g, ' ').trim() : '';
     if (!nome || nome.length > NAME_MAX) throw new Error(`${where}: "nome" precisa ter de 1 a ${NAME_MAX} caracteres`);
     if (p.privado !== undefined && typeof p.privado !== 'boolean') throw new Error(`${where}: "privado" precisa ser true ou false`);
@@ -295,23 +295,152 @@ export function opaqueRoomKey(cfg: QodeConfig, cwd: string): string {
   return `${PRIVATE_ROOM_PREFIX}${h}`;
 }
 
-/**
- * Texto com os caminhos na forma em que o shell os veria: %XX decodificado, aspas e escapes do JSON tirados,
- * $HOME/${HOME}, ~ e ~usuário expandidos.
- */
-export function unshell(text: string, home: string): string {
-  let t = text;
-  if (t.includes('%')) t = t.replace(/%([0-9a-f]{2})/gi, (_, h: string) => String.fromCharCode(Number.parseInt(h, 16)));
-  t = t.replace(/\\+\//g, '/').replace(/\\+["'`]|["'`]/g, '');
-  t = t.replace(/file:\/\/(?:localhost)?(?=\/)/gi, '');
-  t = t.replace(/\$\{HOME\}|\$HOME(?![A-Za-z0-9_])/gi, home);
-  const users = posix.dirname(lexical(home));
-  t = t.replace(/(^|[\s=:(,;{[|&>])~([A-Za-z0-9._-]*)(?=\/|\s|$)/g, (_m, pre: string, user: string) => `${pre}${user ? posix.join(users, user) : home}`);
-  return t;
+function isHexChar(c: string | undefined): boolean {
+  if (!c) return false;
+  const o = c.charCodeAt(0);
+  return (o >= 48 && o <= 57) || (o >= 65 && o <= 70) || (o >= 97 && o <= 102);
 }
 
-const PATH_TOKEN = /(?<![\w.~+-])\/[^\s"'`<>|;&(){}[\]\\,]*/g;
+function isWordish(c: string | undefined): boolean {
+  return !!c && /[\w.~+-]/.test(c);
+}
+
+/** %XX, \uXXXX, \/ e file:// — um único passe, sem regex com backtracking. */
+function decodeEscapes(text: string): string {
+  const out: string[] = [];
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    const c = text[i];
+    if (c === '%' && isHexChar(text[i + 1]) && isHexChar(text[i + 2])) {
+      out.push(String.fromCharCode(Number.parseInt(text.slice(i + 1, i + 3), 16)));
+      i += 3;
+      continue;
+    }
+    if (c === '\\' && (text[i + 1] === 'u' || text[i + 1] === 'U') && isHexChar(text[i + 2]) && isHexChar(text[i + 3]) && isHexChar(text[i + 4]) && isHexChar(text[i + 5])) {
+      out.push(String.fromCharCode(Number.parseInt(text.slice(i + 2, i + 6), 16)));
+      i += 6;
+      continue;
+    }
+    if (c === '\\') {
+      let j = i;
+      while (j < n && text[j] === '\\') j++;
+      if (j < n && text[j] === '/') {
+        out.push('/');
+        i = j + 1;
+        continue;
+      }
+      if (j === i + 1 && (text[j] === '"' || text[j] === "'" || text[j] === '`')) {
+        i += 2;
+        continue;
+      }
+      while (i < j) {
+        out.push('\\');
+        i += 1;
+      }
+      continue;
+    }
+    if ((c === 'f' || c === 'F') && n - i >= 7 && text.slice(i, i + 7).toLowerCase() === 'file://') {
+      let skip = 7;
+      if (text.slice(i + 7, i + 16).toLowerCase() === 'localhost') skip = 16;
+      if (text[i + skip] === '/') {
+        i += skip;
+        continue;
+      }
+    }
+    out.push(c);
+    i += 1;
+  }
+  return out.join('');
+}
+
+function expandVars(text: string, home: string): string {
+  const users = posix.dirname(lexical(home));
+  const out: string[] = [];
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    if (text[i] === '$') {
+      if (text.slice(i, i + 7).toLowerCase() === '${home}') {
+        out.push(home);
+        i += 7;
+        continue;
+      }
+      if (text.slice(i, i + 5).toLowerCase() === '$home' && !/[A-Za-z0-9_]/.test(text[i + 5] ?? '')) {
+        out.push(home);
+        i += 5;
+        continue;
+      }
+    }
+    if (text[i] === '~' && (i === 0 || /[\s=:(,;{[|&>'"`]/.test(text[i - 1]!))) {
+      let j = i + 1;
+      while (j < n && /[A-Za-z0-9._-]/.test(text[j]!)) j++;
+      const next = text[j];
+      if (next === undefined || next === '/' || /\s/.test(next) || next === '"' || next === "'" || next === '`') {
+        const user = text.slice(i + 1, j);
+        out.push(user ? posix.join(users, user) : home);
+        i = j;
+        continue;
+      }
+    }
+    out.push(text[i]!);
+    i += 1;
+  }
+  return out.join('');
+}
+
+function stripQuotes(text: string): string {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"' || c === "'" || c === '`') continue;
+    out += c;
+  }
+  return out;
+}
+
+/**
+ * Texto com os caminhos na forma em que o shell os veria: %XX e \uXXXX decodificados, aspas e escapes do JSON
+ * tirados, $HOME/${HOME}, ~ e ~usuário expandidos. Um único passe linear (sem regex com backtracking).
+ */
+export function unshell(text: string, home: string): string {
+  return stripQuotes(expandVars(decodeEscapes(text), home));
+}
+
+const PATH_STOP = /[\s"'`<>|;&(){}[\]\\,]/;
 const GLOB = /[*?[]/;
+
+function takeUnquoted(text: string, start: number): { token: string; next: number } {
+  let i = start;
+  let token = '';
+  while (i < text.length) {
+    if (text[i] === '\\' && text[i + 1] === ' ') {
+      token += ' ';
+      i += 2;
+      continue;
+    }
+    if (PATH_STOP.test(text[i]!)) break;
+    token += text[i];
+    i += 1;
+  }
+  return { token, next: i };
+}
+
+function takeQuoted(text: string, start: number): { token: string; next: number } {
+  const q = text[start]!;
+  let i = start + 1;
+  let token = '';
+  while (i < text.length && text[i] !== q) {
+    if (text[i] === '\\' && i + 1 < text.length) {
+      token += text[i + 1];
+      i += 2;
+      continue;
+    }
+    token += text[i];
+    i += 1;
+  }
+  return { token, next: i < text.length ? i + 1 : i };
+}
 
 function privateLower(cfg: QodeConfig, lower: string): boolean {
   return cfg.privateRoots.some((r) => under(lower, r));
@@ -336,15 +465,71 @@ export function isPrivateToken(cfg: QodeConfig, token: string): boolean {
   return readings(tok).some((r) => privateLower(cfg, r.toLowerCase()));
 }
 
-/** Os caminhos absolutos de um texto (depois de unshell). */
-export function pathTokens(text: string): string[] {
-  return text.match(PATH_TOKEN) ?? [];
+/** Os caminhos absolutos de um texto (depois de unshell), inclusive entre aspas e com espaço escapado. */
+export function pathTokens(text: string, home?: string): string[] {
+  const prepared = home !== undefined ? expandVars(decodeEscapes(text), home) : text;
+  const found: string[] = [];
+  const add = (raw: string) => {
+    const t = (home ? expandHome(raw.trim(), home) : undefined) ?? raw.trim();
+    if (t.startsWith('/') && t.length >= 2) found.push(t);
+  };
+  let i = 0;
+  while (i < prepared.length) {
+    const c = prepared[i]!;
+    if (c === '"' || c === "'" || c === '`') {
+      const q = takeQuoted(prepared, i);
+      add(q.token);
+      i = q.next;
+      continue;
+    }
+    if (c === '/' && !isWordish(prepared[i - 1])) {
+      const u = takeUnquoted(prepared, i);
+      add(u.token);
+      i = u.next;
+      continue;
+    }
+    i += 1;
+  }
+  if (home !== undefined) {
+    const stripped = stripQuotes(prepared);
+    let j = 0;
+    while (j < stripped.length) {
+      if (stripped[j] === '/' && !isWordish(stripped[j - 1])) {
+        const u = takeUnquoted(stripped, j);
+        add(u.token);
+        j = u.next;
+        continue;
+      }
+      j += 1;
+    }
+  }
+  return found;
+}
+
+function walkStrings(value: unknown, out: string[]): void {
+  if (typeof value === 'string') out.push(value);
+  else if (Array.isArray(value)) for (const v of value) walkStrings(v, out);
+  else if (value && typeof value === 'object') for (const v of Object.values(value)) walkStrings(v, out);
 }
 
 /** O texto cita um caminho privado (absoluto, ~/, ~usuário/, $HOME, com aspas, %XX, "..", symlink ou cwd codificado)? */
-export function mentionsPrivate(cfg: QodeConfig, text: string | undefined): boolean {
+export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth = 0): boolean {
   if (!text || !cfg.privateRoots.length) return false;
   const lower = text.toLowerCase();
   if (cfg.needles.some((n) => lower.includes(n))) return true;
-  return pathTokens(unshell(text, cfg.home)).some((t) => isPrivateToken(cfg, t));
+  if (pathTokens(text, cfg.home).some((t) => isPrivateToken(cfg, t))) return true;
+  const trimmed = text.trimStart();
+  if (depth < 2 && (trimmed.startsWith('{') || trimmed.startsWith('['))) {
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (parsed && typeof parsed === 'object') {
+        const inner: string[] = [];
+        walkStrings(parsed, inner);
+        return inner.some((s) => mentionsPrivate(cfg, s, depth + 1));
+      }
+    } catch {
+      /* texto cru já foi varrido */
+    }
+  }
+  return false;
 }

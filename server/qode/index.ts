@@ -15,10 +15,22 @@ import { isPrivatePath, loadQodeConfig, opaqueRoomKey, PRIVATE_ROOM_PREFIX, proj
 import { Privacy } from './privacy';
 
 const SCAN_CHUNK = 1 << 20;
-const SCAN_CARRY = 8_192;
+const SCAN_LINE_MAX = 1 << 20;
 const SCAN_CACHE_MAX = 1_000;
-const REQUESTS_MAX = 500;
 export const PRIVATE_SESSION_ERROR = 'sessão de projeto privado: o Habblaud não mostra a conversa';
+
+/** Linha do transcript: JSON já decodificado; se não parseia, o texto cru; `{`/`[` duvidoso = fechado. */
+export function inspectTranscriptLine(line: string, mentions: (text: string) => boolean): boolean {
+  const t = line.trim();
+  if (!t) return false;
+  try {
+    const parsed = JSON.parse(t) as unknown;
+    return mentions(typeof parsed === 'string' ? parsed : JSON.stringify(parsed)) || mentions(t);
+  } catch {
+    if (t.startsWith('{') || t.startsWith('[')) return true;
+    return mentions(t);
+  }
+}
 
 /** Resultado da varredura: 'error' = não deu para ler (quem chama trata como privado, sem contaminar ninguém). */
 export type ScanResult = 'hit' | 'clean' | 'error';
@@ -66,11 +78,28 @@ export class TranscriptScanner {
         if (n <= 0) break;
         e.offset += n;
         const text = e.carry + e.decoder.write(buf.subarray(0, n));
-        if (this.mentions(text)) {
+        let start = 0;
+        for (let i = 0; i < text.length; i++) {
+          if (text[i] !== '\n') continue;
+          if (inspectTranscriptLine(text.slice(start, i), this.mentions)) {
+            e.hit = true;
+            break;
+          }
+          start = i + 1;
+        }
+        if (e.hit) break;
+        e.carry = text.slice(start);
+        if (e.carry.length > SCAN_LINE_MAX) {
           e.hit = true;
+          e.carry = '';
           break;
         }
-        e.carry = text.slice(-SCAN_CARRY);
+      }
+      if (!e.hit && e.offset >= size) {
+        const tail = e.carry + e.decoder.end();
+        if (tail && inspectTranscriptLine(tail, this.mentions)) e.hit = true;
+        e.carry = tail;
+        e.decoder = new StringDecoder('utf8');
       }
     } catch {
       this.cache.delete(path);
@@ -119,7 +148,7 @@ function guardParser(base: TerminalParser, privacy: Privacy, blocked: () => bool
   return {
     push(line) {
       if (blocked()) return [];
-      if (privacy.mentions(line)) {
+      if (inspectTranscriptLine(line, (t) => privacy.mentions(t))) {
         hit();
         return [];
       }
@@ -181,10 +210,11 @@ export function setupQode(o: QodeOptions): QodeSetup {
   };
 
   /** Pedido de permissão -> sessão de quem pediu (para esconder o que foi registrado antes da contaminação). */
-  const requests = new Map<string, { sessionId: string; hookAgentId?: string }>();
+  const requests = new Map<string, { sessionId?: string; hookAgentId?: string }>();
   const requestPrivate = (id: string): boolean => {
+    if (!privacy.active) return false;
     const r = requests.get(id);
-    if (!r) return false;
+    if (!r?.sessionId) return true;
     if (privacy.sessionPrivate(r.sessionId)) return true;
     return !!r.hookAgentId && (privacy.sessionPrivate(r.hookAgentId) || privacy.isPrivate(`${r.sessionId}:${r.hookAgentId}`, (x) => o.office().get(x)));
   };
@@ -192,7 +222,10 @@ export function setupQode(o: QodeOptions): QodeSetup {
   return {
     config: cfg,
     privacy,
-    health: () => (cfg.invalid ? { config: 'invalida', projetos: 0, privados: 0, erro: cfg.invalid } : { config: 'ok', projetos: cfg.projects.length, privados }),
+    health: () =>
+      cfg.invalid
+        ? { config: 'invalida', projetos: 0, privados: 0, erro: privacy.redact(cfg.invalid) }
+        : { config: 'ok', projetos: cfg.projects.length, privados },
     roomOf: (cwd) => {
       if (!cfg.invalid) return projectOf(cfg, cwd)?.roomKey;
       const key = opaqueRoomKey(cfg, cwd);
@@ -255,10 +288,7 @@ export function setupQode(o: QodeOptions): QodeSetup {
         }
         if (sessionId && privacy.sessionPrivate(sessionId)) return { skip: 'unknown-session' };
         const out = inner.register(raw);
-        if ('id' in out && sessionId) {
-          if (requests.size >= REQUESTS_MAX) requests.delete(requests.keys().next().value!);
-          requests.set(out.id, hookAgentId ? { sessionId, hookAgentId } : { sessionId });
-        }
+        if ('id' in out) requests.set(out.id, { sessionId, hookAgentId });
         return out;
       },
       wait: (id, ms) => inner.wait(id, ms),
