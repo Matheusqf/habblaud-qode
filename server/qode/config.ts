@@ -15,6 +15,10 @@ const TOKEN_MAX = 4_096;
 const REAL_CACHE_MAX = 20_000;
 const REAL_CACHE_TTL_MS = 2_000;
 const WALK_MAX = 16;
+/** Acima disso, mentionsPrivate não inspeciona: trata como privado (não trava o event loop). */
+export const MENTIONS_BYTES_MAX = 96 * 1024;
+export const MENTIONS_TOKENS_MAX = 128;
+const PATH_STOP = /[\s"'`<>|;&(){}[\]\\,]/;
 
 export interface QodeRoot {
   /** Caminho canônico em minúsculas. */
@@ -305,6 +309,24 @@ function isWordish(c: string | undefined): boolean {
   return !!c && /[\w.~+-]/.test(c);
 }
 
+function isTokenBreaker(code: number): boolean {
+  return PATH_STOP.test(String.fromCharCode(code));
+}
+
+/** %XX que sobrou (espaço, aspas…) — o token já foi extraído inteiro. */
+function decodeToken(t: string): string {
+  let out = '';
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === '%' && isHexChar(t[i + 1]) && isHexChar(t[i + 2])) {
+      out += String.fromCharCode(Number.parseInt(t.slice(i + 1, i + 3), 16));
+      i += 2;
+      continue;
+    }
+    out += t[i];
+  }
+  return out;
+}
+
 /** %XX, \uXXXX, \/ e file:// — um único passe, sem regex com backtracking. */
 function decodeEscapes(text: string): string {
   const out: string[] = [];
@@ -313,12 +335,23 @@ function decodeEscapes(text: string): string {
   while (i < n) {
     const c = text[i];
     if (c === '%' && isHexChar(text[i + 1]) && isHexChar(text[i + 2])) {
-      out.push(String.fromCharCode(Number.parseInt(text.slice(i + 1, i + 3), 16)));
+      const code = Number.parseInt(text.slice(i + 1, i + 3), 16);
+      if (isTokenBreaker(code)) {
+        out.push('%', text[i + 1]!, text[i + 2]!);
+      } else {
+        out.push(String.fromCharCode(code));
+      }
       i += 3;
       continue;
     }
     if (c === '\\' && (text[i + 1] === 'u' || text[i + 1] === 'U') && isHexChar(text[i + 2]) && isHexChar(text[i + 3]) && isHexChar(text[i + 4]) && isHexChar(text[i + 5])) {
-      out.push(String.fromCharCode(Number.parseInt(text.slice(i + 2, i + 6), 16)));
+      const code = Number.parseInt(text.slice(i + 2, i + 6), 16);
+      if (isTokenBreaker(code)) {
+        const hex = code.toString(16).padStart(2, '0');
+        out.push('%', hex[0]!, hex[1]!);
+      } else {
+        out.push(String.fromCharCode(code));
+      }
       i += 6;
       continue;
     }
@@ -407,7 +440,6 @@ export function unshell(text: string, home: string): string {
   return stripQuotes(expandVars(decodeEscapes(text), home));
 }
 
-const PATH_STOP = /[\s"'`<>|;&(){}[\]\\,]/;
 const GLOB = /[*?[]/;
 
 function takeUnquoted(text: string, start: number): { token: string; next: number } {
@@ -470,7 +502,8 @@ export function pathTokens(text: string, home?: string): string[] {
   const prepared = home !== undefined ? expandVars(decodeEscapes(text), home) : text;
   const found: string[] = [];
   const add = (raw: string) => {
-    const t = (home ? expandHome(raw.trim(), home) : undefined) ?? raw.trim();
+    const decoded = decodeToken(raw.trim());
+    const t = (home ? expandHome(decoded, home) : undefined) ?? decoded;
     if (t.startsWith('/') && t.length >= 2) found.push(t);
   };
   let i = 0;
@@ -515,9 +548,12 @@ function walkStrings(value: unknown, out: string[]): void {
 /** O texto cita um caminho privado (absoluto, ~/, ~usuário/, $HOME, com aspas, %XX, "..", symlink ou cwd codificado)? */
 export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth = 0): boolean {
   if (!text || !cfg.privateRoots.length) return false;
+  if (text.length > MENTIONS_BYTES_MAX) return true;
   const lower = text.toLowerCase();
   if (cfg.needles.some((n) => lower.includes(n))) return true;
-  if (pathTokens(text, cfg.home).some((t) => isPrivateToken(cfg, t))) return true;
+  const tokens = pathTokens(text, cfg.home);
+  if (tokens.length > MENTIONS_TOKENS_MAX) return true;
+  if (tokens.some((t) => isPrivateToken(cfg, t))) return true;
   const trimmed = text.trimStart();
   if (depth < 2 && (trimmed.startsWith('{') || trimmed.startsWith('['))) {
     try {
@@ -525,6 +561,12 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
       if (parsed && typeof parsed === 'object') {
         const inner: string[] = [];
         walkStrings(parsed, inner);
+        if (inner.length > MENTIONS_TOKENS_MAX) return true;
+        let bytes = 0;
+        for (const s of inner) {
+          bytes += s.length;
+          if (bytes > MENTIONS_BYTES_MAX) return true;
+        }
         return inner.some((s) => mentionsPrivate(cfg, s, depth + 1));
       }
     } catch {
