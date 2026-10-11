@@ -2,7 +2,7 @@
 // numa HOME falsa em pasta temporária.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { appendFileSync, copyFileSync, mkdirSync, readdirSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Activity, AgentInfo, FeedItem, Notice, OfficeSnapshot, PermissionRequestInfo, RecentSession, RoomInfo } from '../../shared/types';
@@ -561,6 +561,70 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     expect(out).not.toContain(SENT);
     expect(out).not.toContain('atalho-vida');
     expect(e.office.commit().snapshot.rooms.find((r) => r.name === 'Vida OS')).toBeDefined();
+  });
+
+  it('".." depois de um symlink vale no alvo: clinicas/ponte/../Vida é o Vida OS', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    mkdirSync(clinicas(e), { recursive: true });
+    symlinkSync(vida(e), join(clinicas(e), 'ponte'));
+    main(e, 'c', clinicas(e));
+    e.office.addActivity('c', act('c', { kind: 'run', text: SENT, detail: `cat ${clinicas(e)}/ponte/../Vida/secret.md` }), true);
+    main(e, 'g', clinicas(e));
+    e.office.addActivity('g', act('g', { kind: 'run', text: SENT, detail: `rg x "${clinicas(e)}/ponte/../Vi"*` }), true);
+    main(e, 'w', `${clinicas(e)}/ponte/../Vida/notas`);
+    fill(e, 'w');
+    expect(['c', 'g', 'w'].map((id) => e.qode.privacy!.isPrivate(id))).toEqual([true, true, true]);
+    expect(published(e, ['c', 'g', 'w'])).not.toContain(SENT);
+  });
+
+  it('na dúvida entre a leitura do texto e a física, o privado ganha', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    mkdirSync(clinicas(e), { recursive: true });
+    symlinkSync(clinicas(e), join(vida(e), 'volta'));
+    main(e, 'v', `${vida(e)}/volta/..`);
+    fill(e, 'v');
+    expect(e.qode.privacy!.isPrivate('v')).toBe(true);
+    expect(published(e, ['v'])).not.toContain(SENT);
+  });
+
+  it('file://localhost/ é o mesmo que file:///', () => {
+    const e = setup();
+    main(e, 'c', clinicas(e));
+    e.office.addActivity('c', act('c', { kind: 'read', text: SENT, detail: `file://localhost${e.home}/Documents/Vida/a.md` }), true);
+    expect(e.qode.privacy!.isPrivate('c')).toBe(true);
+  });
+
+  it('cache do realpath: symlink criado depois e symlink trocado valem na consulta seguinte', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const e = setup();
+      mkdirSync(vida(e), { recursive: true });
+      mkdirSync(clinicas(e), { recursive: true });
+      const novo = join(e.home, 'novo-atalho');
+      main(e, 'a', clinicas(e));
+      e.office.addActivity('a', act('a', { kind: 'run', detail: `cat ${novo}/a.md` }), true);
+      expect(e.qode.privacy!.isPrivate('a')).toBe(false);
+      symlinkSync(vida(e), novo);
+      main(e, 'b', clinicas(e));
+      e.office.addActivity('b', act('b', { kind: 'run', detail: `cat ${novo}/a.md` }), true);
+      expect(e.qode.privacy!.isPrivate('b')).toBe(true);
+
+      const troca = join(e.home, 'troca');
+      symlinkSync(clinicas(e), troca);
+      main(e, 'c', clinicas(e));
+      e.office.addActivity('c', act('c', { kind: 'run', detail: `cat ${troca}/a.md` }), true);
+      expect(e.qode.privacy!.isPrivate('c')).toBe(false);
+      rmSync(troca);
+      symlinkSync(vida(e), troca);
+      vi.setSystemTime(Date.now() + 5_000);
+      main(e, 'd', clinicas(e));
+      e.office.addActivity('d', act('d', { kind: 'run', detail: `cat ${troca}/a.md` }), true);
+      expect(e.qode.privacy!.isPrivate('d')).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each([
