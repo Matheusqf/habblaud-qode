@@ -4,7 +4,7 @@
 // decidir se ele pode passar.
 import type { Activity, ActivityKind, AgentDetail, AgentInfo, AgentStats, FeedItem, Notice, OfficeSnapshot, RoomInfo } from '../../shared/types';
 import type { OfficePrivacy } from '../model/office';
-import { isPrivateRoom, mentionsPrivate, type QodeConfig } from './config';
+import { isPrivateRoom, lexical, mentionsPrivate, type QodeConfig } from './config';
 
 type Rule = 'keep' | 'drop' | 'generic';
 
@@ -16,7 +16,7 @@ export const AGENT_RULES: Record<keyof AgentInfo, Rule> = {
   roomId: 'keep',
   name: 'keep',
   look: 'keep',
-  role: 'keep',
+  role: 'generic',
   title: 'drop',
   sessionId: 'keep',
   account: 'keep',
@@ -163,6 +163,8 @@ export function privateAgent(a: AgentInfo): AgentInfo {
         return [];
       case 'stats':
         return { ...ZERO_STATS };
+      case 'role':
+        return a.kind === 'main' ? 'Agente principal' : 'Subagente';
       default:
         return undefined;
     }
@@ -201,15 +203,18 @@ export class Privacy implements OfficePrivacy {
   private tainted = new Set<string>();
   /** Quem já foi visto como privado (vale para o feed e os avisos de quem já saiu). */
   private seen = new Set<string>();
-
-  private readonly redactRe: RegExp | undefined;
+  /** Sessões que citaram um caminho privado, mesmo antes de o agente delas aparecer no escritório. */
+  private taintedSessions = new Set<string>();
+  /** Há o que esconder: algum projeto privado, ou a config inválida (tudo privado). */
+  readonly active: boolean;
+  private readonly homeLower: string;
 
   constructor(
     readonly cfg: QodeConfig,
     private readonly deps: PrivacyDeps,
   ) {
-    const alts = [...cfg.needles].sort((a, b) => b.length - a.length).map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    this.redactRe = alts.length ? new RegExp(alts.join('|'), 'gi') : undefined;
+    this.active = !!cfg.invalid || cfg.privateRoots.length > 0;
+    this.homeLower = lexical(cfg.home).toLowerCase();
   }
 
   mentions(text: string | undefined): boolean {
@@ -222,11 +227,12 @@ export class Privacy implements OfficePrivacy {
 
   /** Privado: sala privada, família contaminada, config inválida ou cadeia de pais quebrada (na dúvida, privado). */
   isPrivate(id: string, lookup: (id: string) => AgentInfo | undefined = this.deps.agent): boolean {
+    if (!this.active) return false;
     if (this.cfg.invalid || this.tainted.has(id) || this.seen.has(id)) return this.mark(id);
     let cur = lookup(id);
     if (!cur) return true;
     for (let hops = 0; hops <= MAX_HOPS; hops++) {
-      if (this.tainted.has(cur.id) || this.roomPrivate(cur.roomId)) return this.mark(id);
+      if (this.tainted.has(cur.id) || this.taintedSessions.has(cur.sessionId) || this.roomPrivate(cur.roomId)) return this.mark(id);
       if (cur.kind === 'main') return false;
       if (!cur.parentId) return this.mark(id);
       const parent: AgentInfo | undefined = lookup(cur.parentId);
@@ -243,6 +249,7 @@ export class Privacy implements OfficePrivacy {
 
   /** Agente que já saiu do escritório: vale o que se sabia dele e a sala. */
   private refPrivate(agentId: string | undefined, roomId: string | undefined): boolean {
+    if (!this.active) return false;
     if (this.cfg.invalid) return true;
     if (roomId && this.roomPrivate(roomId)) return true;
     if (!agentId) return false;
@@ -276,9 +283,22 @@ export class Privacy implements OfficePrivacy {
 
   /** Pedido de permissão ou sessão que citou um caminho privado: contamina os agentes da sessão. */
   taintSession(sessionId: string, hookAgentId?: string): void {
+    this.taintedSessions.add(sessionId);
+    if (hookAgentId) {
+      this.taintedSessions.add(hookAgentId);
+      this.tainted.add(`${sessionId}:${hookAgentId}`);
+    }
     for (const a of this.deps.agents()) {
       if (a.sessionId === sessionId || (hookAgentId && (a.id === `${sessionId}:${hookAgentId}` || a.sessionId === hookAgentId))) this.taint(a.id);
     }
+    this.deps.changed();
+  }
+
+  /** A sessão foi contaminada ou tem algum agente privado presente. */
+  sessionPrivate(sessionId: string): boolean {
+    if (!this.active) return false;
+    if (this.cfg.invalid || this.taintedSessions.has(sessionId)) return true;
+    return this.deps.agents().some((a) => a.sessionId === sessionId && this.isPrivate(a.id));
   }
 
   observe(agentId: string, texts: ReadonlyArray<string | undefined>): void {
@@ -318,8 +338,22 @@ export class Privacy implements OfficePrivacy {
     return { agent: privateAgent(d.agent), history: d.history.map(privateActivity) };
   }
 
-  /** Tira os caminhos privados de uma linha de log. */
+  /**
+   * Tira os caminhos privados de uma linha de log: do primeiro trecho que cita um deles até o fim da linha (o resto
+   * do caminho, com espaços ou não, também some). Com a config inválida, vale para qualquer caminho dentro da home.
+   */
   redact(msg: string): string {
-    return this.redactRe ? msg.replace(this.redactRe, '[privado]') : msg;
+    if (!this.active) return msg;
+    const re = /\S+/g;
+    for (let m = re.exec(msg); m; m = re.exec(msg)) {
+      if (this.redactChunk(m[0])) return `${msg.slice(0, m.index)}[privado]`;
+    }
+    return this.cfg.invalid || !this.mentions(msg) ? msg : '[privado: linha de log omitida]';
+  }
+
+  private redactChunk(chunk: string): boolean {
+    if (!this.cfg.invalid) return this.mentions(chunk);
+    const lower = chunk.toLowerCase();
+    return lower.includes(this.homeLower) || /(^|[^\w])~|\$\{?home/.test(lower) || lower.includes('/volumes/');
   }
 }

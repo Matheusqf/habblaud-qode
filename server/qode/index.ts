@@ -2,6 +2,7 @@
 // Tudo o que não passa pelo Office (terminal, histórico de sessões, permissões, mensagens e logs) é embrulhado aqui.
 // Sem qode.config.json, cada embrulho devolve o original e nada muda.
 import { closeSync, openSync, readSync, statSync } from 'node:fs';
+import { StringDecoder } from 'node:string_decoder';
 import type { Activity, AgentInfo, RecentSession } from '../../shared/types';
 import { log, setLogFilter } from '../log';
 import type { Office } from '../model/office';
@@ -10,47 +11,53 @@ import type { OfficeLike as MessageOffice } from '../messages/registry';
 import type { OfficeLike as PermissionOffice, PermissionRegistry, RegisterResult } from '../permissions/registry';
 import type { SessionLookup } from '../sources/source';
 import { createTerminalParser, type TerminalParser } from '../sources/terminal';
-import { isPrivatePath, loadQodeConfig, projectOf, type QodeConfig } from './config';
+import { isPrivatePath, loadQodeConfig, opaqueRoomKey, PRIVATE_ROOM_PREFIX, projectOf, type QodeConfig } from './config';
 import { Privacy } from './privacy';
 
 const SCAN_CHUNK = 1 << 20;
+const SCAN_CARRY = 8_192;
 const SCAN_CACHE_MAX = 1_000;
+const REQUESTS_MAX = 500;
 export const PRIVATE_SESSION_ERROR = 'sessão de projeto privado: o Habblaud não mostra a conversa';
+
+/** Resultado da varredura: 'error' = não deu para ler (quem chama trata como privado, sem contaminar ninguém). */
+export type ScanResult = 'hit' | 'clean' | 'error';
 
 /** Procura caminhos privados num transcript, só nos bytes novos desde a última vez (o resultado positivo fica). */
 export class TranscriptScanner {
-  private cache = new Map<string, { offset: number; hit: boolean; carry: string; ino: number }>();
-  private readonly needles: string[];
-  private readonly keep: number;
+  private cache = new Map<string, { offset: number; hit: boolean; carry: string; ino: number; mtimeMs: number; decoder: StringDecoder }>();
 
-  constructor(needles: readonly string[]) {
-    this.needles = needles.map((n) => Buffer.from(n, 'utf8').toString('latin1').toLowerCase());
-    this.keep = Math.max(0, ...this.needles.map((n) => n.length)) - 1;
-  }
+  constructor(private readonly mentions: (text: string) => boolean) {}
 
-  mentions(path: string): boolean {
-    if (!this.needles.length) return false;
+  scan(path: string): ScanResult {
     let size: number;
     let ino: number;
+    let mtimeMs: number;
     try {
       const st = statSync(path);
       size = st.size;
       ino = st.ino;
+      mtimeMs = st.mtimeMs;
     } catch {
-      return false;
+      return 'error';
     }
     let e = this.cache.get(path);
-    if (!e || size < e.offset || e.ino !== ino) {
-      e = { offset: 0, hit: false, carry: '', ino };
-      if (this.cache.size >= SCAN_CACHE_MAX) this.cache.delete(this.cache.keys().next().value!);
+    // Truncado, trocado, ou reescrito no lugar com o mesmo tamanho: começa de novo.
+    const rewritten = e && (size < e.offset || e.ino !== ino || (size === e.offset && mtimeMs !== e.mtimeMs));
+    if (!e || rewritten) {
+      if (e?.hit) return 'hit';
+      e = { offset: 0, hit: false, carry: '', ino, mtimeMs, decoder: new StringDecoder('utf8') };
+      if (!this.cache.has(path) && this.cache.size >= SCAN_CACHE_MAX) this.cache.delete(this.cache.keys().next().value!);
       this.cache.set(path, e);
     }
-    if (e.hit || size === e.offset) return e.hit;
+    if (e.hit) return 'hit';
+    e.mtimeMs = mtimeMs;
+    if (size === e.offset) return 'clean';
     let fd: number;
     try {
       fd = openSync(path, 'r');
     } catch {
-      return false;
+      return 'error';
     }
     try {
       const buf = Buffer.alloc(SCAN_CHUNK);
@@ -58,29 +65,38 @@ export class TranscriptScanner {
         const n = readSync(fd, buf, 0, Math.min(SCAN_CHUNK, size - e.offset), e.offset);
         if (n <= 0) break;
         e.offset += n;
-        const text = e.carry + buf.toString('latin1', 0, n).toLowerCase();
-        if (this.needles.some((x) => text.includes(x))) {
+        const text = e.carry + e.decoder.write(buf.subarray(0, n));
+        if (this.mentions(text)) {
           e.hit = true;
           break;
         }
-        e.carry = this.keep > 0 ? text.slice(-this.keep) : '';
+        e.carry = text.slice(-SCAN_CARRY);
       }
     } catch {
-      // Ilegível agora: tenta de novo na próxima chamada.
+      this.cache.delete(path);
+      return 'error';
     } finally {
       closeSync(fd);
     }
-    return e.hit;
+    return e.hit ? 'hit' : 'clean';
   }
 }
 
 type Routes = Pick<PermissionRegistry, 'register' | 'wait' | 'decide' | 'detail'>;
 type OfficeView = PermissionOffice & MessageOffice;
 
+export interface QodeHealth {
+  config: 'ausente' | 'ok' | 'invalida';
+  projetos: number;
+  privados: number;
+  erro?: string;
+}
+
 export interface QodeSetup {
   config?: QodeConfig;
   privacy?: Privacy;
   roomOf?: (cwd: string) => string | undefined;
+  health(): QodeHealth;
   transcriptPathOf(inner: (id: string) => string | undefined): (id: string) => string | undefined;
   parserFor(inner: (id: string) => TerminalParser | undefined): (id: string) => TerminalParser | undefined;
   history(inner: SessionLookup): SessionLookup;
@@ -92,6 +108,7 @@ export interface QodeOptions {
   env: NodeJS.ProcessEnv;
   dataDir: string;
   home: string;
+  inDocker?: boolean;
   roomAliases: RoomAliases;
   /** O Office (ligação tardia: ele recebe o filtro no construtor). */
   office: () => Office;
@@ -111,11 +128,22 @@ function guardParser(base: TerminalParser, privacy: Privacy, blocked: () => bool
   };
 }
 
+function safeJson(raw: unknown): string | undefined {
+  try {
+    return JSON.stringify(raw);
+  } catch {
+    return undefined;
+  }
+}
+
 export function setupQode(o: QodeOptions): QodeSetup {
   const cfg = loadQodeConfig(o.env, o.dataDir, o.home);
   if (!cfg) {
-    log.info('QODE: sem qode.config.json; salas e privacidade como no upstream (veja qode/README.md).');
+    const msg = 'QODE: sem qode.config.json; salas e privacidade como no upstream (veja qode/README.md).';
+    if (o.inDocker) log.warn(`${msg} No Docker, o arquivo precisa estar no volume /data.`);
+    else log.info(msg);
     return {
+      health: () => ({ config: 'ausente', projetos: 0, privados: 0 }),
       transcriptPathOf: (inner) => inner,
       parserFor: (inner) => inner,
       history: (inner) => inner,
@@ -123,39 +151,61 @@ export function setupQode(o: QodeOptions): QodeSetup {
       permissionRoutes: (inner) => inner,
     };
   }
-  if (cfg.invalid) {
-    log.error(`QODE: ${cfg.file} inválido (${cfg.invalid}). Por segurança, TODOS os agentes ficam privados até corrigir.`);
-  } else {
-    const priv = cfg.projects.filter((p) => p.privado).length;
-    log.info(`QODE: ${cfg.projects.length} projeto(s) em ${cfg.file}, ${priv} privado(s).`);
-    for (const p of cfg.projects) o.roomAliases.setDefault(p.roomKey, p.nome);
-  }
 
   const agent = (id: string): AgentInfo | undefined => o.office().get(id) ?? o.office().demoAgent(id);
   const privacy = new Privacy(cfg, { agent, agents: () => o.office().list(), changed: () => o.office().markDirty() });
   setLogFilter((msg) => privacy.redact(msg));
-  const scanner = new TranscriptScanner(cfg.needles);
-  const hasPrivate = cfg.projects.some((p) => p.privado);
+  const privados = cfg.projects.filter((p) => p.privado).length;
+  if (cfg.invalid) {
+    log.error(`QODE: qode.config.json inválido (${cfg.invalid}). Por segurança, TODOS os agentes ficam privados até corrigir.`);
+  } else {
+    log.info(`QODE: ${cfg.projects.length} projeto(s) no qode.config.json, ${privados} privado(s).`);
+    for (const p of cfg.projects) o.roomAliases.setDefault(p.roomKey, p.nome);
+  }
+  const scanner = new TranscriptScanner((text) => privacy.mentions(text));
+  /** Transcript limpo? Ilegível conta como não (sem contaminar: pode ser só um arquivo que ainda não existe). */
+  const transcriptClean = (path: string): boolean => {
+    if (!privacy.active) return true;
+    if (privacy.mentions(path)) return false;
+    return scanner.scan(path) === 'clean';
+  };
+  const hasPrivate = privados > 0;
 
   const sessionHidden = (s: RecentSession): boolean => {
+    if (!privacy.active) return false;
     if (cfg.invalid) return true;
     if (s.project ? isPrivatePath(cfg, s.project) : hasPrivate) return true;
     if (privacy.mentions(s.project) || privacy.mentions(s.projectDir) || privacy.mentions(s.title)) return true;
+    if (privacy.sessionPrivate(s.sessionId)) return true;
     return !!s.agentId && privacy.isPrivate(s.agentId);
+  };
+
+  /** Pedido de permissão -> sessão de quem pediu (para esconder o que foi registrado antes da contaminação). */
+  const requests = new Map<string, { sessionId: string; hookAgentId?: string }>();
+  const requestPrivate = (id: string): boolean => {
+    const r = requests.get(id);
+    if (!r) return false;
+    if (privacy.sessionPrivate(r.sessionId)) return true;
+    return !!r.hookAgentId && (privacy.sessionPrivate(r.hookAgentId) || privacy.isPrivate(`${r.sessionId}:${r.hookAgentId}`, (x) => o.office().get(x)));
   };
 
   return {
     config: cfg,
     privacy,
-    roomOf: (cwd) => (cfg.invalid ? undefined : projectOf(cfg, cwd)?.roomKey),
+    health: () => (cfg.invalid ? { config: 'invalida', projetos: 0, privados: 0, erro: cfg.invalid } : { config: 'ok', projetos: cfg.projects.length, privados }),
+    roomOf: (cwd) => {
+      if (!cfg.invalid) return projectOf(cfg, cwd)?.roomKey;
+      const key = opaqueRoomKey(cfg, cwd);
+      o.roomAliases.setDefault(key, `Privado ${key.slice(PRIVATE_ROOM_PREFIX.length, PRIVATE_ROOM_PREFIX.length + 4)}`);
+      return key;
+    },
     transcriptPathOf: (inner) => (id) => {
       if (privacy.isPrivate(id)) return undefined;
       const path = inner(id);
-      if (path && (privacy.mentions(path) || scanner.mentions(path))) {
-        privacy.taint(id);
-        return undefined;
-      }
-      return path;
+      if (!path || !privacy.active) return path;
+      const scan = privacy.mentions(path) ? 'hit' : scanner.scan(path);
+      if (scan === 'hit') privacy.taint(id);
+      return scan === 'clean' ? path : undefined;
     },
     parserFor: (inner) => (id) =>
       guardParser(
@@ -168,8 +218,8 @@ export function setupQode(o: QodeOptions): QodeSetup {
       list: async () => (await inner.list()).filter((s) => !sessionHidden(s)),
       resolve: (account, sessionId) => {
         const r = inner.resolve(account, sessionId);
-        if ('error' in r) return r;
-        if (cfg.invalid || privacy.mentions(r.path) || scanner.mentions(r.path)) return { status: 404, error: PRIVATE_SESSION_ERROR };
+        if ('error' in r || !privacy.active) return r;
+        if (cfg.invalid || privacy.sessionPrivate(sessionId) || !transcriptClean(r.path)) return { status: 404, error: PRIVATE_SESSION_ERROR };
         return {
           path: r.path,
           createParser: () => {
@@ -196,22 +246,25 @@ export function setupQode(o: QodeOptions): QodeSetup {
     }),
     permissionRoutes: (inner) => ({
       register: (raw): RegisterResult => {
-        let text: string | undefined;
-        try {
-          text = JSON.stringify(raw);
-        } catch {
-          text = undefined;
-        }
-        if (privacy.mentions(text)) {
-          const r = raw as { session_id?: unknown; agent_id?: unknown };
-          if (typeof r.session_id === 'string') privacy.taintSession(r.session_id, typeof r.agent_id === 'string' ? r.agent_id : undefined);
+        const r = (raw && typeof raw === 'object' ? raw : {}) as { session_id?: unknown; agent_id?: unknown };
+        const sessionId = typeof r.session_id === 'string' ? r.session_id : undefined;
+        const hookAgentId = typeof r.agent_id === 'string' ? r.agent_id : undefined;
+        if (privacy.mentions(safeJson(raw))) {
+          if (sessionId) privacy.taintSession(sessionId, hookAgentId);
           return { skip: 'unknown-session' };
         }
-        return inner.register(raw);
+        if (sessionId && privacy.sessionPrivate(sessionId)) return { skip: 'unknown-session' };
+        const out = inner.register(raw);
+        if ('id' in out && sessionId) {
+          if (requests.size >= REQUESTS_MAX) requests.delete(requests.keys().next().value!);
+          requests.set(out.id, hookAgentId ? { sessionId, hookAgentId } : { sessionId });
+        }
+        return out;
       },
       wait: (id, ms) => inner.wait(id, ms),
-      decide: (id, d) => inner.decide(id, d),
+      decide: (id, d) => (requestPrivate(id) ? 'not-found' : inner.decide(id, d)),
       detail: (id) => {
+        if (requestPrivate(id)) return undefined;
         const d = inner.detail(id);
         return d && !privacy.mentions(JSON.stringify(d)) ? d : undefined;
       },

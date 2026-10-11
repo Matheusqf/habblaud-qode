@@ -21,6 +21,8 @@ export interface ApiDeps {
   sources: () => SourceInfo[];
   version: string;
   inDocker: boolean;
+  /** Campos a mais no /api/health (fork QODE: estado do qode.config.json). */
+  health?: () => Record<string, unknown>;
   /** Terminal ligado (ServerConfig.terminal: só com bind local). */
   terminal?: boolean;
   /** Streams do terminal; sem eles o recurso fica desligado mesmo com `terminal`. */
@@ -250,6 +252,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else {
         sendJson(res, 200, {
           ok: true,
+          ...deps.health?.(),
           version: deps.version,
           demo: office.isDemo(),
           docker: deps.inDocker,

@@ -358,6 +358,7 @@ export class Office {
     const rec: AgentRecord = { info, history: [] };
     if (p.status === 'working') rec.turnStart = now;
     this.agents.set(p.id, rec);
+    this.see(p.id, () => [p.role, p.waitingFor]);
     const acc = this.deps.accountName(p.account);
     this.notice('arrive', p.id, 'info', `👋 ${info.name} chegou em ${this.roomName(roomId)}${acc ? ` (${acc})` : ''}`, roomId);
     this.markDirty();
@@ -666,7 +667,7 @@ export class Office {
   applyTranscript(id: string, t: TranscriptSummary): void {
     const rec = this.agents.get(id);
     if (!rec) return;
-    this.see(id, () => [t.title, JSON.stringify(t.tasks)]);
+    this.see(id, () => [t.title, JSON.stringify(t.tasks), t.model, t.gitBranch, t.permissionMode]);
     const info = rec.info;
     let changed = false;
     const set = <K extends keyof AgentInfo>(k: K, v: AgentInfo[K] | undefined) => {

@@ -56,7 +56,7 @@ names.load();
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
 // Fork QODE (server/qode): uma sala por projeto e privacidade por allowlist, pelo qode.config.json. Sem ele, nada muda.
-const qode = setupQode({ env: process.env, dataDir: config.dataDir, home: config.home, roomAliases, office: () => office });
+const qode = setupQode({ env: process.env, dataDir: config.dataDir, home: config.home, inDocker: config.inDocker, roomAliases, office: () => office });
 
 // Office, contas e fontes de agentes se referenciam (avisos de mudança / fontes): ligação tardia.
 const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry } = {};
@@ -195,6 +195,7 @@ const api = createApiHandler({
   sources: () => agents.sources(),
   version: config.version,
   inDocker: config.inDocker,
+  health: () => ({ qode: qode.health() }),
   terminal: config.terminal,
   terminals,
   sessions: history && qode.history(history),
