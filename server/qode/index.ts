@@ -11,7 +11,7 @@ import type { OfficeLike as MessageOffice } from '../messages/registry';
 import type { OfficeLike as PermissionOffice, PermissionRegistry, RegisterResult } from '../permissions/registry';
 import type { SessionLookup } from '../sources/source';
 import { createTerminalParser, type TerminalParser } from '../sources/terminal';
-import { isPrivatePath, loadQodeConfig, opaqueRoomKey, PRIVATE_ROOM_PREFIX, projectOf, type QodeConfig } from './config';
+import { isPrivatePath, loadQodeConfig, MENTIONS_BYTES_MAX, opaqueRoomKey, PRIVATE_ROOM_PREFIX, projectOf, type QodeConfig } from './config';
 import { Privacy } from './privacy';
 
 const SCAN_CHUNK = 1 << 20;
@@ -21,11 +21,14 @@ export const PRIVATE_SESSION_ERROR = 'sessão de projeto privado: o Habblaud nã
 
 /** Linha do transcript: JSON já decodificado; se não parseia, o texto cru; `{`/`[` duvidoso = fechado. */
 export function inspectTranscriptLine(line: string, mentions: (text: string) => boolean): boolean {
+  if (line.length > MENTIONS_BYTES_MAX) return true;
   const t = line.trim();
   if (!t) return false;
   try {
     const parsed = JSON.parse(t) as unknown;
-    return mentions(typeof parsed === 'string' ? parsed : JSON.stringify(parsed)) || mentions(t);
+    const payload = typeof parsed === 'string' ? parsed : JSON.stringify(parsed);
+    if (payload.length > MENTIONS_BYTES_MAX) return true;
+    return mentions(payload) || mentions(t);
   } catch {
     if (t.startsWith('{') || t.startsWith('[')) return true;
     return mentions(t);
@@ -37,7 +40,7 @@ export type ScanResult = 'hit' | 'clean' | 'error';
 
 /** Procura caminhos privados num transcript, só nos bytes novos desde a última vez (o resultado positivo fica). */
 export class TranscriptScanner {
-  private cache = new Map<string, { offset: number; hit: boolean; carry: string; ino: number; mtimeMs: number; decoder: StringDecoder }>();
+  private cache = new Map<string, { offset: number; hit: boolean; pending: boolean; carry: string; ino: number; mtimeMs: number; decoder: StringDecoder }>();
 
   constructor(private readonly mentions: (text: string) => boolean) {}
 
@@ -58,13 +61,13 @@ export class TranscriptScanner {
     const rewritten = e && (size < e.offset || e.ino !== ino || (size === e.offset && mtimeMs !== e.mtimeMs));
     if (!e || rewritten) {
       if (e?.hit) return 'hit';
-      e = { offset: 0, hit: false, carry: '', ino, mtimeMs, decoder: new StringDecoder('utf8') };
+      e = { offset: 0, hit: false, pending: false, carry: '', ino, mtimeMs, decoder: new StringDecoder('utf8') };
       if (!this.cache.has(path) && this.cache.size >= SCAN_CACHE_MAX) this.cache.delete(this.cache.keys().next().value!);
       this.cache.set(path, e);
     }
     if (e.hit) return 'hit';
     e.mtimeMs = mtimeMs;
-    if (size === e.offset) return 'clean';
+    if (size === e.offset) return e.pending ? 'error' : 'clean';
     let fd: number;
     try {
       fd = openSync(path, 'r');
@@ -97,9 +100,22 @@ export class TranscriptScanner {
       }
       if (!e.hit && e.offset >= size) {
         const tail = e.carry + e.decoder.end();
-        if (tail && inspectTranscriptLine(tail, this.mentions)) e.hit = true;
-        e.carry = tail;
         e.decoder = new StringDecoder('utf8');
+        e.carry = tail;
+        e.pending = false;
+        if (tail) {
+          const t = tail.trim();
+          if (t.startsWith('{') || t.startsWith('[')) {
+            try {
+              JSON.parse(t);
+              if (inspectTranscriptLine(t, this.mentions)) e.hit = true;
+            } catch {
+              e.pending = true;
+            }
+          } else if (inspectTranscriptLine(t, this.mentions)) {
+            e.hit = true;
+          }
+        }
       }
     } catch {
       this.cache.delete(path);
@@ -107,7 +123,7 @@ export class TranscriptScanner {
     } finally {
       closeSync(fd);
     }
-    return e.hit ? 'hit' : 'clean';
+    return e.hit ? 'hit' : e.pending ? 'error' : 'clean';
   }
 }
 

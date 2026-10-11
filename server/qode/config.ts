@@ -5,7 +5,7 @@
 // Todo caminho é comparado na forma canônica: ~ e $HOME expandidos, "." e ".." resolvidos, barras repetidas juntadas
 // e, quando o caminho (ou um ancestral dele) existe, symlinks resolvidos. A comparação ignora maiúsculas (APFS).
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join, posix } from 'node:path';
 
 export const QODE_CONFIG_FILE = 'qode.config.json';
@@ -46,6 +46,8 @@ export interface QodeConfig {
   privateRoots: QodeRoot[];
   /** Trechos (minúsculos) que denunciam um caminho privado mesmo fora de um caminho: o cwd codificado do Claude Code. */
   needles: string[];
+  /** Caminhos de symlinks que apontam para uma raiz privada (descobertos no disco ou na resolução). */
+  privateAliases: Set<string>;
 }
 
 export function configPath(env: NodeJS.ProcessEnv, dataDir: string): string {
@@ -230,13 +232,38 @@ export function parseConfig(raw: unknown, home: string, file = QODE_CONFIG_FILE)
   }
   const privateRoots = projects.filter((p) => p.privado).flatMap((p) => p.roots);
   const needles = [...new Set(privateRoots.filter((r) => r.path.length > 1).map((r) => r.path.replace(/[^a-z0-9]/g, '-')))];
-  return { file, home, projects, privateRoots, needles };
+  const privateAliases = discoverAliases(privateRoots);
+  return { file, home, projects, privateRoots, needles, privateAliases };
+}
+
+/** Symlinks no diretório pai de cada raiz privada que apontam para ela. */
+function discoverAliases(roots: QodeRoot[]): Set<string> {
+  const out = new Set<string>();
+  const dirs = new Set(roots.filter((r) => r.path.length > 1 && !r.prefix).map((r) => posix.dirname(r.path)));
+  for (const dir of dirs) {
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const p = posix.join(dir, name);
+      try {
+        const real = realpathSync.native(p).toLowerCase();
+        if (roots.some((r) => under(real, r))) out.add(p.toLowerCase());
+      } catch {
+        /* não é symlink resolvível */
+      }
+    }
+  }
+  return out;
 }
 
 /** Lê o arquivo. undefined = não existe (sem QODE); inválido = config com `invalid` (tudo privado). */
 export function loadQodeConfig(env: NodeJS.ProcessEnv, dataDir: string, home: string): QodeConfig | undefined {
   const file = configPath(env, dataDir);
-  const broken = (why: string): QodeConfig => ({ file, invalid: why, home, projects: [], privateRoots: [], needles: [] });
+  const broken = (why: string): QodeConfig => ({ file, invalid: why, home, projects: [], privateRoots: [], needles: [], privateAliases: new Set() });
   let text: string;
   try {
     text = readFileSync(file, 'utf8');
@@ -303,10 +330,6 @@ function isHexChar(c: string | undefined): boolean {
   if (!c) return false;
   const o = c.charCodeAt(0);
   return (o >= 48 && o <= 57) || (o >= 65 && o <= 70) || (o >= 97 && o <= 102);
-}
-
-function isWordish(c: string | undefined): boolean {
-  return !!c && /[\w.~+-]/.test(c);
 }
 
 function isTokenBreaker(code: number): boolean {
@@ -442,28 +465,12 @@ export function unshell(text: string, home: string): string {
 
 const GLOB = /[*?[]/;
 
-function takeUnquoted(text: string, start: number): { token: string; next: number } {
-  let i = start;
-  let token = '';
-  while (i < text.length) {
-    if (text[i] === '\\' && text[i + 1] === ' ') {
-      token += ' ';
-      i += 2;
-      continue;
-    }
-    if (PATH_STOP.test(text[i]!)) break;
-    token += text[i];
-    i += 1;
-  }
-  return { token, next: i };
-}
-
 function takeQuoted(text: string, start: number): { token: string; next: number } {
   const q = text[start]!;
   let i = start + 1;
   let token = '';
   while (i < text.length && text[i] !== q) {
-    if (text[i] === '\\' && i + 1 < text.length) {
+    if (q !== "'" && text[i] === '\\' && i + 1 < text.length) {
       token += text[i + 1];
       i += 2;
       continue;
@@ -472,6 +479,53 @@ function takeQuoted(text: string, start: number): { token: string; next: number 
     i += 1;
   }
   return { token, next: i < text.length ? i + 1 : i };
+}
+
+const DASH_C = new Set(['-c', '-lc', '-ic', '-lic']);
+const EVAL_LIKE = new Set(['eval']);
+
+function takeShellWord(text: string, start: number): { word: string; next: number } {
+  let i = start;
+  let word = '';
+  while (i < text.length) {
+    const c = text[i]!;
+    if (c === '"' || c === "'" || c === '`') {
+      const q = takeQuoted(text, i);
+      word += q.token;
+      i = q.next;
+      continue;
+    }
+    if (c === '\\') {
+      if (i + 1 < text.length) {
+        word += text[i + 1] === '\n' ? '' : text[i + 1]!;
+        i += 2;
+      } else {
+        i += 1;
+      }
+      continue;
+    }
+    if (/\s/.test(c) || /[;|&<>()]/.test(c)) break;
+    word += c;
+    i += 1;
+  }
+  return { word, next: i };
+}
+
+function tokenizeShell(text: string): string[] {
+  const words: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    while (i < text.length && /\s/.test(text[i]!)) i += 1;
+    if (i >= text.length) break;
+    if (/[;|&<>()]/.test(text[i]!)) {
+      i += 1;
+      continue;
+    }
+    const w = takeShellWord(text, i);
+    if (w.word) words.push(w.word);
+    i = w.next;
+  }
+  return words;
 }
 
 function privateLower(cfg: QodeConfig, lower: string): boolean {
@@ -494,11 +548,16 @@ export function isPrivateToken(cfg: QodeConfig, token: string): boolean {
     }
     tok = tok.slice(0, tok.lastIndexOf('/', g) + 1) || '/';
   }
-  return readings(tok).some((r) => privateLower(cfg, r.toLowerCase()));
+  const hit = readings(tok).some((r) => privateLower(cfg, r.toLowerCase()));
+  if (hit) {
+    const lex = lexical(tok).toLowerCase();
+    if (lex.length > 3) cfg.privateAliases.add(lex);
+  }
+  return hit;
 }
 
-/** Os caminhos absolutos de um texto (depois de unshell), inclusive entre aspas e com espaço escapado. */
-export function pathTokens(text: string, home?: string): string[] {
+/** Palavras no estilo do shell: aspas adjacentes e escapes formam um só token; -c/eval são reabertos. */
+export function pathTokens(text: string, home?: string, depth = 0): string[] {
   const prepared = home !== undefined ? expandVars(decodeEscapes(text), home) : text;
   const found: string[] = [];
   const add = (raw: string) => {
@@ -506,34 +565,11 @@ export function pathTokens(text: string, home?: string): string[] {
     const t = (home ? expandHome(decoded, home) : undefined) ?? decoded;
     if (t.startsWith('/') && t.length >= 2) found.push(t);
   };
-  let i = 0;
-  while (i < prepared.length) {
-    const c = prepared[i]!;
-    if (c === '"' || c === "'" || c === '`') {
-      const q = takeQuoted(prepared, i);
-      add(q.token);
-      i = q.next;
-      continue;
-    }
-    if (c === '/' && !isWordish(prepared[i - 1])) {
-      const u = takeUnquoted(prepared, i);
-      add(u.token);
-      i = u.next;
-      continue;
-    }
-    i += 1;
-  }
-  if (home !== undefined) {
-    const stripped = stripQuotes(prepared);
-    let j = 0;
-    while (j < stripped.length) {
-      if (stripped[j] === '/' && !isWordish(stripped[j - 1])) {
-        const u = takeUnquoted(stripped, j);
-        add(u.token);
-        j = u.next;
-        continue;
-      }
-      j += 1;
+  const words = tokenizeShell(prepared);
+  for (let i = 0; i < words.length; i++) {
+    add(words[i]!);
+    if (depth < 2 && i + 1 < words.length && (DASH_C.has(words[i]!) || EVAL_LIKE.has(words[i]!.toLowerCase()))) {
+      for (const inner of pathTokens(words[i + 1]!, home, depth + 1)) found.push(inner);
     }
   }
   return found;
@@ -554,6 +590,21 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
   const tokens = pathTokens(text, cfg.home);
   if (tokens.length > MENTIONS_TOKENS_MAX) return true;
   if (tokens.some((t) => isPrivateToken(cfg, t))) return true;
+  const flat = decodeToken(stripQuotes(expandVars(decodeEscapes(text), cfg.home))).toLowerCase();
+  const contains = (root: string) => {
+    if (root.length <= 3) return false;
+    let i = 0;
+    while (i < flat.length) {
+      const at = flat.indexOf(root, i);
+      if (at < 0) return false;
+      const after = flat[at + root.length];
+      if (after === undefined || after === '/') return true;
+      i = at + 1;
+    }
+    return false;
+  };
+  if (cfg.privateRoots.some((r) => !r.prefix && contains(r.path))) return true;
+  for (const a of cfg.privateAliases) if (contains(a)) return true;
   const trimmed = text.trimStart();
   if (depth < 2 && (trimmed.startsWith('{') || trimmed.startsWith('['))) {
     try {
