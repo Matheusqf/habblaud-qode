@@ -1,0 +1,22 @@
+{
+  "_leia": "Copie para ~/.habblaud/qode.config.json e ajuste. Cada projeto vira uma sala; \"*\" no fim pega as worktrees irmãs (repo-*). \"privado\": true mostra só o nome do projeto e o estado dos agentes. Arquivo inválido = tudo privado.",
+  "projetos": [
+    { "nome": "Clínicas", "caminhos": ["~/Documents/GitHub/clinicas"] },
+    { "nome": "WorkToDo", "caminhos": ["~/worktodo"] },
+    { "nome": "monitor-imobiliario", "caminhos": ["~/Documents/GitHub/monitor-imobiliario"] },
+    { "nome": "Atelier Lisboa", "caminhos": ["~/Documents/GitHub/projeto-interiores"], "nota": "apartamento; caminho a confirmar" },
+    { "nome": "Fantasy", "caminhos": ["~/Documents/GitHub/fantasies-x"], "nota": "caminho a confirmar" },
+    { "nome": "dev-flow", "caminhos": ["~/Documents/GitHub/dev-flow"] },
+    { "nome": "Singolo", "caminhos": ["~/Documents/GitHub/singolo", "~/Documents/GitHub/singolo-*"] },
+    {
+      "nome": "CoRaSy",
+      "caminhos": ["~/Documents/GitHub/CoRaSy", "~/Documents/GitHub/CoRaSy-*", "~/Documents/corasy-pr42"]
+    },
+    {
+      "nome": "Vida OS",
+      "privado": true,
+      "caminhos": ["~/Documents/Vida", "~/Documents/Vida-Context"],
+      "nota": "Vida-Context é pacote derivado do Vida OS: também privado"
+    }
+  ]
+}

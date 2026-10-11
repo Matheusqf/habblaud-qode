@@ -34,6 +34,7 @@ import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
 import { createBuildReader } from './build';
+import { setupQode } from './qode';
 import { UpdateChecker } from './updates/checker';
 
 const config = loadConfig();
@@ -54,6 +55,8 @@ names.load();
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
+// Fork QODE (server/qode): uma sala por projeto e privacidade por allowlist, pelo qode.config.json. Sem ele, nada muda.
+const qode = setupQode({ env: process.env, dataDir: config.dataDir, home: config.home, roomAliases, office: () => office });
 
 // Office, contas e fontes de agentes se referenciam (avisos de mudança / fontes): ligação tardia.
 const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry } = {};
@@ -87,6 +90,8 @@ const office = new Office({
   permissions: () => late.permissions?.snapshot() ?? new Map(),
   messages: config.messages ? () => late.messages?.reachable() ?? new Set() : undefined,
   updates: () => updates.status(),
+  roomOf: qode.roomOf,
+  privacy: qode.privacy,
 });
 // Fontes de agentes, uma por ferramenta (sources/source.ts): a do Claude Code e, depois dela, a do Codex (quando há
 // pastas do Codex; HABBLAUD_CODEX=0 desliga), com o histórico dela no HistorySet abaixo e as contas registradas por
@@ -108,7 +113,11 @@ stats.load();
 // Terminal: só existe com bind local (ver terminalOffReason em config.ts).
 // Cada agente com o parser da ferramenta dele (o do Claude Code por padrão).
 const terminals = config.terminal
-  ? new TerminalStreams({ office, transcriptPathOf: (id) => agents.transcriptPathOf(id), parserFor: (id) => agents.parserFor(id) })
+  ? new TerminalStreams({
+      office,
+      transcriptPathOf: qode.transcriptPathOf((id) => agents.transcriptPathOf(id)),
+      parserFor: qode.parserFor((id) => agents.parserFor(id)),
+    })
   : undefined;
 // Histórico do terminal (sessões recentes, abertas ou encerradas, de todas as ferramentas): mesma trava.
 const history = config.terminal
@@ -122,7 +131,7 @@ if (timeline) hub.onSnapshot((snap) => timeline.ingest(snap));
 // Responder pelo escritório (hook PermissionRequest): age sobre as sessões, então segue a mesma trava.
 const permissions = config.terminal
   ? new PermissionRegistry({
-      office,
+      office: qode.officeView(office),
       viewers: () => hub.localSize,
       // Só o Claude Code: a busca da resposta dada no terminal lê o formato do transcript dele.
       transcriptPathOf: (id) => claude.transcriptPathOf(id),
@@ -140,7 +149,7 @@ late.permissions = permissions;
 const codexBin = config.messages && !config.inDocker ? findCodexBin(process.env) : undefined;
 const messages = config.messages
   ? new MessageRegistry({
-      office,
+      office: qode.officeView(office),
       demoAgent: (id) => office.demoAgent(id),
       demoDeliver: (id, text) => office.deliverDemoMessage(id, text),
       codex: {
@@ -188,9 +197,9 @@ const api = createApiHandler({
   inDocker: config.inDocker,
   terminal: config.terminal,
   terminals,
-  sessions: history,
+  sessions: history && qode.history(history),
   timeline: createTimelineHandler({ dir: timelineDir, recording: !!timeline }),
-  permissions: permissions ? createPermissionRoutes(permissions) : undefined,
+  permissions: permissions ? createPermissionRoutes(qode.permissionRoutes(permissions)) : undefined,
   messages: messages ? createMessageRoutes(messages) : undefined,
   codexLive,
   stats,

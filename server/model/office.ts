@@ -72,7 +72,19 @@ export interface OfficeDeps {
   messages?: () => ReadonlySet<string>;
   /** Verificação de versão nova no GitHub (ver OfficeSnapshot.meta.updates). */
   updates?: () => UpdateStatus;
+  /** Sala de um cwd quando não é a própria pasta (fork QODE: uma sala por projeto, server/qode). */
+  roomOf?: (cwd: string) => string | undefined;
+  /** Filtro de privacidade (fork QODE, server/qode/privacy.ts): vê o que entra e filtra tudo o que sai. */
+  privacy?: OfficePrivacy;
   now?: () => number;
+}
+
+export interface OfficePrivacy {
+  observe(agentId: string, texts: ReadonlyArray<string | undefined>): void;
+  snapshot(s: OfficeSnapshot): OfficeSnapshot;
+  feed(items: FeedItem[]): FeedItem[];
+  notices(items: Notice[]): Notice[];
+  detail(d: AgentDetail): AgentDetail;
 }
 
 /** O que o transcript sabe sobre o agente (aplicado de uma vez). */
@@ -290,13 +302,14 @@ export class Office {
 
   detail(id: string): AgentDetail | undefined {
     const rec = this.agents.get(id);
-    if (rec) return { agent: cloneAgent(rec.info), history: rec.history.slice() };
-    const demo = this.demoSnap?.agents.find((a) => a.id === id);
-    return demo ? { agent: cloneAgent(demo), history: demo.recent.slice() } : undefined;
+    const demo = rec ? undefined : this.demoSnap?.agents.find((a) => a.id === id);
+    const d = rec ? { agent: cloneAgent(rec.info), history: rec.history.slice() } : demo ? { agent: cloneAgent(demo), history: demo.recent.slice() } : undefined;
+    return d && this.deps.privacy ? this.deps.privacy.detail(d) : d;
   }
 
   recentFeed(n: number): FeedItem[] {
-    return this.feed.slice(-n);
+    const items = this.feed.slice(-n);
+    return this.deps.privacy ? this.deps.privacy.feed(items) : items;
   }
 
   isDemo(): boolean {
@@ -314,7 +327,7 @@ export class Office {
       this.setStatus(p.id, p.status, p.waitingFor);
       return;
     }
-    const roomId = normalizeCwd(p.cwd);
+    const roomId = normalizeCwd(this.deps.roomOf?.(p.cwd) ?? p.cwd);
     this.ensureRoom(roomId, now);
     const chosen = this.roomCharacter(roomId, p.id, p.sessionId);
     const person = chosen ?? this.deps.names.assign(p.sessionId, this.takenNames());
@@ -374,6 +387,7 @@ export class Office {
   setStatus(id: string, status: AgentStatus, waitingFor?: string): void {
     const rec = this.agents.get(id);
     if (!rec) return;
+    this.see(id, () => [waitingFor]);
     const info = rec.info;
     const prev = info.status;
     const reason = status === 'waiting' ? (waitingFor ?? 'responder no terminal') : undefined;
@@ -451,6 +465,7 @@ export class Office {
   setShells(id: string, jobs: readonly ShellJob[]): void {
     const rec = this.agents.get(id);
     if (!rec) return;
+    this.see(id, () => [JSON.stringify(jobs)]);
     const info = rec.info;
     if (info.status === 'offline' || (info.kind === 'sub' && info.status === 'done')) jobs = [];
     const next = jobs.length ? jobs.map((j) => ({ ...j })).sort(byStart) : undefined;
@@ -603,6 +618,7 @@ export class Office {
     if (p.title) info.title = p.title;
     if (p.background) info.background = true;
     this.agents.set(p.id, { info, history: [], turnStart: now });
+    this.see(p.id, () => [p.title]);
     this.markDirty();
     return true;
   }
@@ -650,6 +666,7 @@ export class Office {
   applyTranscript(id: string, t: TranscriptSummary): void {
     const rec = this.agents.get(id);
     if (!rec) return;
+    this.see(id, () => [t.title, JSON.stringify(t.tasks)]);
     const info = rec.info;
     let changed = false;
     const set = <K extends keyof AgentInfo>(k: K, v: AgentInfo[K] | undefined) => {
@@ -682,6 +699,7 @@ export class Office {
   addActivity(id: string, activity: Activity, current: boolean, opts: { feed?: boolean; filler?: boolean } = {}): void {
     const rec = this.agents.get(id);
     if (!rec) return;
+    this.see(id, () => [JSON.stringify(activity)]);
     const info = rec.info;
     // "Concluiu" vindo do transcript substitui o que sintetizamos pela mudança de status.
     if (activity.kind === 'done' && rec.synthDone && activity.at - rec.synthDone.at < 60_000) {
@@ -729,6 +747,7 @@ export class Office {
   mergeHistory(id: string, older: readonly Activity[]): void {
     const rec = this.agents.get(id);
     if (!rec || !older.length) return;
+    this.see(id, () => older.map((a) => JSON.stringify(a)));
     const seen = new Set(rec.history.map((a) => a.id));
     const add = older.filter((a) => !seen.has(a.id));
     if (!add.length) return;
@@ -744,6 +763,7 @@ export class Office {
   noticePermission(id: string, what: string, kind: 'permission' | 'question' = 'permission'): void {
     const info = this.agents.get(id)?.info;
     if (!info) return;
+    this.see(id, () => [what]);
     const room = this.roomName(info.roomId);
     const text = kind === 'question' ? `❓ ${info.name} tem uma pergunta em ${room}: ${what}` : `🔐 ${info.name} pede permissão em ${room}: ${what}`;
     this.notice('wait', id, 'alert', text, info.roomId);
@@ -928,18 +948,24 @@ export class Office {
 
   /** Fecha uma revisão: devolve o snapshot (novo, se algo mudou), o feed e os avisos pendentes. */
   commit(): CommitResult {
-    const feed = this.pendingFeed;
-    const notices = this.pendingNotices;
+    const privacy = this.deps.privacy;
+    const feed = privacy ? privacy.feed(this.pendingFeed) : this.pendingFeed;
+    const notices = privacy ? privacy.notices(this.pendingNotices) : this.pendingNotices;
     this.pendingFeed = [];
     this.pendingNotices = [];
     if (!this.dirty && this.last) return { snapshot: this.last, changed: false, feed, notices };
     this.rev++;
     this.dirty = false;
-    this.last = this.build();
+    this.last = privacy ? privacy.snapshot(this.build()) : this.build();
     return { snapshot: this.last, changed: true, feed, notices };
   }
 
   // ---------------------------------------------------------------- internos
+
+  /** Textos que entram no agente, para o filtro de privacidade (montados só se ele existir). */
+  private see(id: string, texts: () => Array<string | undefined>): void {
+    this.deps.privacy?.observe(id, texts());
+  }
 
   private build(): OfficeSnapshot {
     const now = this.now();
