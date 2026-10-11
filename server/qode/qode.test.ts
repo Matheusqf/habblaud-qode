@@ -854,6 +854,32 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     expect(published(e, ['c', 'd'])).not.toContain(SENT);
   });
 
+  it('aspas concatenadas e bash -c com aspas aninhadas contaminam', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    const alias = join(e.dataDir, 'qode alias');
+    const dir = e.dataDir;
+    symlinkSync(vida(e), alias);
+    const forms = [
+      `"${dir}/qode"" alias/secret.txt"`,
+      `'${dir}/qode'\\ 'alias'/secret.txt`,
+      `"${dir}/"'qode alias'/secret.txt`,
+      `bash -c 'cat "${alias}/secret.txt"'`,
+      `zsh -lc 'cat "${alias}/secret.txt"'`,
+      `eval 'cat "${alias}/secret.txt"'`,
+    ];
+    const ids: string[] = [];
+    for (const [i, detail] of forms.entries()) {
+      const id = `c${i}`;
+      ids.push(id);
+      main(e, id, clinicas(e));
+      e.office.addActivity(id, act(id, { kind: 'run', text: SENT, detail }), true);
+      expect(e.qode.privacy!.isPrivate(id), detail).toBe(true);
+    }
+    expect(published(e, ids)).not.toContain(SENT);
+    expect(published(e, ids)).not.toContain('qode alias');
+  });
+
   it('transcript JSON com \\u002f é inspecionado já decodificado; linha que não parseia fecha', () => {
     const e = setup();
     main(e, 'c', clinicas(e), 'sc');
@@ -915,6 +941,49 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     expect(mentionsPrivate(cfg, junk)).toBe(false);
     expect(mentionsPrivate(cfg, `${junk} cat /Users/teste/Documents/Vida/a.md`)).toBe(true);
     expect(performance.now() - t0).toBeLessThan(200);
+  });
+
+  it('JSON de 247 KB / 8000 caminhos: teto no scanner e no histórico, sem travar', () => {
+    const cfg = parseConfig({ projetos: [{ nome: 'P', caminhos: ['~/Documents/Vida'], privado: true }] }, '/Users/teste');
+    const files = Array.from({ length: 8_000 }, (_, i) => `/tmp/public-workspace/dir/file-${String(i).padStart(5, '0')}.md`);
+    const line = JSON.stringify({ type: 'user', cwd: '/tmp/public', files });
+    expect(Buffer.byteLength(line)).toBeGreaterThan(240_000);
+    expect(line.length).toBeGreaterThan(96 * 1024);
+    const t0 = performance.now();
+    expect(mentionsPrivate(cfg, line)).toBe(true);
+    const mentionsMs = performance.now() - t0;
+    const tmp = tempDir();
+    cleanups.push(tmp.cleanup);
+    const file = join(tmp.dir, 'big.jsonl');
+    writeFileSync(file, `${line}\n`);
+    const t1 = performance.now();
+    expect(new TranscriptScanner((t) => mentionsPrivate(cfg, t)).scan(file)).toBe('hit');
+    const scanMs = performance.now() - t1;
+    const e = setup();
+    const t2 = performance.now();
+    const h = e.qode.history({ list: async () => [], resolve: () => ({ path: file, createParser: () => ({ push: () => [] }) }) });
+    expect(h.resolve('.claude', 'x')).toEqual({ status: 404, error: PRIVATE_SESSION_ERROR });
+    const histMs = performance.now() - t2;
+    expect(mentionsMs, `mentions ${mentionsMs}ms`).toBeLessThan(200);
+    expect(scanMs, `scan ${scanMs}ms`).toBeLessThan(200);
+    expect(histMs, `hist ${histMs}ms`).toBeLessThan(200);
+  });
+
+  it('linha JSON incompleta bloqueia sem contaminar; completa e reavalia', () => {
+    const e = setup();
+    main(e, 'c', clinicas(e));
+    const file = join(e.dataDir, 'partial.jsonl');
+    writeFileSync(file, '{"type":"user","cwd":"/tmp/pub","message":"oi"');
+    const has = (t: string) => mentionsPrivate(e.qode.config!, t);
+    const sc = new TranscriptScanner(has);
+    expect(sc.scan(file)).toBe('error');
+    expect(e.qode.transcriptPathOf(() => file)('c')).toBeUndefined();
+    expect(e.qode.privacy!.isPrivate('c')).toBe(false);
+    appendFileSync(file, '}\n');
+    expect(sc.scan(file)).toBe('clean');
+    expect(new TranscriptScanner(has).scan(file)).toBe('clean');
+    expect(e.qode.transcriptPathOf(() => file)('c')).toBe(file);
+    expect(e.qode.privacy!.isPrivate('c')).toBe(false);
   });
 
   it('JSON com milhares de caminhos: teto de inspeção, falha fechada, sem travar', () => {
