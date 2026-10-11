@@ -17,10 +17,15 @@ funciona igual ao upstream.
 - **Vale para todas as saídas:** snapshot e SSE (`/api/stream`), `/api/snapshot`, `/api/agents/:id`,
   `/api/mod/summary` (statusline do mod), linha do tempo gravada em disco, estatísticas do "Meu dia", terminal,
   `/api/sessions/*`, pedidos de permissão, mensagens e logs. Nos logs, os caminhos privados viram `[privado]`.
-- **Caminhos canônicos.** Antes de classificar, a pasta do agente e os caminhos citados são normalizados: `.`, `..` e
-  barras duplas são resolvidos e, quando o caminho existe, o symlink é seguido (realpath). Assim, `~/atalho-vida`
-  apontando para `~/Documents/Vida`, ou `~/Documents/GitHub/clinicas/../../Vida`, caem no Vida OS. Se o caminho cair
-  num projeto público e num privado, o privado ganha.
+- **Caminhos canônicos.** Antes de classificar, a pasta do agente e cada caminho citado são lidos de dois jeitos, e
+  se um deles cair no privado, o privado ganha:
+  - **como texto:** `.`, `..` e barras duplas resolvidos;
+  - **como o disco lê:** symlinks seguidos com o `..` ainda no lugar. O caminho cru vai para o realpath; se ele não
+    existe, entra no realpath o maior prefixo que existe, e só o resto é aplicado como texto.
+
+  Assim caem no Vida OS: `~/atalho-vida` apontando para `~/Documents/Vida`, `~/Documents/GitHub/clinicas/../../Vida` e
+  `clinicas/ponte/../Vida`, quando `ponte` aponta para o Vida. As respostas do disco ficam guardadas só por 2 segundos,
+  e só quando o caminho existe, então um symlink criado ou trocado depois vale logo.
 - **Quem cita o Vida OS vira privado.** Um agente em outra pasta que lê, busca ou roda algo com um caminho do projeto
   privado também vira privado. O detector reconhece estas formas:
   - caminho absoluto, `~/…`, `~usuario/…`, `$HOME/…` e `${HOME}/…`, inclusive com aspas no meio (`"$HOME"/Documents/…`,
