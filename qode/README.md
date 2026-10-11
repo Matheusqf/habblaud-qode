@@ -35,8 +35,8 @@ funciona igual ao upstream.
   privado também vira privado. O detector reconhece estas formas:
   - caminho absoluto, `~/…`, `~usuario/…`, `$HOME/…` e `${HOME}/…`, inclusive com aspas no meio (`"$HOME"/Documents/…`,
     `$HOME"/Documents/Vida"`) e com espaço no nome (`"/tmp/qode alias/…"`, `/tmp/qode\ alias/…`);
-  - URL-encoding (`%2F`), `\u002f` no JSON, `file://` e `file://localhost/`, barras escapadas de JSON (`\/`), `.`, `..`
-    e `//` no meio;
+  - URL-encoding (`%2F`, `%20` no meio do nome), `\u002f` no JSON, `file://` e `file://localhost/`, barras escapadas
+    de JSON (`\/`), `.`, `..` e `//` no meio;
   - globs que incluem parte do nome da pasta (`~/Documents/Vi*`);
   - a pasta codificada do Claude Code (`-Users-…-Documents-Vida`);
   - qualquer combinação de maiúsculas e minúsculas.
@@ -47,7 +47,9 @@ funciona igual ao upstream.
 - **Permissões já registradas** antes da contaminação também somem: o vínculo pedido→sessão vale enquanto o pedido
   existir (não é descartado para “fazer espaço”). Sem identidade do pedido, leitura e aprovação fecham.
 - **Transcript em JSON:** cada linha é inspecionada já decodificada (`JSON.parse`). Uma linha que parece JSON e não
-  parseia fecha o acesso. Assim um `\u002f` no arquivo não passa do filtro.
+  parseia fecha o acesso. Assim um `\u002f` no arquivo não passa do filtro. Num texto grande demais (muitos
+  caminhos ou muitos bytes), a inspeção para e o agente é tratado como privado — falha fechada, para não travar o
+  servidor.
 - **Subagentes herdam** a privacidade do principal. Um subagente sem principal conhecido é tratado como privado
   (só quando existe algum projeto privado). O papel do subagente aparece sempre genérico ("Subagente"), porque nomes
   de agentes customizados podem revelar o projeto.
