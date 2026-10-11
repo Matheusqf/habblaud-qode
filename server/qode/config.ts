@@ -14,6 +14,7 @@ const NAME_MAX = 40;
 const TOKEN_MAX = 4_096;
 const REAL_CACHE_MAX = 20_000;
 const REAL_CACHE_TTL_MS = 2_000;
+const WALK_MAX = 16;
 
 export interface QodeRoot {
   /** Caminho canônico em minúsculas. */
@@ -72,26 +73,79 @@ function realOf(p: string): string | undefined {
 }
 
 /**
- * Caminho físico, como o kernel o leria: ".." vale depois de seguir o symlink (ponte/../Vida sai de dentro do alvo
- * da ponte). Se o caminho não existe, resolve o maior prefixo que existe e só então aplica o resto como texto.
+ * Uma etapa da caminhada: segue cada componente que existe (symlink incluso); ".." vale no alvo já resolvido.
+ * Se um componente falha (ENOENT, EACCES, ELOOP…), o resto é colapsado como texto sobre o prefixo resolvido.
  */
-export function realish(p: string): string {
-  const raw = p.trim().replace(/\\/g, '/');
-  if (!raw.startsWith('/')) return lexical(raw);
-  const whole = realOf(raw);
-  if (whole !== undefined) return whole;
-  const segs = raw.split('/').filter((s) => s && s !== '.');
+function walkGap(p: string, add: (s: string) => void): string {
+  const segs = p.split('/').filter((s) => s && s !== '.');
   let cur = '/';
   for (let i = 0; i < segs.length; i++) {
     if (segs[i] === '..') {
       cur = posix.dirname(cur);
+      add(cur);
       continue;
     }
     const next = realOf(posix.join(cur, segs[i]));
-    if (next === undefined) return lexical(posix.join(cur, ...segs.slice(i)));
+    if (next === undefined) {
+      const collapsed = lexical(posix.join(cur, ...segs.slice(i)));
+      add(collapsed);
+      return collapsed;
+    }
+    cur = next;
+    add(cur);
+  }
+  add(cur);
+  return cur;
+}
+
+/** Caminha e, depois de um furo, continua a partir do colapso léxico até não haver mais ".." nem symlink resolvível. */
+function walkInto(start: string, add: (s: string) => void): void {
+  if (!start.startsWith('/')) {
+    add(lexical(start));
+    return;
+  }
+  let cur = start;
+  for (let n = 0; n < WALK_MAX; n++) {
+    add(cur);
+    const whole = realOf(cur);
+    if (whole !== undefined) {
+      add(whole);
+      return;
+    }
+    const next = walkGap(cur, add);
+    if (next === cur) return;
     cur = next;
   }
-  return cur;
+}
+
+/**
+ * Leituras candidatas de um caminho: léxica, física estrita (prefixo existente + "..") e léxica+física
+ * (colapsa o furo e continua). Qualquer uma privada vence; erro numa leitura não descarta as outras.
+ */
+function readings(p: string): string[] {
+  const raw = p.trim().replace(/\\/g, '/');
+  const found = new Set<string>();
+  const add = (s: string) => {
+    if (s) found.add(s);
+  };
+  add(lexical(raw));
+  walkInto(raw, add);
+  walkInto(lexical(raw), add);
+  return [...found];
+}
+
+/**
+ * Caminho físico no estilo realpath -m: ".." vale depois do symlink; se um componente falha, o resto é colapsado
+ * como texto e a caminhada continua (nao-existe/../ponte segue a ponte).
+ */
+export function realish(p: string): string {
+  const raw = p.trim().replace(/\\/g, '/');
+  if (!raw.startsWith('/')) return lexical(raw);
+  let last = lexical(raw);
+  walkInto(raw, (s) => {
+    last = s;
+  });
+  return last;
 }
 
 /** Forma canônica (com symlinks resolvidos) de um caminho absoluto. */
@@ -209,16 +263,18 @@ function bestIn(cfg: QodeConfig, lower: string): { project: QodeProject; len: nu
   return best;
 }
 
-/** Projeto da pasta, pela forma do texto e pela canônica (o privado ganha; depois, a raiz mais longa). */
+/** Projeto da pasta: léxica, física estrita e léxica+física; o privado ganha; depois, a raiz mais longa. */
 export function projectOf(cfg: QodeConfig, cwd: string): QodeProject | undefined {
   const abs = expandHome(cwd, cfg.home);
   if (!abs) return undefined;
-  const lex = lexical(abs);
-  const a = bestIn(cfg, lex.toLowerCase());
-  if (a?.project.privado) return a.project;
-  const b = bestIn(cfg, realish(abs).toLowerCase());
-  if (b?.project.privado) return b.project;
-  return a?.project ?? b?.project;
+  let best: { project: QodeProject; len: number } | undefined;
+  for (const r of readings(abs)) {
+    const hit = bestIn(cfg, r.toLowerCase());
+    if (!hit) continue;
+    if (hit.project.privado) return hit.project;
+    if (!best || hit.len > best.len) best = hit;
+  }
+  return best?.project;
 }
 
 export function isPrivatePath(cfg: QodeConfig, path: string): boolean {
@@ -271,14 +327,13 @@ export function isPrivateToken(cfg: QodeConfig, token: string): boolean {
     const raw = tok.slice(0, g);
     const cut = raw.lastIndexOf('/');
     const tail = tok[g - 1] === '/' ? '/' : '';
-    const lits = [lexical(raw), posix.join(realish(raw.slice(0, cut) || '/'), raw.slice(cut + 1))].map((l) => l.toLowerCase() + tail);
-    for (const lit of lits) {
+    const bases = new Set<string>([lexical(raw), ...readings(raw.slice(0, cut) || '/').map((b) => posix.join(b, raw.slice(cut + 1)))]);
+    for (const lit of [...bases].map((l) => l.toLowerCase() + tail)) {
       if (cfg.privateRoots.some((r) => r.path.startsWith(lit) && lit.length > posix.dirname(r.path).length + 1)) return true;
     }
     tok = tok.slice(0, tok.lastIndexOf('/', g) + 1) || '/';
   }
-  if (privateLower(cfg, lexical(tok).toLowerCase())) return true;
-  return privateLower(cfg, realish(tok).toLowerCase());
+  return readings(tok).some((r) => privateLower(cfg, r.toLowerCase()));
 }
 
 /** Os caminhos absolutos de um texto (depois de unshell). */
