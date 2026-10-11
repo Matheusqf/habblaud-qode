@@ -26,7 +26,7 @@ Criado em 11/10/2026 a partir da v0.8.0 (`d5f3718`). **Status: em espera** — M
 
 Avaliado por um júri de 3 (segurança, manutenção/upstream, produto) em [QODE-JURI-2026-10-11.md](QODE-JURI-2026-10-11.md).
 O júri mandou mudar o passo 1 (aprovações do OpenCode adiadas e privacidade do Vida OS antes de qualquer fonte nova),
-então **nada foi implementado**: o PR PR_LINK traz só os documentos e a proposta revisada, à espera da decisão do Matheus.
+então **nada foi implementado**: o [PR #2](https://github.com/Matheusqf/habblaud-qode/pull/2) traz só os documentos e a proposta revisada, à espera da decisão do Matheus.
 
 | Passo | Veredito do júri | Estado |
 | --- | --- | --- |
