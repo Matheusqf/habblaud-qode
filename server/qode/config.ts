@@ -367,16 +367,26 @@ function decodeEscapes(text: string): string {
       i += 3;
       continue;
     }
-    if (c === '\\' && (text[i + 1] === 'u' || text[i + 1] === 'U') && isHexChar(text[i + 2]) && isHexChar(text[i + 3]) && isHexChar(text[i + 4]) && isHexChar(text[i + 5])) {
-      const code = Number.parseInt(text.slice(i + 2, i + 6), 16);
-      if (isTokenBreaker(code)) {
-        const hex = code.toString(16).padStart(2, '0');
-        out.push('%', hex[0]!, hex[1]!);
-      } else {
-        out.push(String.fromCharCode(code));
+    if (c === '\\' && (text[i + 1] === 'u' || text[i + 1] === 'U')) {
+      const width = text[i + 1] === 'U' ? 8 : 4;
+      let valid = true;
+      for (let j = 0; j < width; j++) if (!isHexChar(text[i + 2 + j])) valid = false;
+      if (valid) {
+        const code = Number.parseInt(text.slice(i + 2, i + 2 + width), 16);
+        if (isTokenBreaker(code)) {
+          const hex = code.toString(16).padStart(2, '0');
+          out.push('%', hex.slice(-2, -1), hex.slice(-1));
+        } else {
+          try {
+            out.push(width === 8 ? String.fromCodePoint(code) : String.fromCharCode(code));
+          } catch {
+            out.push('\\', text[i + 1]!);
+            i += 1;
+          }
+        }
+        i += 2 + width;
+        continue;
       }
-      i += 6;
-      continue;
     }
     if (c === '\\') {
       let j = i;
@@ -484,48 +494,362 @@ function takeQuoted(text: string, start: number): { token: string; next: number 
 const DASH_C = new Set(['-c', '-lc', '-ic', '-lic']);
 const EVAL_LIKE = new Set(['eval']);
 
-function takeShellWord(text: string, start: number): { word: string; next: number } {
-  let i = start;
-  let word = '';
-  while (i < text.length) {
-    const c = text[i]!;
-    if (c === '"' || c === "'" || c === '`') {
-      const q = takeQuoted(text, i);
-      word += q.token;
-      i = q.next;
-      continue;
-    }
-    if (c === '\\') {
-      if (i + 1 < text.length) {
-        word += text[i + 1] === '\n' ? '' : text[i + 1]!;
-        i += 2;
-      } else {
-        i += 1;
-      }
-      continue;
-    }
-    if (/\s/.test(c) || /[;|&<>()]/.test(c)) break;
-    word += c;
-    i += 1;
-  }
-  return { word, next: i };
+const SHELL_DEPTH_MAX = 2;
+
+interface ShellScan {
+  /** Palavras no nível atual; aspas e escapes já foram interpretados. */
+  words: string[];
+  /** Palavras encontradas em substituições neste nível ou abaixo dele. */
+  nested: string[];
+  /** A construção não pôde ser interpretada com os limites seguros. */
+  unsafe: boolean;
 }
 
-function tokenizeShell(text: string): string[] {
-  const words: string[] = [];
-  let i = 0;
-  while (i < text.length) {
-    while (i < text.length && /\s/.test(text[i]!)) i += 1;
-    if (i >= text.length) break;
-    if (/[;|&<>()]/.test(text[i]!)) {
+function isShellSeparator(c: string | undefined): boolean {
+  return c === undefined || /\s/.test(c) || /[;|&<>()]/.test(c);
+}
+
+function backtickEnd(text: string, start: number): number | undefined {
+  for (let i = start + 1; i < text.length; i++) {
+    if (text[i] === '\\') {
       i += 1;
       continue;
     }
-    const w = takeShellWord(text, i);
-    if (w.word) words.push(w.word);
-    i = w.next;
+    if (text[i] === '`') return i;
   }
-  return words;
+  return undefined;
+}
+
+/** Fim de $(...), respeitando aspas, escapes e substituições aninhadas. */
+function commandSubstitutionEnd(text: string, start: number, depth = 0): number | undefined {
+  // A long input must not turn nested $() syntax into unbounded call-stack work.
+  if (depth > SHELL_DEPTH_MAX + 2) return -1;
+  let level = 1;
+  let quote: 'single' | 'double' | undefined;
+  for (let i = start + 2; i < text.length; i++) {
+    const c = text[i]!;
+    if (quote === 'single') {
+      if (c === "'") quote = undefined;
+      continue;
+    }
+    if (quote === 'double') {
+      if (c === '\\') {
+        i += 1;
+        continue;
+      }
+      if (c === '"') {
+        quote = undefined;
+        continue;
+      }
+      if (c === '$' && text[i + 1] === '(') {
+        const end = commandSubstitutionEnd(text, i, depth + 1);
+        if (end === undefined) return undefined;
+        if (end < 0) return -1;
+        i = end;
+      }
+      continue;
+    }
+    if (c === '\\') {
+      i += 1;
+      continue;
+    }
+    if (c === "'") {
+      quote = 'single';
+      continue;
+    }
+    if (c === '"') {
+      quote = 'double';
+      continue;
+    }
+    if (c === '`') {
+      const end = backtickEnd(text, i);
+      if (end === undefined) return undefined;
+      i = end;
+      continue;
+    }
+    if (c === '$' && text[i + 1] === '(') {
+      const end = commandSubstitutionEnd(text, i, depth + 1);
+      if (end === undefined) return undefined;
+      if (end < 0) return -1;
+      i = end;
+      continue;
+    }
+    if (c === '(') {
+      level += 1;
+      continue;
+    }
+    if (c === ')') {
+      level -= 1;
+      if (level === 0) return i;
+    }
+  }
+  return undefined;
+}
+
+function ansiHex(text: string, start: number, max: number): { value: number; next: number } | undefined {
+  let end = start;
+  while (end < text.length && end - start < max && isHexChar(text[end])) end += 1;
+  if (end === start) return undefined;
+  return { value: Number.parseInt(text.slice(start, end), 16), next: end };
+}
+
+/** Interpreta só a forma ANSI-C de uma palavra $'...'; nunca executa o conteúdo. */
+function ansiCWord(text: string, start: number): { value: string; next: number; unsafe: boolean } {
+  let out = '';
+  const bytes: number[] = [];
+  let unsafe = false;
+  const flushBytes = (): boolean => {
+    if (!bytes.length) return true;
+    try {
+      out += new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(bytes));
+      bytes.length = 0;
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  for (let i = start + 2; i < text.length; i++) {
+    const c = text[i]!;
+    if (c === '\0') unsafe = true;
+    if (c === "'") {
+      if (!flushBytes()) return { value: out, next: i, unsafe: true };
+      return { value: out, next: i + 1, unsafe };
+    }
+    if (c !== '\\') {
+      if (!flushBytes()) return { value: out, next: i, unsafe: true };
+      out += c;
+      continue;
+    }
+    const next = text[++i];
+    if (next === undefined) return { value: out, next: i, unsafe: true };
+    const simple: Record<string, string> = { a: '\x07', b: '\b', e: '\x1b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v', '\\': '\\', "'": "'", '"': '"' };
+    if (simple[next] !== undefined) {
+      if (!flushBytes()) return { value: out, next: i, unsafe: true };
+      out += simple[next]!;
+      continue;
+    }
+    if (next === 'x') {
+      const hex = ansiHex(text, i + 1, 2);
+      if (!hex) return { value: out, next: i + 1, unsafe: true };
+      bytes.push(hex.value);
+      unsafe ||= hex.value === 0;
+      i = hex.next - 1;
+      continue;
+    }
+    if (next === 'u' || next === 'U') {
+      const hex = ansiHex(text, i + 1, next === 'u' ? 4 : 8);
+      const required = next === 'u' ? 4 : 8;
+      if (!hex || hex.next - (i + 1) !== required) return { value: out, next: i + 1, unsafe: true };
+      if (!flushBytes()) return { value: out, next: i, unsafe: true };
+      try {
+        out += String.fromCodePoint(hex.value);
+        unsafe ||= hex.value === 0;
+      } catch {
+        return { value: out, next: i + 1, unsafe: true };
+      }
+      i = hex.next - 1;
+      continue;
+    }
+    if (next >= '0' && next <= '7') {
+      let end = i;
+      while (end < text.length && end - i < 3 && text[end]! >= '0' && text[end]! <= '7') end += 1;
+      const value = Number.parseInt(text.slice(i, end), 8);
+      bytes.push(value);
+      // Uint8Array conversion truncates octal values modulo 256; zero and
+      // overflow are ambiguous for shell paths, so keep both fail-closed.
+      unsafe ||= value === 0 || value > 0xff;
+      i = end - 1;
+      continue;
+    }
+    // Keep unsupported ANSI-C controls conservative: dropping the backslash can
+    // turn an unknown escape into a different path, so fail closed instead.
+    if (!flushBytes()) return { value: out, next: i, unsafe: true };
+    unsafe = true;
+    out += `\\${next}`;
+  }
+  if (!flushBytes()) return { value: out, next: text.length, unsafe: true };
+  return { value: out, next: text.length, unsafe: true };
+}
+
+function scanShell(text: string, depth: number): ShellScan {
+  const words: string[] = [];
+  const nested: string[] = [];
+  let unsafe = false;
+  let i = 0;
+
+  const sub = (body: string) => {
+    if (depth >= SHELL_DEPTH_MAX) {
+      unsafe = true;
+      return;
+    }
+    const parsed = scanShell(body, depth + 1);
+    nested.push(...parsed.words, ...parsed.nested);
+    unsafe ||= parsed.unsafe;
+  };
+
+  while (i < text.length) {
+    while (i < text.length && /\s/.test(text[i]!)) i += 1;
+    if (i >= text.length) break;
+    if (isShellSeparator(text[i])) {
+      i += 1;
+      continue;
+    }
+    const start = i;
+    let word = '';
+    let wordUnsafe = false;
+    while (i < text.length && !isShellSeparator(text[i])) {
+      const c = text[i]!;
+      // An apostrophe between letters is prose (I'm, don't), not an opening
+      // shell quote. Keeping it literal also lets the following absolute path
+      // remain its own token and preserves private-path detection in prose.
+      if (
+        c === "'" &&
+        i > start &&
+        /[A-Za-z0-9]/.test(text[i - 1]!) &&
+        /[A-Za-z0-9]/.test(text[i + 1] ?? '') &&
+        text.indexOf("'", i + 1) < 0
+      ) {
+        word += c;
+        i += 1;
+        continue;
+      }
+      if (c === "'") {
+        const end = text.indexOf("'", i + 1);
+        if (end < 0) {
+          word += text.slice(i + 1);
+          wordUnsafe = word.includes('/');
+          i = text.length;
+          break;
+        }
+        word += text.slice(i + 1, end);
+        i = end + 1;
+        continue;
+      }
+      if (c === '"') {
+        i += 1;
+        let closed = false;
+        while (i < text.length) {
+          const q = text[i]!;
+          if (q === '"') {
+            i += 1;
+            closed = true;
+            break;
+          }
+          if (q === '\\') {
+            const escaped = text[i + 1];
+            if (escaped === undefined) {
+              i += 1;
+              break;
+            }
+            if (escaped === '\n') i += 2;
+            else if ('$`"\\'.includes(escaped)) {
+              word += escaped;
+              i += 2;
+            } else {
+              word += '\\' + escaped;
+              i += 2;
+            }
+            continue;
+          }
+          if (q === '$' && text[i + 1] === '(') {
+            const end = commandSubstitutionEnd(text, i);
+            if (end === undefined) {
+              wordUnsafe = text.slice(i + 2).includes('/');
+              i = text.length;
+              break;
+            }
+            if (end < 0) {
+              wordUnsafe = true;
+              i = text.length;
+              break;
+            }
+            sub(text.slice(i + 2, end));
+            i = end + 1;
+            continue;
+          }
+          if (q === '`') {
+            const end = backtickEnd(text, i);
+            if (end === undefined) {
+              wordUnsafe = text.slice(i + 1).includes('/');
+              i = text.length;
+              break;
+            }
+            sub(text.slice(i + 1, end));
+            i = end + 1;
+            continue;
+          }
+          word += q;
+          i += 1;
+        }
+        if (!closed && word.includes('/')) wordUnsafe = true;
+        continue;
+      }
+      if (c === '$' && text[i + 1] === "'") {
+        const ansi = ansiCWord(text, i);
+        word += ansi.value;
+        wordUnsafe ||= ansi.unsafe && word.includes('/');
+        i = ansi.next;
+        continue;
+      }
+      if (c === '$' && text[i + 1] === '(') {
+        const end = commandSubstitutionEnd(text, i);
+        if (end === undefined) {
+          wordUnsafe = text.slice(i + 2).includes('/');
+          i = text.length;
+          break;
+        }
+        if (end < 0) {
+          wordUnsafe = true;
+          i = text.length;
+          break;
+        }
+        sub(text.slice(i + 2, end));
+        i = end + 1;
+        continue;
+      }
+      if (c === '`') {
+        const end = backtickEnd(text, i);
+        if (end === undefined) {
+          wordUnsafe = text.slice(i + 1).includes('/');
+          i = text.length;
+          break;
+        }
+        sub(text.slice(i + 1, end));
+        i = end + 1;
+        continue;
+      }
+      if (c === '\\') {
+        const escaped = text[i + 1];
+        if (escaped === undefined) {
+          i += 1;
+          wordUnsafe = word.includes('/');
+        } else {
+          word += escaped === '\n' ? '' : escaped;
+          i += 2;
+        }
+        continue;
+      }
+      word += c;
+      i += 1;
+    }
+    if (word) words.push(word);
+    unsafe ||= wordUnsafe;
+    if (i === start) i += 1;
+  }
+  // bash/sh/zsh -c and eval receive a new shell program in their next word.
+  // Re-open it at every parsed level, including inside command substitutions.
+  for (let j = 0; j + 1 < words.length; j++) {
+    const word = words[j]!;
+    if (!DASH_C.has(word) && !EVAL_LIKE.has(word.toLowerCase())) continue;
+    if (depth >= SHELL_DEPTH_MAX) {
+      unsafe = true;
+      continue;
+    }
+    const inner = scanShell(words[j + 1]!, depth + 1);
+    nested.push(...inner.words, ...inner.nested);
+    unsafe ||= inner.unsafe;
+  }
+  return { words, nested, unsafe };
 }
 
 function privateLower(cfg: QodeConfig, lower: string): boolean {
@@ -556,23 +880,48 @@ export function isPrivateToken(cfg: QodeConfig, token: string): boolean {
   return hit;
 }
 
-/** Palavras no estilo do shell: aspas adjacentes e escapes formam um só token; -c/eval são reabertos. */
-export function pathTokens(text: string, home?: string, depth = 0): string[] {
+interface ShellPathAnalysis {
+  tokens: string[];
+  unsafe: boolean;
+}
+
+function shellPathAnalysis(text: string, home?: string): ShellPathAnalysis {
   const prepared = home !== undefined ? expandVars(decodeEscapes(text), home) : text;
-  const found: string[] = [];
-  const add = (raw: string) => {
+  const primary = scanShell(prepared, 0);
+  // decodeEscapes is needed for JSON/URL forms, but an escaped quote inside a
+  // -c payload belongs to the nested shell. Scan the source spelling too so
+  // that `bash -c 'bash -c "cat \\\"/private path\\\""'` keeps its grouping.
+  const secondary = /\\["'`]|\$\(|`/.test(text) ? scanShell(home !== undefined ? expandVars(text, home) : text, 0) : undefined;
+  const roots = secondary ? [primary, secondary] : [primary];
+  const unsafe = roots.some((r) => r.unsafe);
+  const tokensFromWord = (raw: string): string[] => {
     const decoded = decodeToken(raw.trim());
-    const t = (home ? expandHome(decoded, home) : undefined) ?? decoded;
-    if (t.startsWith('/') && t.length >= 2) found.push(t);
-  };
-  const words = tokenizeShell(prepared);
-  for (let i = 0; i < words.length; i++) {
-    add(words[i]!);
-    if (depth < 2 && i + 1 < words.length && (DASH_C.has(words[i]!) || EVAL_LIKE.has(words[i]!.toLowerCase()))) {
-      for (const inner of pathTokens(words[i + 1]!, home, depth + 1)) found.push(inner);
+    const values = [decoded];
+    const equal = decoded.indexOf('=');
+    if (equal > 0) values.push(decoded.slice(equal + 1));
+    // Short options may be glued directly to an absolute argument, e.g.
+    // `grep -f/private/path`. Restrict this extraction to option-looking
+    // prefixes so ordinary public `name/path` words remain unchanged.
+    const slash = decoded.indexOf('/');
+    if (slash > 1 && /^-{1,2}[A-Za-z0-9_-]+$/.test(decoded.slice(0, slash))) {
+      values.push(decoded.slice(slash));
     }
-  }
-  return found;
+    return values
+      .map((value) => (home ? expandHome(value, home) : undefined) ?? value)
+      .filter((value) => value.startsWith('/') && value.length >= 2);
+  };
+  const words = (r: ShellScan) => [...r.words, ...r.nested];
+  const primaryTokens = words(primary).flatMap(tokensFromWord);
+  const primarySet = new Set(primaryTokens);
+  const secondaryTokens = secondary
+    ? words(secondary).flatMap(tokensFromWord).filter((t) => !primarySet.has(t))
+    : [];
+  return { tokens: [...primaryTokens, ...secondaryTokens], unsafe };
+}
+
+/** Palavras no estilo do shell: substituições são lidas, nunca executadas; -c/eval são reabertos. */
+export function pathTokens(text: string, home?: string, _depth = 0): string[] {
+  return shellPathAnalysis(text, home).tokens;
 }
 
 function walkStrings(value: unknown, out: string[]): void {
@@ -587,9 +936,27 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
   if (text.length > MENTIONS_BYTES_MAX) return true;
   const lower = text.toLowerCase();
   if (cfg.needles.some((n) => lower.includes(n))) return true;
-  const tokens = pathTokens(text, cfg.home);
+  const shell = shellPathAnalysis(text, cfg.home);
+  if (shell.unsafe) return true;
+  const tokens = shell.tokens;
   if (tokens.length > MENTIONS_TOKENS_MAX) return true;
   if (tokens.some((t) => isPrivateToken(cfg, t))) return true;
+  // Prose can mention an unquoted path whose alias contains spaces. Try only
+  // a small bounded window after each absolute-looking fragment; this keeps
+  // `I'm reading /tmp/qode alias/secret.txt` observable without treating every
+  // apostrophe as a shell error.
+  const fragments = text.split(/\s+/);
+  let absoluteFragments = 0;
+  for (let i = 0; i < fragments.length; i++) {
+    const first = fragments[i]!.replace(/^["'`]+/, '');
+    if (!first.startsWith('/')) continue;
+    absoluteFragments += 1;
+    if (absoluteFragments > MENTIONS_TOKENS_MAX) return true;
+    for (let width = 1; width <= 4 && i + width <= fragments.length; width++) {
+      const candidate = [first, ...fragments.slice(i + 1, i + width).map((part) => part.replace(/["'`]+$/g, ''))].join(' ');
+      if (isPrivateToken(cfg, candidate)) return true;
+    }
+  }
   const flat = decodeToken(stripQuotes(expandVars(decodeEscapes(text), cfg.home))).toLowerCase();
   const contains = (root: string) => {
     if (root.length <= 3) return false;
