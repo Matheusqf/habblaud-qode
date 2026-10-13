@@ -129,14 +129,15 @@ function walkInto(start: string, add: (s: string) => void): void {
  * (colapsa o furo e continua). Qualquer uma privada vence; erro numa leitura não descarta as outras.
  */
 function readings(p: string): string[] {
-  const raw = p.trim().replace(/\\/g, '/');
   const found = new Set<string>();
   const add = (s: string) => {
     if (s) found.add(s);
   };
-  add(lexical(raw));
-  walkInto(raw, add);
-  walkInto(lexical(raw), add);
+  for (const raw of pathForms(p)) {
+    add(lexical(raw));
+    walkInto(raw, add);
+    walkInto(lexical(raw), add);
+  }
   return [...found];
 }
 
@@ -145,7 +146,7 @@ function readings(p: string): string[] {
  * como texto e a caminhada continua (nao-existe/../ponte segue a ponte).
  */
 export function realish(p: string): string {
-  const raw = p.trim().replace(/\\/g, '/');
+  const raw = pathForms(p)[0] ?? p.trim().replace(/\\/g, '/');
   if (!raw.startsWith('/')) return lexical(raw);
   let last = lexical(raw);
   walkInto(raw, (s) => {
@@ -159,9 +160,50 @@ export function canonical(p: string): string {
   return realish(p);
 }
 
+/**
+ * Forma de caminho para a allowlist: tira file://, decodifica %XX e \uXXXX (inclusive espaço) até estabilizar.
+ * A forma crua e a decodificada entram nas leituras; o privado ganha se qualquer uma casar.
+ */
+function decodePath(p: string): string {
+  let t = p.trim().replace(/\\/g, '/');
+  if (t.slice(0, 16).toLowerCase() === 'file://localhost' && t[16] === '/') t = t.slice(16);
+  else if (t.slice(0, 7).toLowerCase() === 'file://' && t[7] === '/') t = t.slice(7);
+  for (let n = 0; n < 4; n++) {
+    let next = '';
+    let i = 0;
+    let changed = false;
+    while (i < t.length) {
+      if (t[i] === '%' && isHexChar(t[i + 1]) && isHexChar(t[i + 2])) {
+        next += String.fromCharCode(Number.parseInt(t.slice(i + 1, i + 3), 16));
+        i += 3;
+        changed = true;
+        continue;
+      }
+      if (t[i] === '\\' && (t[i + 1] === 'u' || t[i + 1] === 'U') && isHexChar(t[i + 2]) && isHexChar(t[i + 3]) && isHexChar(t[i + 4]) && isHexChar(t[i + 5])) {
+        next += String.fromCharCode(Number.parseInt(t.slice(i + 2, i + 6), 16));
+        i += 6;
+        changed = true;
+        continue;
+      }
+      next += t[i];
+      i += 1;
+    }
+    t = next;
+    if (!changed) break;
+  }
+  return t;
+}
+
+/** Formas crua e decodificada (cwd, config e allowlist). */
+function pathForms(p: string): string[] {
+  const raw = p.trim().replace(/\\/g, '/');
+  const decoded = decodePath(p);
+  return decoded === raw ? [decoded] : [decoded, raw];
+}
+
 function expandHome(p: string, home: string): string | undefined {
-  const t = p.trim();
-  for (const pre of ['~/', '$HOME/', '${HOME}/']) if (t.startsWith(pre)) return `${home}/${t.slice(pre.length)}`;
+  const t = decodePath(p);
+  for (const pre of ['~/', '$HOME/', '${HOME}/']) if (t.startsWith(pre)) return decodePath(`${home}/${t.slice(pre.length)}`);
   if (t === '~' || t === '$HOME') return home;
   return t.startsWith('/') ? t : undefined;
 }
