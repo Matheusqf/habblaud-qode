@@ -898,6 +898,45 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     expect(isPrivatePath(lit, join(e.dataDir, 'Priv%FF', 'x'))).toBe(false);
   });
 
+  // Regressão P1 (revisão ZikaBOT, msg 1791927326.216989): NFC só como forma extra; o caminho físico usa a grafia recebida.
+  it('P1: aliases NFC e NFD distintos (cada um com caminho físico próprio) são resolvidos sem normalizar antes do realpath', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    const pub = join(e.dataDir, 'publico');
+    mkdirSync(pub, { recursive: true });
+    const nfd = join(e.dataDir, 'cafe\u0301');
+    const nfc = join(e.dataDir, 'caf\u00e9');
+    // Só alias NFD -> privado (não existe NFC).
+    symlinkSync(vida(e), nfd);
+    const cfg = () => loadQodeConfig({ HABBLAUD_QODE_CONFIG: e.qode.config!.file } as NodeJS.ProcessEnv, e.dataDir, e.home)!;
+    for (const c of [e.qode.config!, cfg()]) {
+      expect(isPrivatePath(c, `${nfd}/x`)).toBe(true);
+      expect(isPrivatePath(c, `file://${nfd}/x`)).toBe(true);
+      expect(isPrivatePath(c, `file://${nfd.replace('e\u0301', 'e%CC%81')}/x`)).toBe(true);
+      expect(mentionsPrivate(c, `open file://${nfd}/x`)).toBe(true);
+      expect(mentionsPrivate(c, `cat ${nfd}/x`)).toBe(true);
+      expect(mentionsPrivate(c, `open file://${nfd.replace('e\u0301', 'e%CC%81')}/x`)).toBe(true);
+    }
+    // Agora NFC -> público e NFD -> privado: o NFD continua privado; o NFC público não vira privado.
+    symlinkSync(pub, nfc);
+    for (const c of [e.qode.config!, cfg()]) {
+      expect(isPrivatePath(c, `file://${nfd}/x`)).toBe(true);
+      expect(mentionsPrivate(c, `open file://${nfd}/x`)).toBe(true);
+      expect(mentionsPrivate(c, `cat ${nfd.replace('e\u0301', 'e\\u0301')}/x`)).toBe(true);
+      expect(isPrivatePath(c, `file://${nfc}/x`)).toBe(false);
+    }
+    // Inverso (nomes novos, sem trocar symlinks já resolvidos): NFC -> privado, NFD -> público.
+    const nfc2 = join(e.dataDir, 'th\u00e9');
+    const nfd2 = join(e.dataDir, 'the\u0301');
+    symlinkSync(vida(e), nfc2);
+    symlinkSync(pub, nfd2);
+    for (const c of [e.qode.config!, cfg()]) {
+      expect(isPrivatePath(c, `file://${nfc2}/x`)).toBe(true);
+      expect(mentionsPrivate(c, `open file://${nfc2.replace('\u00e9', '%C3%A9')}/x`)).toBe(true);
+      expect(isPrivatePath(c, `file://${nfd2}/x`)).toBe(false);
+    }
+  });
+
   it('P1-a: alias Unicode (symlink %C3%A1lias) para raiz privada é reconhecido codificado; canário some de atividade e transcrição', () => {
     const e = setup();
     mkdirSync(vida(e), { recursive: true });

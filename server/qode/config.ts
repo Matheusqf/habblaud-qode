@@ -128,10 +128,15 @@ function walkInto(start: string, add: (s: string) => void): void {
  * Leituras candidatas de um caminho: léxica, física estrita (prefixo existente + "..") e léxica+física
  * (colapsa o furo e continua). Qualquer uma privada vence; erro numa leitura não descarta as outras.
  */
+/** Formas extras só para comparação (NFC/NFD); nunca substituem o caminho antes do realpath. */
+function compareForms(s: string): string[] {
+  return [...new Set([s, s.normalize('NFC'), s.normalize('NFD')])];
+}
+
 function readings(p: string): string[] {
   const found = new Set<string>();
   const add = (s: string) => {
-    if (s) found.add(s);
+    if (s) for (const f of compareForms(s)) found.add(f);
   };
   for (const raw of pathForms(p)) {
     add(lexical(raw));
@@ -233,14 +238,15 @@ function decodePath(p: string): string {
     t = next;
     if (!changed) break;
   }
-  // NFC: "é" composto, decomposto (NFD, macOS) e %CC%81 comparam iguais.
-  return t.normalize('NFC');
+  // Sem normalizar: no Linux "café" NFC e NFD são caminhos físicos distintos. O NFC entra só como forma extra (pathForms).
+  return t;
 }
 
 /** Formas crua e decodificada (cwd, config e allowlist). */
 function pathForms(p: string): string[] {
   const raw = p.trim().replace(/\\/g, '/');
   const decoded = decodePath(p);
+  // Só as grafias recebida e decodificada (UTF-8, sem normalizar): são estas que vão ao realpath.
   return decoded === raw ? [decoded] : [decoded, raw];
 }
 
@@ -328,7 +334,7 @@ export function parseConfig(raw: unknown, home: string, file = QODE_CONFIG_FILE)
           const dir = slash ? formLex : posix.dirname(formLex);
           const base = slash ? '' : posix.basename(formLex);
           for (const d of new Set([dir, realishLiteral(dir)])) {
-            roots.push({ path: posix.join(d, base).toLowerCase() + (slash ? '/' : ''), prefix: true });
+            for (const f of compareForms(posix.join(d, base).toLowerCase() + (slash ? '/' : ''))) roots.push({ path: f, prefix: true });
           }
         }
       } else {
@@ -337,7 +343,7 @@ export function parseConfig(raw: unknown, home: string, file = QODE_CONFIG_FILE)
           variants.add(lexical(form));
           variants.add(realishLiteral(form));
         }
-        for (const v of variants) roots.push({ path: v.toLowerCase(), prefix: false });
+        for (const v of variants) for (const f of compareForms(v.toLowerCase())) roots.push({ path: f, prefix: false });
         first ??= realishLiteral(abs);
       }
     }
@@ -465,7 +471,7 @@ function decodeToken(t: string): string {
     }
     out += t[i];
   }
-  return out.normalize('NFC');
+  return out;
 }
 
 /** %XX, \uXXXX, \/ e file:// — um único passe, sem regex com backtracking. */
@@ -532,7 +538,7 @@ function decodeEscapes(text: string): string {
     out.push(c);
     i += 1;
   }
-  return out.join('').normalize('NFC');
+  return out.join('');
 }
 
 function expandVars(text: string, home: string): string {
@@ -1072,8 +1078,11 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
       if (isPrivateToken(cfg, candidate)) return true;
     }
   }
-  const flat = decodeToken(stripQuotes(expandVars(decodeEscapes(text), cfg.home))).toLowerCase();
-  const contains = (root: string) => {
+  const flatRaw = decodeToken(stripQuotes(expandVars(decodeEscapes(text), cfg.home))).toLowerCase();
+  // Grafia recebida + NFC/NFD apenas como formas extras de comparação.
+  const flats = compareForms(flatRaw);
+  const contains = (root: string) => flats.some((flat) => containsIn(flat, root));
+  const containsIn = (flat: string, root: string) => {
     if (root.length <= 3) return false;
     let i = 0;
     while (i < flat.length) {
