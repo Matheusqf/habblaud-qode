@@ -141,18 +141,21 @@ function readings(p: string): string[] {
   return [...found];
 }
 
-/**
- * Caminho físico no estilo realpath -m: ".." vale depois do symlink; se um componente falha, o resto é colapsado
- * como texto e a caminhada continua (nao-existe/../ponte segue a ponte).
- */
-export function realish(p: string): string {
-  const raw = pathForms(p)[0] ?? p.trim().replace(/\\/g, '/');
+/** Caminha no estilo realpath -m usando exatamente a grafia recebida, sem transformar `%XX` em outro nome. */
+function realishLiteral(p: string): string {
+  const raw = p.trim().replace(/\\/g, '/');
   if (!raw.startsWith('/')) return lexical(raw);
   let last = lexical(raw);
   walkInto(raw, (s) => {
     last = s;
   });
   return last;
+}
+
+/** Forma física preferencial; entradas codificadas tentam primeiro a forma decodificada. */
+export function realish(p: string): string {
+  const raw = pathForms(p)[0] ?? p.trim().replace(/\\/g, '/');
+  return realishLiteral(raw);
 }
 
 /** Forma canônica (com symlinks resolvidos) de um caminho absoluto. */
@@ -276,19 +279,26 @@ export function parseConfig(raw: unknown, home: string, file = QODE_CONFIG_FILE)
         throw new Error(`${at} precisa ser absoluto ou começar com ~/ (e não pode ser / nem a home inteira)`);
       }
       if (star) {
-        // "repo-*": o prefixo vale no diretório pai (canônico) mais o começo do nome.
-        const slash = /\/\s*$/.test(body);
-        const dir = slash ? lex : posix.dirname(lex);
-        const base = slash ? '' : posix.basename(lex);
-        for (const d of new Set([dir, realish(dir)])) roots.push({ path: posix.join(d, base).toLowerCase() + (slash ? '/' : ''), prefix: true });
+        // "repo-*": o prefixo vale no diretório pai (canônico) mais o começo
+        // do nome. Cada grafia é resolvida literalmente; caso contrário um
+        // alias físico chamado literalmente `qode%20alias` seria perdido.
+        for (const form of forms) {
+          const formLex = lexical(form);
+          const slash = /\/\s*$/.test(form);
+          const dir = slash ? formLex : posix.dirname(formLex);
+          const base = slash ? '' : posix.basename(formLex);
+          for (const d of new Set([dir, realishLiteral(dir)])) {
+            roots.push({ path: posix.join(d, base).toLowerCase() + (slash ? '/' : ''), prefix: true });
+          }
+        }
       } else {
         const variants = new Set<string>();
         for (const form of forms) {
           variants.add(lexical(form));
-          variants.add(realish(form));
+          variants.add(realishLiteral(form));
         }
         for (const v of variants) roots.push({ path: v.toLowerCase(), prefix: false });
-        first ??= realish(abs);
+        first ??= realishLiteral(abs);
       }
     }
     const privado = p.privado === true;

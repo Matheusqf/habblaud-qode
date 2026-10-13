@@ -160,6 +160,26 @@ describe('qode.config.json', () => {
     expect(loadQodeConfig({}, tmp.dir, '/h')?.invalid).toBeTruthy();
     expect(loadQodeConfig({ HABBLAUD_QODE_CONFIG: join(tmp.dir, 'nao-existe.json') }, tmp.dir, '/h')).toBeUndefined();
   });
+
+  it('mantém a forma física literal quando %20 também é nome válido no disco', () => {
+    const tmp = tempDir('qode-percent-literal-');
+    cleanups.push(tmp.cleanup);
+    const target = join(tmp.dir, 'private');
+    mkdirSync(target, { recursive: true });
+    const literalAlias = join(tmp.dir, 'qode%20alias');
+    symlinkSync(target, literalAlias);
+
+    const cfg = parseConfig({ projetos: [{ nome: 'Literal', caminhos: [literalAlias], privado: true }] }, tmp.dir);
+    expect(isPrivatePath(cfg, target)).toBe(true);
+    expect(projectOf(cfg, target)?.nome).toBe('Literal');
+    expect(isPrivatePath(cfg, `${literalAlias}/secret.txt`)).toBe(true);
+
+    const starAlias = join(tmp.dir, 'qode%20alias-feature-x');
+    symlinkSync(target, starAlias);
+    const starCfg = parseConfig({ projetos: [{ nome: 'Literal', caminhos: [`${literalAlias}-*`], privado: true }] }, tmp.dir);
+    expect(isPrivatePath(starCfg, starAlias)).toBe(true);
+    expect(projectOf(starCfg, starAlias)?.nome).toBe('Literal');
+  });
 });
 
 describe('uma sala por projeto', () => {
