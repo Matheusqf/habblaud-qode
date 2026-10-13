@@ -854,6 +854,28 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     expect(published(e, ['c', 'd'])).not.toContain(SENT);
   });
 
+  it('cwd e config com %20 no alias caem na allowlist (formas crua e decodificada)', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    mkdirSync(clinicas(e), { recursive: true });
+    const alias = join(e.home, 'qode alias');
+    symlinkSync(vida(e), alias);
+    const enc = alias.replace(/ /g, '%20');
+    expect(isPrivatePath(e.qode.config!, `${enc}/secret.txt`)).toBe(true);
+    expect(projectOf(e.qode.config!, enc)?.nome).toBe('Vida OS');
+    expect(projectOf(e.qode.config!, `file://${enc}`)?.nome).toBe('Vida OS');
+    main(e, 'c', enc);
+    fill(e, 'c');
+    expect(e.qode.privacy!.isPrivate('c')).toBe(true);
+    expect(published(e, ['c'])).not.toContain(SENT);
+
+    const cfg = parseConfig({ projetos: [{ nome: 'Vida OS', privado: true, caminhos: [enc] }] }, e.home);
+    expect(isPrivatePath(cfg, vida(e))).toBe(true);
+    expect(isPrivatePath(cfg, alias)).toBe(true);
+    expect(isPrivatePath(cfg, `${enc}/x`)).toBe(true);
+    expect(projectOf(cfg, vida(e))?.nome).toBe('Vida OS');
+  });
+
   it('aspas concatenadas e bash -c com aspas aninhadas contaminam', () => {
     const e = setup();
     mkdirSync(vida(e), { recursive: true });
