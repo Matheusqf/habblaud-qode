@@ -163,12 +163,50 @@ export function canonical(p: string): string {
   return realish(p);
 }
 
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
+
+/**
+ * Decodifica uma corrida de %XX consecutivos a partir de `i` como bytes UTF-8 (P1-a).
+ * Sequência UTF-8 inválida cai no comportamento antigo (um caractere por byte), sem lançar.
+ * `keep(byte)` devolve true para bytes que devem ficar literais ("%XX"), p.ex. separadores de token.
+ */
+function decodePercentRun(t: string, i: number, keep?: (byte: number) => boolean): { text: string; next: number } {
+  const bytes: number[] = [];
+  const raw: string[] = [];
+  let j = i;
+  while (t[j] === '%' && isHexChar(t[j + 1]) && isHexChar(t[j + 2])) {
+    bytes.push(Number.parseInt(t.slice(j + 1, j + 3), 16));
+    raw.push(t.slice(j, j + 3));
+    j += 3;
+  }
+  let text = '';
+  let group: number[] = [];
+  const flush = () => {
+    if (!group.length) return;
+    try {
+      text += UTF8.decode(Uint8Array.from(group));
+    } catch {
+      for (const b of group) text += String.fromCharCode(b);
+    }
+    group = [];
+  };
+  bytes.forEach((b, k) => {
+    if (keep?.(b)) {
+      flush();
+      text += raw[k]; // forma original, mesma caixa do hex
+    } else group.push(b);
+  });
+  flush();
+  return { text, next: j };
+}
+
 /**
  * Forma de caminho para a allowlist: tira file://, decodifica %XX e \uXXXX (inclusive espaço) até estabilizar.
  * A forma crua e a decodificada entram nas leituras; o privado ganha se qualquer uma casar.
  */
 function decodePath(p: string): string {
-  let t = p.trim().replace(/\\/g, '/');
+  // \uXXXX antes de trocar \ por / (antes o \ virava / e o escape nunca era decodificado).
+  let t = p.trim().replace(/\\[uU]([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(Number.parseInt(h, 16))).replace(/\\/g, '/');
   if (t.slice(0, 16).toLowerCase() === 'file://localhost' && t[16] === '/') t = t.slice(16);
   else if (t.slice(0, 7).toLowerCase() === 'file://' && t[7] === '/') t = t.slice(7);
   for (let n = 0; n < 4; n++) {
@@ -177,8 +215,9 @@ function decodePath(p: string): string {
     let changed = false;
     while (i < t.length) {
       if (t[i] === '%' && isHexChar(t[i + 1]) && isHexChar(t[i + 2])) {
-        next += String.fromCharCode(Number.parseInt(t.slice(i + 1, i + 3), 16));
-        i += 3;
+        const run = decodePercentRun(t, i);
+        next += run.text;
+        i = run.next;
         changed = true;
         continue;
       }
@@ -194,7 +233,8 @@ function decodePath(p: string): string {
     t = next;
     if (!changed) break;
   }
-  return t;
+  // NFC: "é" composto, decomposto (NFD, macOS) e %CC%81 comparam iguais.
+  return t.normalize('NFC');
 }
 
 /** Formas crua e decodificada (cwd, config e allowlist). */
@@ -418,13 +458,14 @@ function decodeToken(t: string): string {
   let out = '';
   for (let i = 0; i < t.length; i++) {
     if (t[i] === '%' && isHexChar(t[i + 1]) && isHexChar(t[i + 2])) {
-      out += String.fromCharCode(Number.parseInt(t.slice(i + 1, i + 3), 16));
-      i += 2;
+      const run = decodePercentRun(t, i);
+      out += run.text;
+      i = run.next - 1;
       continue;
     }
     out += t[i];
   }
-  return out;
+  return out.normalize('NFC');
 }
 
 /** %XX, \uXXXX, \/ e file:// — um único passe, sem regex com backtracking. */
@@ -435,13 +476,10 @@ function decodeEscapes(text: string): string {
   while (i < n) {
     const c = text[i];
     if (c === '%' && isHexChar(text[i + 1]) && isHexChar(text[i + 2])) {
-      const code = Number.parseInt(text.slice(i + 1, i + 3), 16);
-      if (isTokenBreaker(code)) {
-        out.push('%', text[i + 1]!, text[i + 2]!);
-      } else {
-        out.push(String.fromCharCode(code));
-      }
-      i += 3;
+      // Bytes < 0x80 que partem token ficam literais; o resto decodifica como UTF-8 (P1-a).
+      const run = decodePercentRun(text, i, (b) => b < 0x80 && isTokenBreaker(b));
+      out.push(run.text);
+      i = run.next;
       continue;
     }
     if (c === '\\' && (text[i + 1] === 'u' || text[i + 1] === 'U')) {
@@ -494,7 +532,7 @@ function decodeEscapes(text: string): string {
     out.push(c);
     i += 1;
   }
-  return out.join('');
+  return out.join('').normalize('NFC');
 }
 
 function expandVars(text: string, home: string): string {

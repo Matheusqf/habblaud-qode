@@ -874,6 +874,66 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     expect(published(e, ['c', 'd'])).not.toContain(SENT);
   });
 
+  // P1-a (revisão ZikaBOT, msg 1791926986.663469): %XX multi-byte tem de decodificar como UTF-8.
+  it('P1-a: raiz privada Unicode codificada (Priv%C3%A9) casa com o literal (NFC e NFD), em isPrivatePath e mentionsPrivate', () => {
+    const e = setup();
+    const root = join(e.dataDir, 'Privé');
+    mkdirSync(root, { recursive: true });
+    const enc = root.replace('Privé', 'Priv%C3%A9');
+    for (const raiz of [`file://${enc}`, enc, root.replace('Privé', 'Priv\\u00e9')]) {
+      const cfg = parseConfig({ projetos: [{ nome: 'P', privado: true, caminhos: [raiz] }] }, e.home);
+      expect(cfg.invalid).toBeUndefined();
+      expect(isPrivatePath(cfg, `${root}/canary.txt`)).toBe(true);
+      expect(isPrivatePath(cfg, `${root.normalize('NFD')}/canary.txt`)).toBe(true);
+      expect(mentionsPrivate(cfg, `cat ${root}/canary.txt`)).toBe(true);
+      expect(mentionsPrivate(cfg, `open file://${enc}/canary.txt`)).toBe(true);
+      expect(mentionsPrivate(cfg, `open file://${root.replace('Privé', 'Priv%25C3%25A9')}/canary.txt`)).toBe(true);
+      expect(mentionsPrivate(cfg, `cat ${root.replace('Privé', 'Prive%CC%81')}/canary.txt`)).toBe(true);
+    }
+    const lit = parseConfig({ projetos: [{ nome: 'P', privado: true, caminhos: [root] }] }, e.home);
+    expect(isPrivatePath(lit, `${enc}/canary.txt`)).toBe(true);
+    expect(mentionsPrivate(lit, `open file://${enc}/canary.txt`)).toBe(true);
+    // Sequência inválida não lança nem casa por engano; %20 literal continua.
+    expect(() => mentionsPrivate(lit, `cat ${root.replace('Privé', 'Priv%C3%28')}/x`)).not.toThrow();
+    expect(isPrivatePath(lit, join(e.dataDir, 'Priv%FF', 'x'))).toBe(false);
+  });
+
+  it('P1-a: alias Unicode (symlink %C3%A1lias) para raiz privada é reconhecido codificado; canário some de atividade e transcrição', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    const alias = join(e.dataDir, 'álias');
+    symlinkSync(vida(e), alias);
+    const enc = alias.replace('álias', '%C3%A1lias');
+    expect(isPrivatePath(e.qode.config!, `${enc}/x`)).toBe(true);
+    expect(isPrivatePath(e.qode.config!, `file://${enc}/x`)).toBe(true);
+    expect(mentionsPrivate(e.qode.config!, `open file://${enc}/x`)).toBe(true);
+    main(e, 'c', clinicas(e));
+    e.office.addActivity('c', act('c', { kind: 'read', text: SENT, detail: `open file://${enc}/canary.txt` }), true);
+    expect(e.qode.privacy!.isPrivate('c')).toBe(true);
+    expect(published(e, ['c'])).not.toContain(SENT);
+    const file = join(e.dataDir, 't.jsonl');
+    writeFileSync(file, `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: `file://${enc}/canary.txt` } }] } })}\n`);
+    expect(new TranscriptScanner((t) => mentionsPrivate(e.qode.config!, t)).scan(file)).toBe('hit');
+  });
+
+  // P1-b (msg 1791927055.972339): a marca privada fica presa à sessão durante a vida do servidor.
+  it('P1-b: remover o agente A e recriar B com a mesma sessão mantém a sessão privada (snapshot e detalhe sem canário)', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    main(e, 'a', clinicas(e), 'S');
+    expect(e.qode.privacy!.sessionPrivate('S')).toBe(false);
+    e.office.addActivity('a', act('a', { kind: 'read', text: 'x', detail: `cat ${vida(e, 'a.md')}` }), true);
+    expect(e.qode.privacy!.isPrivate('a')).toBe(true);
+    expect(e.qode.privacy!.sessionPrivate('S')).toBe(true);
+    e.office.closeMain('a');
+    expect(e.qode.privacy!.sessionPrivate('S')).toBe(true);
+    main(e, 'b', clinicas(e), 'S');
+    expect(e.qode.privacy!.isPrivate('b')).toBe(true);
+    fill(e, 'b');
+    expect(published(e, ['b'])).not.toContain(SENT);
+    expect(JSON.stringify(e.office.detail('b'))).not.toContain(SENT);
+  });
+
   it('cwd e config com %20 no alias caem na allowlist (formas crua e decodificada)', () => {
     const e = setup();
     mkdirSync(vida(e), { recursive: true });

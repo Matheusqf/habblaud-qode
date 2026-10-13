@@ -264,8 +264,12 @@ export class Privacy implements OfficePrivacy {
       root = cur.parentId;
       cur = this.deps.agent(cur.parentId);
     }
-    const before = this.tainted.size;
+    const before = this.tainted.size + this.taintedSessions.size;
     this.tainted.add(id).add(root);
+    // P1-b: a marca também fica presa à sessão (vida do servidor). Remover o agente e recriá-lo
+    // com a mesma sessão (troca de processo no watcher) não pode torná-lo público de novo.
+    const own = this.deps.agent(id);
+    if (own?.sessionId) this.taintedSessions.add(own.sessionId);
     const all = this.deps.agents();
     const byId = new Map(all.map((a) => [a.id, a]));
     for (const a of all) {
@@ -273,12 +277,13 @@ export class Privacy implements OfficePrivacy {
       for (let hops = 0; p && hops <= MAX_HOPS; hops++) {
         if (p.id === root) {
           this.tainted.add(a.id);
+          if (a.sessionId) this.taintedSessions.add(a.sessionId);
           break;
         }
         p = p.parentId ? byId.get(p.parentId) : undefined;
       }
     }
-    if (this.tainted.size !== before) this.deps.changed();
+    if (this.tainted.size + this.taintedSessions.size !== before) this.deps.changed();
   }
 
   /** Pedido de permissão ou sessão que citou um caminho privado: contamina os agentes da sessão. */
