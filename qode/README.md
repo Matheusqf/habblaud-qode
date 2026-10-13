@@ -130,9 +130,14 @@ Se um caminho cair em mais de um projeto, o privado ganha.
 - O servidor ainda **lê** os transcripts do Vida OS em memória, porque é assim que ele sabe o estado. O que este PR
   garante é que esse conteúdo não **sai**: nem para a tela, nem para a API, nem para o disco, nem para os logs.
 - O agente só vira privado quando o caminho privado aparece no que ele faz. **Não** são detectados:
+  - **Limitação explícita desta POC (follow-up):** caminhos relativos, `cd`/`pushd` seguidos de caminho relativo,
+    `git -C <dir>`/`make -C <dir>` com diretório relativo e variáveis de shell (exceto `HOME`) **não** são resolvidos
+    contra o `cwd` do agente, e por isso não contaminam. Exemplos: `cd ../priv && cat .env`, `git -C ../priv log -p`,
+    `D=~/GitHub; cat $D/priv/.env`, `pushd ../priv`, `~+/../priv`.
   - caminho relativo a partir de outra pasta (ex.: `cat ../../Documents/Vida/x` ou `cd Documents; cat Vida/x`);
   - variáveis que não sejam `HOME` (ex.: `D=~/Documents; cat $D/Vida/x`);
-  - globs genéricos de uma pasta acima (ex.: `ls ~/Documents/*`, `grep -r x ~/Documents`);
+  - busca recursiva a partir de uma pasta acima sem glob (ex.: `grep -r x ~/Documents`); globs como `ls ~/Documents/*`,
+    `{a,b}`, `(a|b)` e extglob `@( )` agora contam como privados quando podem casar com a pasta privada;
   - conteúdo do Vida OS que chega sem caminho (colado no prompt, por exemplo);
   - o que o agente já mostrou antes de citar o caminho: a contaminação vale dali em diante.
 - O histórico de sessões esconde as sessões cujo projeto, título ou agente aberto é privado, e as sessões sem projeto

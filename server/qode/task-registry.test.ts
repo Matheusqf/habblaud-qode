@@ -69,6 +69,22 @@ describe('HB-INT-01 privacidade da projeção', () => {
     expect(Object.keys(out[1]).sort()).toEqual(['approval_state','blocker','evidence_ref','executions','head','patch_sha256','origin','owner','project','reviewer','review_ref','status','task_id','updated_at','version'].sort());
     expect(out[0]).toMatchObject({head: null, patch_sha256: null, evidence_ref: null});
   });
+  it('Opus: campos não-string não passam por coerção na projeção (array ["HB-INT-01"] etc.)', () => {
+    const {s} = run(HB_MESSAGES);
+    const t = JSON.parse(JSON.stringify(s));
+    t.tasks['HB-INT-01'].task_id = ['HB-INT-01'];
+    t.tasks['HB-INV-01'].project = ['habblaud'];
+    const o = JSON.parse(JSON.stringify(s));
+    o.tasks['HB-INT-01'].task_id = {toString: 'HB-INT-01'};
+    o.tasks['HB-INV-01'].blocker = ['needs_review'];
+    expect(projectTasks(o, {projects: ['habblaud']})!.map(x => x.task_id)).toEqual([]);
+    expect(projectTasks(t, {projects: ['habblaud']})).toEqual([]);
+    const u = JSON.parse(JSON.stringify(s));
+    u.tasks['HB-INV-01'].evidence = {head: ['343dbde'], patch_sha256: [('a').repeat(64)], ref: ['github:Matheusqf/habblaud-qode#2']};
+    u.tasks['HB-INV-01'].review.ref = {ref: 'github:Matheusqf/habblaud-qode#2'};
+    const out = projectTasks(u, {projects: ['habblaud']})!.find(x => x.task_id === 'HB-INV-01')!;
+    expect(out).toMatchObject({head: null, patch_sha256: null, evidence_ref: null, review_ref: null});
+  });
   it('invalid refs/heads are rejected at message level (no local paths or URLs into registry)', () => {
     const {s} = run(flow());
     for (const ev of [{head: 'abcdef1', patch_sha256: null, ref: 'https://evil.example/x'}, {head: 'abcdef1', patch_sha256: null, ref: '/Users/matheus/Vida/x.md'}, {head: 'not-a-sha', patch_sha256: null, ref: 'github:Matheusqf/habblaud-qode#2'}])

@@ -1136,7 +1136,10 @@ function privateLower(cfg: QodeConfig, lower: string): boolean {
 
 /** Caminho absoluto (já sem aspas nem ~) que cai num projeto privado, inclusive por symlink ou "..". */
 export function isPrivateToken(cfg: QodeConfig, token: string): boolean {
-  let tok = token.slice(0, TOKEN_MAX).replace(/[.,:;!?]+$/, '');
+  // Opus: token maior que TOKEN_MAX é privado (fail closed), em vez de ser cortado.
+  // Barras repetidas colapsam antes do teste; o que continua longo demais é privado. Nunca corta o token.
+  if (token.length > TOKEN_MAX && token.replace(/[\\/]+/g, '/').length > TOKEN_MAX) return true;
+  let tok = token.replace(/[.,:;!?]+$/, '');
   if (tok.length < 2) return false;
   const g = tok.search(GLOB);
   if (g >= 0) {
@@ -1217,6 +1220,28 @@ function walkStrings(value: unknown, out: string[]): void {
   else if (value && typeof value === 'object') for (const v of Object.values(value)) walkStrings(v, out);
 }
 
+const GROUP = /[@!+?*]?\([^()]*\)/g;
+const GROUP_PASSES_MAX = 32;
+
+/**
+ * Opus P1: grupos do zsh `(a|b)` e extglob do bash `@( ) !( ) +( ) ?( ) *( )` num fragmento absoluto (ou com ~/$HOME)
+ * viram `*` antes do isPrivateToken (que já é conservador com `*`). Parênteses que sobram também viram `*`.
+ * Só fragmentos com "(", ")" ou "|" depois de uma "/" são reescritos; o resto volta igual.
+ */
+function rewriteGroups(fragment: string, home: string): string {
+  const slash = fragment.indexOf('/');
+  if (slash < 0 || fragment.length > TOKEN_MAX || !/[()|]/.test(fragment.slice(slash))) return fragment;
+  let f = fragment.replace(/^["'`]+/, '');
+  if (!f.startsWith('/')) f = expandVars(f, home);
+  if (!f.startsWith('/')) return fragment;
+  for (let n = 0; n < GROUP_PASSES_MAX && f.includes('('); n++) {
+    const next = f.replace(GROUP, '*');
+    if (next === f) break;
+    f = next;
+  }
+  return f.replace(/[()|]/g, '*');
+}
+
 /** O texto cita um caminho privado (absoluto, ~/, ~usuário/, $HOME, com aspas, %XX, "..", symlink ou cwd codificado)? */
 export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth = 0): boolean {
   if (!text || !cfg.privateRoots.length) return false;
@@ -1232,7 +1257,7 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
   // a small bounded window after each absolute-looking fragment; this keeps
   // `I'm reading /tmp/qode alias/secret.txt` observable without treating every
   // apostrophe as a shell error.
-  const fragments = text.split(/\s+/);
+  const fragments = text.split(/\s+/).map((f) => rewriteGroups(f, cfg.home));
   let absoluteFragments = 0;
   for (let i = 0; i < fragments.length; i++) {
     const first = fragments[i]!.replace(/^["'`]+/, '');

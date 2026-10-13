@@ -937,6 +937,29 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     }
   });
 
+  it('Opus fim a fim: grupos/extglob na atividade contaminam o agente; canário some de snapshot, feed, detail e disco', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    const dir = vida(e).slice(0, vida(e).lastIndexOf('/'));
+    const name = vida(e).slice(dir.length + 1);
+    const forms = [`(${name}|nada)`, `${name.slice(0, 1)}(${name.slice(1, 2)}|z)${name.slice(2)}`, `@(${name})`, `!(nada)`, `+(${name})`, `?(${name})`, `*(${name})`];
+    const ids = forms.map((_, i) => `g${i}`);
+    forms.forEach((f, i) => {
+      main(e, ids[i]!, clinicas(e));
+      e.office.addActivity(ids[i]!, act(ids[i]!, { kind: 'read', text: SENT, detail: `cat ${dir}/${f}/.env` }), true);
+      expect(e.qode.privacy!.isPrivate(ids[i]!)).toBe(true);
+    });
+    // Controle público: grupo dentro de pasta pública não contamina.
+    const pubDir = join(e.home, 'Documents', 'GitHub', 'outro-publico');
+    mkdirSync(pubDir, { recursive: true });
+    main(e, 'pub', pubDir);
+    e.office.addActivity('pub', act('pub', { kind: 'read', text: 'PUBLICO-OK', detail: `cat ${pubDir}/(a|b).txt` }), true);
+    expect(e.qode.privacy!.isPrivate('pub')).toBe(false);
+    const out = published(e, [...ids, 'pub']);
+    expect(out).not.toContain(SENT);
+    expect(out).toContain('PUBLICO-OK');
+  });
+
   it('P1-a: alias Unicode (symlink %C3%A1lias) para raiz privada é reconhecido codificado; canário some de atividade e transcrição', () => {
     const e = setup();
     mkdirSync(vida(e), { recursive: true });
@@ -1159,6 +1182,61 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
 });
 
 // Consulta adversarial (DeepSeek v4.1 Flash, 13/10/2026) verificada: F3, F4, F5, F6, F8, F9. Só caminhos sintéticos.
+// Revisão Claude Opus 5.5 (13/10): grupos zsh e extglob do bash; TOKEN_MAX fail-closed. Só caminhos sintéticos.
+describe('revisão Opus 13/10: grupos (a|b), extglob e TOKEN_MAX', () => {
+  function oenv() {
+    const home = join(tempDir().dir, 'u');
+    mkdirSync(join(home, 'GitHub', 'priv'), { recursive: true });
+    mkdirSync(join(home, 'GitHub', 'pub'), { recursive: true });
+    const cfg = parseConfig({ projetos: [{ nome: 'P', privado: true, caminhos: ['~/GitHub/priv'] }] }, home);
+    return { home, g: `${home}/GitHub`, cfg };
+  }
+  it('grupo zsh (priv|nada)', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/(priv|nada)/.env`)).toBe(true);
+  });
+  it('grupo zsh no meio do nome pr(i|x)v', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/pr(i|x)v/.env`)).toBe(true);
+  });
+  it('grupo zsh com ~: ls ~/GitHub/(priv|x)', () => {
+    const { cfg } = oenv();
+    expect(mentionsPrivate(cfg, 'ls ~/GitHub/(priv|x)')).toBe(true);
+  });
+  it('extglob @(priv)', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/@(priv)/.env`)).toBe(true);
+  });
+  it('extglob !(pub)', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/!(pub)/.env`)).toBe(true);
+  });
+  it('extglob +(priv)', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/+(priv)/.env`)).toBe(true);
+  });
+  it('extglob ?(priv)', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/?(priv)/.env`)).toBe(true);
+  });
+  it('extglob *(priv) e grupos aninhados', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/*(priv)/.env`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${g}/((p|q)riv|x)/.env`)).toBe(true);
+  });
+  it('controles públicos: grupo fora da pasta privada e pipe comum continuam públicos', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/pub/(a|b).txt`)).toBe(false);
+    expect(mentionsPrivate(cfg, `cat ${g}/pub/x.txt|grep y`)).toBe(false);
+    expect(mentionsPrivate(cfg, 'echo (nada aqui)')).toBe(false);
+  });
+  it('TOKEN_MAX: token maior que o limite é privado (fail closed)', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/pub/${'x/../'.repeat(700)}../priv/.env`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${g}/pub/${'x/../'.repeat(900)}../priv/.env`)).toBe(true);
+  });
+});
+
 describe('consulta adversarial 13/10: bypasses confirmados', () => {
   function qenv() {
     const d = tempDir().dir;

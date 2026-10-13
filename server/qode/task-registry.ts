@@ -152,18 +152,20 @@ export interface TaskCard {
 export const DEFAULT_IDENTITIES = ['grok-bot', 'socio-bot', 'zikabot', 'matheus'] as const;
 /** Bloqueios conhecidos; valor fora da lista é mostrado como 'other' (não ecoa texto livre). */
 export const BLOCKERS = ['needs_permission', 'needs_review', 'needs_human', 'policy_denied', 'upstream_flaky', 'other'] as const;
+/** Regex só em string de verdade (sem coerção: ['HB-INT-01'] não passa). */
+const str = (re: RegExp, v: unknown): v is string => typeof v === 'string' && re.test(v);
 export function projectTasks(state: unknown, allow: {projects: readonly string[]; identities?: readonly string[]}): TaskCard[] | null {
   const ids = allow.identities ?? DEFAULT_IDENTITIES;
   if (!state || typeof state !== 'object' || (state as RegistryState).schema_version !== 1) return null;
   const s = state as RegistryState; const out: TaskCard[] = [];
   for (const t of Object.values(s.tasks ?? {})) {
-    if (!t || !TASK.test(t.task_id) || !ID.test(t.project) || !allow.projects.includes(t.project)) continue;
-    if (!(t.owner === null || (typeof t.owner === 'string' && ids.includes(t.owner))) || !(t.blocker === null || (typeof t.blocker === 'string' && BLOCKER.test(t.blocker))) || !okAt(t.updated_at) || !Number.isInteger(t.version)) continue;
+    if (!t || !str(TASK, t.task_id) || !str(ID, t.project) || !allow.projects.includes(t.project)) continue;
+    if (!(t.owner === null || (typeof t.owner === 'string' && ids.includes(t.owner))) || !(t.blocker === null || (str(BLOCKER, t.blocker))) || !okAt(t.updated_at) || !Number.isInteger(t.version)) continue;
     if (!['open','claimed','running','submitted','blocked','done'].includes(t.status) || !['none','pending_review','approved','changes_requested'].includes(t.approval_state)) continue;
-    const head = t.evidence && HEAD.test(String(t.evidence.head)) ? t.evidence.head : null;
+    const head = t.evidence && str(HEAD, t.evidence.head) ? t.evidence.head : null;
     out.push({task_id: t.task_id, project: t.project, owner: t.owner, status: t.status, blocker: t.blocker === null ? null : ((BLOCKERS as readonly string[]).includes(t.blocker) ? t.blocker : 'other'), approval_state: t.approval_state,
-      version: t.version, updated_at: t.updated_at, head, patch_sha256: t.evidence && SHA256.test(String(t.evidence.patch_sha256)) ? t.evidence.patch_sha256 : null, evidence_ref: t.evidence && REF.test(t.evidence.ref) ? t.evidence.ref : null,
-      reviewer: t.review && typeof t.review.reviewer === 'string' && ids.includes(t.review.reviewer) ? t.review.reviewer : null, review_ref: t.review && REF.test(t.review.ref) ? t.review.ref : null,
+      version: t.version, updated_at: t.updated_at, head, patch_sha256: t.evidence && str(SHA256, t.evidence.patch_sha256) ? t.evidence.patch_sha256 : null, evidence_ref: t.evidence && str(REF, t.evidence.ref) ? t.evidence.ref : null,
+      reviewer: t.review && typeof t.review.reviewer === 'string' && ids.includes(t.review.reviewer) ? t.review.reviewer : null, review_ref: t.review && str(REF, t.review.ref) ? t.review.ref : null,
       // Não existe prova verificável de ingestão automática nesta POC: a origem projetada é SEMPRE 'manual',
       // independentemente da string de entrada. Mudar isto exige um verificador (ex.: assinatura do evento), não um campo.
       origin: 'manual', executions: (s.executions ?? []).filter(e => e.task_id === t.task_id).length});
