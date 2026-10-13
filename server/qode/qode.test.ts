@@ -960,6 +960,29 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     expect(out).toContain('PUBLICO-OK');
   });
 
+  it('aspas + grupos fim a fim: canário some de snapshot, feed, detail e disco; controle público com aspas visível', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    const rel = vida(e).slice(e.home.length + 1);
+    const dir = rel.slice(0, rel.lastIndexOf('/'));
+    const name = rel.slice(dir.length + 1);
+    const forms = [`cat "$HOME"/${dir}/(${name}|nada)/x`, `cat "${e.home}"/${dir}/@(${name})/x`, `cat '${e.home}/${dir}'/!(nada)/x`, `cat ${e.home}/${dir}${'/'.repeat(5000)}(${name}|z)/x`];
+    const ids = forms.map((_, i) => `q${i}`);
+    forms.forEach((f, i) => {
+      main(e, ids[i]!, clinicas(e));
+      e.office.addActivity(ids[i]!, act(ids[i]!, { kind: 'read', text: SENT, detail: f }), true);
+      expect(e.qode.privacy!.isPrivate(ids[i]!)).toBe(true);
+    });
+    const pubDir = join(e.home, 'Documents', 'GitHub', 'outro-publico');
+    mkdirSync(pubDir, { recursive: true });
+    main(e, 'pubq', pubDir);
+    e.office.addActivity('pubq', act('pubq', { kind: 'read', text: 'PUBLICO-OK', detail: `cat "${pubDir}"/(a|b).txt` }), true);
+    expect(e.qode.privacy!.isPrivate('pubq')).toBe(false);
+    const out = published(e, [...ids, 'pubq']);
+    expect(out).not.toContain(SENT);
+    expect(out).toContain('PUBLICO-OK');
+  });
+
   it('P1-a: alias Unicode (symlink %C3%A1lias) para raiz privada é reconhecido codificado; canário some de atividade e transcrição', () => {
     const e = setup();
     mkdirSync(vida(e), { recursive: true });
@@ -1229,6 +1252,28 @@ describe('revisão Opus 13/10: grupos (a|b), extglob e TOKEN_MAX', () => {
     expect(mentionsPrivate(cfg, `cat ${g}/pub/(a|b).txt`)).toBe(false);
     expect(mentionsPrivate(cfg, `cat ${g}/pub/x.txt|grep y`)).toBe(false);
     expect(mentionsPrivate(cfg, 'echo (nada aqui)')).toBe(false);
+  });
+  // ZikaBOT 1791932644.248449: aspas no meio do fragmento + grupos.
+  it('aspas: "$HOME"/…, "${HOME}"/…, "/abs"/… e \'/abs/x\'/… concatenados com grupo/extglob são privados', () => {
+    const { home, g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, 'cat "$HOME"/GitHub/(priv|x)/x')).toBe(true);
+    expect(mentionsPrivate(cfg, 'cat "${HOME}"/GitHub/!(pub)/x')).toBe(true);
+    expect(mentionsPrivate(cfg, `cat "${home}"/GitHub/(priv|x)/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat '${g}'/@(priv)/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat "${g}/"pr(i|x)v/x`)).toBe(true);
+    // Controles públicos com aspas.
+    expect(mentionsPrivate(cfg, 'cat "$HOME"/GitHub/pub/(a|b).txt')).toBe(false);
+    expect(mentionsPrivate(cfg, `cat "${g}"/pub/@(a).txt`)).toBe(false);
+  });
+  // ZikaBOT 1791932703.393139: padding de barras não pode tirar o grupo da análise.
+  it('padding de "/" acima de TOKEN_MAX com grupo privado é privado; equivalente público continua público', () => {
+    const { g, cfg } = oenv();
+    const pad = '/'.repeat(5000);
+    expect(mentionsPrivate(cfg, `cat ${g}${pad}(priv|x)/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${g}${pad}pr(i|x)v/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${g}/pub${pad}(a|b).txt`)).toBe(false);
+    // Grupo num fragmento que continua longo mesmo colapsado = privado.
+    expect(mentionsPrivate(cfg, `cat ${g}/pub/${'x'.repeat(5000)}(a|b)`)).toBe(true);
   });
   it('TOKEN_MAX: token maior que o limite é privado (fail closed)', () => {
     const { g, cfg } = oenv();

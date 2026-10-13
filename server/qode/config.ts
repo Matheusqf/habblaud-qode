@@ -1225,15 +1225,20 @@ const GROUP_PASSES_MAX = 32;
 
 /**
  * Opus P1: grupos do zsh `(a|b)` e extglob do bash `@( ) !( ) +( ) ?( ) *( )` num fragmento absoluto (ou com ~/$HOME)
- * viram `*` antes do isPrivateToken (que já é conservador com `*`). Parênteses que sobram também viram `*`.
+ * viram `*` antes do isPrivateToken (que já é conservador com `*`), com aspas e ~/$HOME já normalizados. Parênteses que sobram também viram `*`.
  * Só fragmentos com "(", ")" ou "|" depois de uma "/" são reescritos; o resto volta igual.
  */
-function rewriteGroups(fragment: string, home: string): string {
+function rewriteGroups(raw: string, home: string): string | undefined {
+  // Barras repetidas colapsam ANTES do limite: padding de "/" não pode tirar o grupo da análise.
+  const fragment = raw.length > TOKEN_MAX ? raw.replace(/\/{2,}/g, '/') : raw;
   const slash = fragment.indexOf('/');
-  if (slash < 0 || fragment.length > TOKEN_MAX || !/[()|]/.test(fragment.slice(slash))) return fragment;
-  let f = fragment.replace(/^["'`]+/, '');
-  if (!f.startsWith('/')) f = expandVars(f, home);
-  if (!f.startsWith('/')) return fragment;
+  if (slash < 0 || !/[()|]/.test(fragment.slice(slash))) return raw;
+  // Grupo num fragmento que continua longo demais: privado (fail closed).
+  if (fragment.length > TOKEN_MAX) return undefined;
+  // Mesma normalização do shell usada no resto (unshell): %XX/\uXXXX, aspas em qualquer parte do fragmento
+  // ("$HOME"/x, "/abs"/x, '/a'/b) e ~/$HOME/${HOME}. Só leitura; nenhuma outra variável é expandida.
+  let f = unshell(fragment, home);
+  if (!f.startsWith('/')) return raw;
   for (let n = 0; n < GROUP_PASSES_MAX && f.includes('('); n++) {
     const next = f.replace(GROUP, '*');
     if (next === f) break;
@@ -1257,7 +1262,9 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
   // a small bounded window after each absolute-looking fragment; this keeps
   // `I'm reading /tmp/qode alias/secret.txt` observable without treating every
   // apostrophe as a shell error.
-  const fragments = text.split(/\s+/).map((f) => rewriteGroups(f, cfg.home));
+  const rewritten = text.split(/\s+/).map((f) => rewriteGroups(f, cfg.home));
+  if (rewritten.some((f) => f === undefined)) return true;
+  const fragments = rewritten as string[];
   let absoluteFragments = 0;
   for (let i = 0; i < fragments.length; i++) {
     const first = fragments[i]!.replace(/^["'`]+/, '');
