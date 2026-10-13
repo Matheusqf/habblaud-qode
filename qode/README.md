@@ -36,7 +36,7 @@ funciona igual ao upstream.
   - caminho absoluto, `~/…`, `~usuario/…`, `$HOME/…` e `${HOME}/…`, inclusive com aspas no meio (`"$HOME"/Documents/…`,
     `$HOME"/Documents/Vida"`) e com espaço no nome (`"/tmp/qode alias/…"`, `/tmp/qode\ alias/…`, aspas concatenadas
     no estilo do shell e `bash -c 'cat "…/qode alias/…"'`);
-  - URL-encoding (`%2F`, `%20` no meio do nome), `\u002f` no JSON, `file://` e `file://localhost/`, barras escapadas
+  - URL-encoding (`%2F`, `%20` no meio do nome, também no cwd e no `caminhos` da config), `\u002f` no JSON, `file://` e `file://localhost/`, barras escapadas
     de JSON (`\/`), `.`, `..` e `//` no meio;
   - globs que incluem parte do nome da pasta (`~/Documents/Vi*`);
   - a pasta codificada do Claude Code (`-Users-…-Documents-Vida`);
