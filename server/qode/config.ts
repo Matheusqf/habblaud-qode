@@ -600,39 +600,119 @@ const GLOB = /[*?[{]/;
 const GLOB_SEGS_MAX = 64;
 const BRACE_ALTS_MAX = 64;
 
-/** Um segmento de glob (`*`, `?`, `[...]`, `{a,b}`) como RegExp; ambíguo/malformado = casa qualquer nome (privado na dúvida). */
-function globSegment(seg: string): RegExp {
-  let re = '';
+/**
+ * Expande `{a,b}` (aninhado) em alternativas literais, com limite. Sintaxe não suportada ou ambígua
+ * (`{p..r}`, `{x}` sem vírgula, chaves desbalanceadas, alternativas demais) devolve undefined = privado na dúvida.
+ */
+function expandBraces(seg: string, budget = { left: BRACE_ALTS_MAX }): string[] | undefined {
+  const open = seg.indexOf('{');
+  if (open < 0) return seg.includes('}') ? undefined : [seg];
   let depth = 0;
-  let alts = 0;
-  for (let i = 0; i < seg.length; i++) {
-    const c = seg[i]!;
-    if (c === '*') re += '.*';
-    else if (c === '?') re += '.';
-    else if (c === '[') {
-      const end = seg.indexOf(']', i + 2);
-      if (end < 0) return /^.*$/s;
-      let body = seg.slice(i + 1, end);
-      if (body.startsWith('!')) body = `^${body.slice(1)}`;
-      re += `[${body.replace(/\\/g, '\\\\')}]`;
-      i = end;
-    } else if (c === '{') {
-      depth += 1;
-      re += '(?:';
-    } else if (c === '}' && depth > 0) {
+  let close = -1;
+  const commas: number[] = [];
+  for (let i = open; i < seg.length; i++) {
+    const c = seg[i];
+    if (c === '{') depth += 1;
+    else if (c === '}') {
       depth -= 1;
-      re += ')';
-    } else if (c === ',' && depth > 0) {
-      if (++alts > BRACE_ALTS_MAX) return /^.*$/s;
-      re += '|';
-    } else re += c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (depth === 0) {
+        close = i;
+        break;
+      }
+    } else if (c === ',' && depth === 1) commas.push(i);
   }
-  if (depth !== 0) return /^.*$/s;
-  try {
-    return new RegExp(`^${re}$`, 's');
-  } catch {
-    return /^.*$/s;
+  if (close < 0 || !commas.length) return undefined;
+  const head = seg.slice(0, open);
+  if (head.includes('}')) return undefined;
+  const tail = seg.slice(close + 1);
+  const bounds = [open, ...commas, close];
+  const out: string[] = [];
+  for (let k = 0; k + 1 < bounds.length; k++) {
+    const alt = expandBraces(seg.slice(bounds[k]! + 1, bounds[k + 1]), budget);
+    if (!alt) return undefined;
+    for (const x of alt) {
+      const rest = expandBraces(`${x}${tail}`, budget);
+      if (!rest) return undefined;
+      for (const r of rest) {
+        if (--budget.left < 0) return undefined;
+        out.push(head + r);
+      }
+    }
   }
+  return out;
+}
+
+/** `[...]` a partir de `i` (que aponta para `[`): casa `ch`? undefined = classe malformada. */
+function classAt(p: string, i: number, ch: string): { ok: boolean; next: number } | undefined {
+  let j = i + 1;
+  let neg = false;
+  if (p[j] === '!' || p[j] === '^') {
+    neg = true;
+    j += 1;
+  }
+  let ok = false;
+  let first = true;
+  while (j < p.length && (p[j] !== ']' || first)) {
+    first = false;
+    const lo = p[j]!;
+    if (p[j + 1] === '-' && p[j + 2] !== undefined && p[j + 2] !== ']') {
+      if (ch >= lo && ch <= p[j + 2]!) ok = true;
+      j += 3;
+    } else {
+      if (ch === lo) ok = true;
+      j += 1;
+    }
+  }
+  if (j >= p.length) return undefined;
+  return { ok: ok !== neg, next: j + 1 };
+}
+
+/**
+ * Glob de um segmento (`*`, `?`, `[...]`) sem RegExp: casamento iterativo com um único ponto de retorno
+ * (último `*`), custo O(|padrão|·|nome|) no pior caso. undefined = sintaxe malformada.
+ */
+function globMatch(p: string, name: string): boolean | undefined {
+  let pi = 0;
+  let ni = 0;
+  let starP = -1;
+  let starN = 0;
+  while (ni < name.length) {
+    const c = p[pi];
+    if (c === '*') {
+      while (p[pi] === '*') pi += 1;
+      starP = pi;
+      starN = ni;
+      continue;
+    }
+    if (c === '[') {
+      const cls = classAt(p, pi, name[ni]!);
+      if (!cls) return undefined;
+      if (cls.ok) {
+        pi = cls.next;
+        ni += 1;
+        continue;
+      }
+    } else if (c !== undefined && (c === '?' || c === name[ni])) {
+      pi += 1;
+      ni += 1;
+      continue;
+    }
+    if (starP < 0) return false;
+    pi = starP;
+    starN += 1;
+    ni = starN;
+  }
+  while (p[pi] === '*') pi += 1;
+  if (pi < p.length && p.slice(pi).includes('[') && classAt(p, p.indexOf('[', pi), 'a') === undefined) return undefined;
+  return pi === p.length;
+}
+
+/** Segmento com glob/chaves casa com o nome? Sintaxe não suportada = casa (privado na dúvida). */
+function segMatch(seg: string, name: string): boolean {
+  if (seg.length > TOKEN_MAX) return true;
+  const alts = expandBraces(seg);
+  if (!alts) return true;
+  return alts.some((alt) => globMatch(alt, name) !== false);
 }
 
 /** Divide em segmentos por "/" fora de chaves (para `{a/b,c}`). */
@@ -668,7 +748,7 @@ function globHitsRoot(pattern: string, root: QodeRoot): boolean {
     }
     // Raiz "repo-*": qualquer glob no último segmento pode casar com um nome que começa pelo prefixo.
     if (root.prefix && last) continue;
-    if (!globSegment(seg).test(rs[i]!)) return false;
+    if (!segMatch(seg, rs[i]!)) return false;
   }
   return ps.length >= rs.length;
 }

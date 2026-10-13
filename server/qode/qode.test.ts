@@ -1173,6 +1173,29 @@ describe('consulta adversarial 13/10: bypasses confirmados', () => {
     return { d, home, priv, pub, cfg, pre };
   }
 
+  // Revisão ZikaBOT (msg 1791928616.227989): ReDoS no glob e intervalos {p..r}.
+  it('glob sem backtracking: padrão "*a"×20+"b" contra raiz aaa…c termina rápido e sem falso positivo', () => {
+    const d = tempDir().dir;
+    const root = join(d, `${'a'.repeat(45)}c`);
+    mkdirSync(root, { recursive: true });
+    const cfg = parseConfig({ projetos: [{ nome: 'P', privado: true, caminhos: [root] }] }, d);
+    const t0 = Date.now();
+    expect(mentionsPrivate(cfg, `cat ${d}/${'*a'.repeat(20)}b/x`)).toBe(false);
+    expect(mentionsPrivate(cfg, `cat ${d}/${'*a'.repeat(200)}*/x`)).toBe(false);
+    expect(Date.now() - t0).toBeLessThan(500);
+    expect(mentionsPrivate(cfg, `cat ${d}/${'*a'.repeat(20)}*c/x`)).toBe(true);
+  });
+
+  it('F3: intervalos {p..r} e expansões não suportadas contam como privadas', () => {
+    const { home, cfg } = qenv();
+    expect(mentionsPrivate(cfg, `cat ${home}/{p..r}riv/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/{a,b}{p..r}riv/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/{1..3}/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/{p,{q,r}}riv/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/{{p,q},r}riv/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/pub{,lic}/x`)).toBe(false);
+  });
+
   it('F3: brace expansion que chega à raiz privada é privada', () => {
     const { home, cfg } = qenv();
     expect(mentionsPrivate(cfg, `cat ${home}/{priv,public}/secret`)).toBe(true);
