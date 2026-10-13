@@ -1,0 +1,17 @@
+.ui-continuity {position:fixed;right:16px;bottom:20px;width:min(310px,calc(100vw - 32px));max-height:65vh;overflow:auto;z-index:15;background:#202632;color:#eef2f6;border:1px solid #58677b;border-radius:10px;padding:14px;font:14px/1.4 system-ui,sans-serif;box-shadow:0 8px 24px #0008}
+.ui-continuity[hidden] {display:none}
+.ui-continuity h2 {font-size:18px;margin:0 0 6px}
+.ui-continuity p {margin:6px 0}
+.ui-continuity dl {display:grid;grid-template-columns:110px 1fr;gap:6px}
+.ui-continuity dt {color:#b6c6d9}
+.ui-continuity dd {margin:0;overflow-wrap:anywhere}
+.ui-continuity button {color:#eef2f6;background:#34445b;border:1px solid #7185a0;border-radius:5px;padding:6px 12px;cursor:pointer}
+.ui-continuity button:focus-visible {outline:2px solid #a6ccff;outline-offset:3px}
+
+.ui-continuity-launcher {position:fixed;left:50%;transform:translateX(-50%);bottom:20px;z-index:15;background:#202632;color:#eef2f6;border:1px solid #7185a0;border-radius:6px;padding:8px 12px;font:14px system-ui;cursor:pointer}
+.ui-continuity-launcher[hidden] {display:none}
+.ui-tasks {right:16px;bottom:64px;left:auto}
+.ui-tasks-launcher {left:auto;right:16px;transform:none}
+.ui-hbtask {border-top:1px solid #58677b;padding-top:6px;margin-top:6px}
+.ui-hbtask h3 {font-size:15px;margin:0 0 4px;position:static;display:block;float:none;width:auto}
+.ui-hbtask dl {clear:both}

@@ -35,6 +35,8 @@ import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
 import { createBuildReader } from './build';
 import { setupQode } from './qode';
+import { setupContinuityFixture } from './qode/continuity-reader';
+import { setupTaskRegistry } from './qode/task-registry-reader';
 import { UpdateChecker } from './updates/checker';
 
 const config = loadConfig();
@@ -196,6 +198,8 @@ const api = createApiHandler({
   version: config.version,
   inDocker: config.inDocker,
   health: () => ({ qode: qode.health() }),
+  continuity: setupContinuityFixture(process.env, config.host, config.dataDir),
+  tasks: setupTaskRegistry(process.env, config.host, config.dataDir),
   terminal: config.terminal,
   terminals,
   sessions: history && qode.history(history),
