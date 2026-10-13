@@ -36,8 +36,11 @@ funciona igual ao upstream.
   - caminho absoluto, `~/…`, `~usuario/…`, `$HOME/…` e `${HOME}/…`, inclusive com aspas no meio (`"$HOME"/Documents/…`,
     `$HOME"/Documents/Vida"`) e com espaço no nome (`"/tmp/qode alias/…"`, `/tmp/qode\ alias/…`, aspas concatenadas
     no estilo do shell e `bash -c 'cat "…/qode alias/…"'`);
+  - substituições de comando (`$(…)` e backticks), aspas ANSI-C (`$'…'`) e programas passados a `-c`/`eval`,
+    inclusive com aliases criados depois da configuração. O texto é interpretado sem executar comandos;
+    construções ambíguas ou acima da profundidade permitida fecham o acesso;
   - URL-encoding (`%2F`, `%20` no meio do nome, também no cwd e no `caminhos` da config), `\u002f` no JSON, `file://` e `file://localhost/`, barras escapadas
-    de JSON (`\/`), `.`, `..` e `//` no meio;
+    de JSON (`\/`), `.`, `..` e `//` no meio. Em `file://` e em tokens com `%XX`, o caminho é decodificado inteiro antes de partir por espaço;
   - globs que incluem parte do nome da pasta (`~/Documents/Vi*`);
   - a pasta codificada do Claude Code (`-Users-…-Documents-Vida`);
   - qualquer combinação de maiúsculas e minúsculas.
@@ -135,7 +138,8 @@ Se um caminho cair em mais de um projeto, o privado ganha.
 - O histórico de sessões esconde as sessões cujo projeto, título ou agente aberto é privado, e as sessões sem projeto
   conhecido. Uma sessão de outro projeto que citou o Vida OS lá no começo ainda pode aparecer na lista com o título. Ao
   abrir, o servidor varre o transcript inteiro e recusa a sessão.
-- A primeira abertura do terminal de uma sessão grande varre o arquivo inteiro uma vez. Depois disso, só os bytes
-  novos são lidos.
+- A primeira abertura do terminal varre o arquivo inteiro. Quando o arquivo muda, o prefixo já visto é relido e
+  comparado por hashes antes de inspecionar os bytes novos. Uma reescrita exige nova varredura; o custo de validar
+  cada mudança é proporcional ao tamanho do prefixo. Bytes UTF-8 incompletos bloqueiam até a próxima escrita.
 - Para agentes privados, as estatísticas do "Meu dia" contam a presença, mas não os tokens nem o custo.
 - Fora deste PR: OpenCode (o PR 2 mira a linha 1.x) e Docker. O Habblaud roda direto no Node.

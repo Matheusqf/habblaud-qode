@@ -873,7 +873,18 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     expect(isPrivatePath(cfg, vida(e))).toBe(true);
     expect(isPrivatePath(cfg, alias)).toBe(true);
     expect(isPrivatePath(cfg, `${enc}/x`)).toBe(true);
+    expect(isPrivatePath(cfg, `file://${enc}/x`)).toBe(true);
     expect(projectOf(cfg, vida(e))?.nome).toBe('Vida OS');
+
+    const rel = `~/${alias.slice(e.home.length + 1).replace(/ /g, '%20')}`;
+    const viaHome = parseConfig({ projetos: [{ nome: 'Vida OS', privado: true, caminhos: [rel] }] }, e.home);
+    expect(isPrivatePath(viaHome, vida(e))).toBe(true);
+    expect(isPrivatePath(viaHome, alias)).toBe(true);
+    expect(isPrivatePath(viaHome, enc)).toBe(true);
+
+    const twice = alias.replace(/ /g, '%2520');
+    expect(isPrivatePath(e.qode.config!, `${twice}/secret.txt`)).toBe(true);
+    expect(projectOf(e.qode.config!, twice)?.nome).toBe('Vida OS');
   });
 
   it('aspas concatenadas e bash -c com aspas aninhadas contaminam', () => {

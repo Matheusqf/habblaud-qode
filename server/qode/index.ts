@@ -1,7 +1,8 @@
 // Fork QODE: liga a configuração de projetos (config.ts) e o filtro de privacidade (privacy.ts) ao servidor.
 // Tudo o que não passa pelo Office (terminal, histórico de sessões, permissões, mensagens e logs) é embrulhado aqui.
 // Sem qode.config.json, cada embrulho devolve o original e nada muda.
-import { closeSync, openSync, readSync, statSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
+import { createHash, type Hash } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import type { Activity, AgentInfo, RecentSession } from '../../shared/types';
 import { log, setLogFilter } from '../log';
@@ -17,6 +18,8 @@ import { Privacy } from './privacy';
 const SCAN_CHUNK = 1 << 20;
 const SCAN_LINE_MAX = 1 << 20;
 const SCAN_CACHE_MAX = 1_000;
+/** Bloco da prova de continuidade. O prefixo é revalidado sem reexecutar a inspeção JSON. */
+const INTEGRITY_CHUNK = SCAN_CHUNK;
 export const PRIVATE_SESSION_ERROR = 'sessão de projeto privado: o Habblaud não mostra a conversa';
 
 /** Linha do transcript: JSON já decodificado; se não parseia, o texto cru; `{`/`[` duvidoso = fechado. */
@@ -38,36 +41,121 @@ export function inspectTranscriptLine(line: string, mentions: (text: string) => 
 /** Resultado da varredura: 'error' = não deu para ler (quem chama trata como privado, sem contaminar ninguém). */
 export type ScanResult = 'hit' | 'clean' | 'error';
 
-/** Procura caminhos privados num transcript, só nos bytes novos desde a última vez (o resultado positivo fica). */
+interface ScannerEntry {
+  offset: number;
+  hit: boolean;
+  pending: boolean;
+  carry: string;
+  ino: number;
+  mtimeMs: number;
+  ctimeMs: number;
+  decoder: StringDecoder;
+  chunks: Map<number, string>;
+  hashOffset: number;
+  /** Estado incremental do último bloco incompleto; o conteúdo não fica retido no cache. */
+  hashPartial?: Hash;
+  hashPartialLength: number;
+  utf8Pending: Buffer;
+}
+
+/** Inspeciona bytes novos após validar a continuidade do prefixo; o resultado positivo fica. */
 export class TranscriptScanner {
-  private cache = new Map<string, { offset: number; hit: boolean; pending: boolean; carry: string; ino: number; mtimeMs: number; decoder: StringDecoder }>();
+  private cache = new Map<string, ScannerEntry>();
 
   constructor(private readonly mentions: (text: string) => boolean) {}
 
+  private static hash(data: Uint8Array): string {
+    return createHash('sha256').update(data).digest('hex');
+  }
+
+  private static readExact(fd: number, position: number, length: number): Buffer | undefined {
+    const out = Buffer.alloc(length);
+    let got = 0;
+    while (got < length) {
+      const n = readSync(fd, out, got, length - got, position + got);
+      if (n <= 0) return undefined;
+      got += n;
+    }
+    return out;
+  }
+
+  private static recordHash(e: ScannerEntry, data: Buffer): void {
+    let start = 0;
+    while (start < data.length) {
+      const need = INTEGRITY_CHUNK - e.hashPartialLength;
+      const take = Math.min(need, data.length - start);
+      if (e.hashPartialLength === 0 && take === INTEGRITY_CHUNK) {
+        e.chunks.set(e.hashOffset, TranscriptScanner.hash(data.subarray(start, start + take)));
+        e.hashOffset += take;
+      } else {
+        e.hashPartial ??= createHash('sha256');
+        e.hashPartial.update(data.subarray(start, start + take));
+        e.hashPartialLength += take;
+        if (e.hashPartialLength === INTEGRITY_CHUNK) {
+          e.chunks.set(e.hashOffset, e.hashPartial.digest('hex'));
+          e.hashOffset += INTEGRITY_CHUNK;
+          e.hashPartial = undefined;
+          e.hashPartialLength = 0;
+        }
+      }
+      start += take;
+    }
+  }
+
+  /** Bytes finais que o StringDecoder ainda precisa para fechar um caractere UTF-8. */
+  private static utf8Tail(data: Buffer): Buffer {
+    if (data.length === 0) return Buffer.alloc(0);
+    let i = data.length - 1;
+    while (i >= 0 && (data[i]! & 0xc0) === 0x80) i--;
+    if (i < 0) return Buffer.alloc(0);
+    const lead = data[i]!;
+    const need = lead >= 0xf0 && lead <= 0xf4 ? 4 : lead >= 0xe0 && lead <= 0xef ? 3 : lead >= 0xc2 && lead <= 0xdf ? 2 : 1;
+    return data.length - i < need ? Buffer.from(data.subarray(i)) : Buffer.alloc(0);
+  }
+
+  private static verifyPrefix(fd: number, e: { chunks: Map<number, string>; hashOffset: number; hashPartial?: Hash; hashPartialLength: number; offset: number }): 'match' | 'mismatch' | 'error' {
+    for (const [position, expected] of e.chunks) {
+      const block = TranscriptScanner.readExact(fd, position, INTEGRITY_CHUNK);
+      if (!block) return 'error';
+      if (TranscriptScanner.hash(block) !== expected) return 'mismatch';
+    }
+    if (e.hashOffset + e.hashPartialLength !== e.offset) return 'error';
+    if (e.hashPartialLength > 0) {
+      if (!e.hashPartial) return 'error';
+      const tail = TranscriptScanner.readExact(fd, e.hashOffset, e.hashPartialLength);
+      if (!tail) return 'error';
+      if (TranscriptScanner.hash(tail) !== e.hashPartial.copy().digest('hex')) return 'mismatch';
+    }
+    return 'match';
+  }
+
   scan(path: string): ScanResult {
-    let size: number;
-    let ino: number;
-    let mtimeMs: number;
+    let current: ReturnType<typeof statSync>;
     try {
-      const st = statSync(path);
-      size = st.size;
-      ino = st.ino;
-      mtimeMs = st.mtimeMs;
+      current = statSync(path);
     } catch {
       return 'error';
     }
     let e = this.cache.get(path);
-    // Truncado, trocado, ou reescrito no lugar com o mesmo tamanho: começa de novo.
-    const rewritten = e && (size < e.offset || e.ino !== ino || (size === e.offset && mtimeMs !== e.mtimeMs));
-    if (!e || rewritten) {
-      if (e?.hit) return 'hit';
-      e = { offset: 0, hit: false, pending: false, carry: '', ino, mtimeMs, decoder: new StringDecoder('utf8') };
+    if (e?.hit) return 'hit';
+    if (!e) {
+      e = {
+        offset: 0,
+        hit: false,
+        pending: false,
+        carry: '',
+        ino: current.ino,
+        mtimeMs: current.mtimeMs,
+        ctimeMs: current.ctimeMs,
+        decoder: new StringDecoder('utf8'),
+        chunks: new Map(),
+        hashOffset: 0,
+        hashPartialLength: 0,
+        utf8Pending: Buffer.alloc(0),
+      };
       if (!this.cache.has(path) && this.cache.size >= SCAN_CACHE_MAX) this.cache.delete(this.cache.keys().next().value!);
       this.cache.set(path, e);
     }
-    if (e.hit) return 'hit';
-    e.mtimeMs = mtimeMs;
-    if (size === e.offset) return e.pending ? 'error' : 'clean';
     let fd: number;
     try {
       fd = openSync(path, 'r');
@@ -75,12 +163,55 @@ export class TranscriptScanner {
       return 'error';
     }
     try {
+      const snapshot = fstatSync(fd);
+      // O stat e o fd precisam representar o mesmo arquivo; não liberar uma leitura corrida.
+      if (snapshot.ino !== current.ino || snapshot.size !== current.size || snapshot.mtimeMs !== current.mtimeMs || snapshot.ctimeMs !== current.ctimeMs) {
+        return 'error';
+      }
+      const size = snapshot.size;
+      const changed = e.offset > 0 && (size !== e.offset || e.ino !== snapshot.ino || e.mtimeMs !== snapshot.mtimeMs || e.ctimeMs !== snapshot.ctimeMs);
+      if (size < e.offset || e.ino !== snapshot.ino) {
+        e.offset = 0;
+        e.pending = false;
+        e.carry = '';
+        e.decoder = new StringDecoder('utf8');
+        e.chunks.clear();
+        e.hashOffset = 0;
+        e.hashPartial = undefined;
+        e.hashPartialLength = 0;
+        e.utf8Pending = Buffer.alloc(0);
+      } else if (changed) {
+        const verified = TranscriptScanner.verifyPrefix(fd, e);
+        if (verified === 'error') return 'error';
+        if (verified === 'mismatch') {
+          e.offset = 0;
+          e.pending = false;
+          e.carry = '';
+          e.decoder = new StringDecoder('utf8');
+          e.chunks.clear();
+          e.hashOffset = 0;
+          e.hashPartial = undefined;
+          e.hashPartialLength = 0;
+          e.utf8Pending = Buffer.alloc(0);
+        }
+      }
+      e.ino = snapshot.ino;
+      e.mtimeMs = snapshot.mtimeMs;
+      e.ctimeMs = snapshot.ctimeMs;
+      if (size === e.offset) return e.pending ? 'error' : 'clean';
       const buf = Buffer.alloc(SCAN_CHUNK);
+      let incomplete = false;
       while (e.offset < size) {
         const n = readSync(fd, buf, 0, Math.min(SCAN_CHUNK, size - e.offset), e.offset);
-        if (n <= 0) break;
+        if (n <= 0) {
+          incomplete = true;
+          break;
+        }
+        TranscriptScanner.recordHash(e, buf.subarray(0, n));
         e.offset += n;
-        const text = e.carry + e.decoder.write(buf.subarray(0, n));
+        const bytes = buf.subarray(0, n);
+        e.utf8Pending = TranscriptScanner.utf8Tail(Buffer.concat([e.utf8Pending, bytes]));
+        const text = e.carry + e.decoder.write(bytes);
         let start = 0;
         for (let i = 0; i < text.length; i++) {
           if (text[i] !== '\n') continue;
@@ -98,7 +229,17 @@ export class TranscriptScanner {
           break;
         }
       }
-      if (!e.hit && e.offset >= size) {
+      if (e.hit) return 'hit';
+      if (incomplete || e.offset < size) return 'error';
+      const end = fstatSync(fd);
+      if (end.ino !== snapshot.ino || end.size !== snapshot.size || end.mtimeMs !== snapshot.mtimeMs || end.ctimeMs !== snapshot.ctimeMs) return 'error';
+      if (e.offset >= size) {
+        // Não finalize um code point que pode continuar no próximo poll: end() emitiria U+FFFD e
+        // resetaria o decoder, quebrando a continuidade de caminhos UTF-8 divididos entre writes.
+        if (e.utf8Pending.length > 0) {
+          e.pending = true;
+          return 'error';
+        }
         const tail = e.carry + e.decoder.end();
         e.decoder = new StringDecoder('utf8');
         e.carry = tail;
