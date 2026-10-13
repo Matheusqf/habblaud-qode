@@ -564,7 +564,7 @@ function expandVars(text: string, home: string): string {
         continue;
       }
     }
-    if (text[i] === '~' && (i === 0 || /[\s=:(,;{[|&>'"`]/.test(text[i - 1]!))) {
+    if (text[i] === '~' && (i === 0 || /[\s=:(,;{[|&><)}'"`]/.test(text[i - 1]!))) {
       let j = i + 1;
       while (j < n && /[A-Za-z0-9._-]/.test(text[j]!)) j++;
       const next = text[j];
@@ -1230,57 +1230,179 @@ function walkStrings(value: unknown, out: string[]): void {
 
 const GROUP = /[@!+?*]?\([^()]*\)/g;
 const GROUP_PASSES_MAX = 32;
+/** Variantes cortadas (um corte por terminador) têm teto próprio; os candidatos continuam limitados por MENTIONS_TOKENS_MAX. */
+const CUTS_MAX = MENTIONS_TOKENS_MAX * 4;
 
 /**
- * Opus P1: grupos do zsh `(a|b)` e extglob do bash `@( ) !( ) +( ) ?( ) *( )` num fragmento absoluto (ou com ~/$HOME)
- * viram `*` antes do isPrivateToken (que já é conservador com `*`), com aspas e ~/$HOME já normalizados. Parênteses que sobram também viram `*`.
- * Só fragmentos com "(", ")" ou "|" depois de uma "/" são reescritos; o resto volta igual.
+ * Opus P1: grupos do zsh `(a|b)` e extglob do bash `@( ) !( ) +( ) ?( ) *( )` viram `*` (isPrivateToken já é
+ * conservador com `*`); parênteses e `|` que sobram também viram `*`. Texto já normalizado (sem aspas, com ~/$HOME expandidos).
  */
-/**
- * Passo geral de extração (ZikaBOT 1791933110.238959): dentro de uma palavra, operadores e atribuições do shell que
- * colam um caminho a outra coisa (`<`, `>`, `>>`, `2>`, `;`, `&&`, `VAR=`, `--opt=`, `` ` ``, `$(`) separam pedaços.
- * Grupos `( | )` e aspas são preservados dentro de cada pedaço, e a normalização de aspas/~/$HOME vem depois
- * (unshell em rewriteGroups). Só leitura: nada é avaliado.
- */
-const SHELL_GLUE = /[<>;&=`]+|\$\(/;
-
-function shellPieces(word: string): string[] {
-  return SHELL_GLUE.test(word) ? word.split(SHELL_GLUE).filter(Boolean) : [word];
-}
-
-/** Palavra → candidatos: a palavra inteira e cada pedaço com grupos/extglob reescritos. undefined = privado. */
-function rewriteFragment(raw: string, home: string): string[] | undefined {
-  const pieces = shellPieces(raw);
-  if (pieces.length === 1 && pieces[0] === raw) {
-    const one = rewriteGroups(raw, home);
-    return one === undefined ? undefined : [one];
-  }
-  const out: string[] = [raw];
-  for (const piece of pieces) {
-    const r = rewriteGroups(piece, home);
-    if (r === undefined) return undefined;
-    out.push(r);
-  }
-  return out;
-}
-
-function rewriteGroups(raw: string, home: string): string | undefined {
-  // Barras repetidas colapsam ANTES do limite: padding de "/" não pode tirar o grupo da análise.
-  const fragment = raw.length > TOKEN_MAX ? raw.replace(/\/{2,}/g, '/') : raw;
-  const slash = fragment.indexOf('/');
-  if (slash < 0 || !/[()|]/.test(fragment.slice(slash))) return raw;
-  // Grupo num fragmento que continua longo demais: privado (fail closed).
-  if (fragment.length > TOKEN_MAX) return undefined;
-  // Mesma normalização do shell usada no resto (unshell): %XX/\uXXXX, aspas em qualquer parte do fragmento
-  // ("$HOME"/x, "/abs"/x, '/a'/b) e ~/$HOME/${HOME}. Só leitura; nenhuma outra variável é expandida.
-  let f = unshell(fragment, home);
-  if (!f.startsWith('/')) return raw;
+function groupsToStar(f: string): string {
+  if (!/[()|^#]/.test(f)) return f;
   for (let n = 0; n < GROUP_PASSES_MAX && f.includes('('); n++) {
     const next = f.replace(GROUP, '*');
     if (next === f) break;
     f = next;
   }
-  return f.replace(/[()|]/g, '*');
+  // zsh EXTENDED_GLOB: `^pub` (negação: o segmento inteiro vira `*`) e `priv#` (repetição) também podem casar com a raiz; `[^x]` (classe) fica como está.
+  return f
+    .replace(/[()|#]/g, '*')
+    .split('/')
+    .map((seg) => (/(?<!\[)\^/.test(seg) ? '*' : seg))
+    .join('/');
+}
+
+/**
+ * Marca (U+0001) posta antes de cada $HOME/${HOME…} expandido: o que vem antes dela (outra variável como `$IFS`,
+ * `cat$IFS$HOME/x`) nunca faz o caminho parecer relativo. Não é caractere de nome, então vira terminador.
+ */
+const HOME_MARK = '\u0001';
+
+/** `${HOME<qualquer coisa até o } correspondente>}` vale HOME (conservador: ${HOME%/}, ${HOME:-/x}, ${HOME/a/b}…). Só leitura. */
+function expandHomeBraces(s: string, home: string): string {
+  if (!/\$\{home/i.test(s)) return s;
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] === '$' && s[i + 1] === '{' && s.slice(i + 2, i + 6).toLowerCase() === 'home' && !/[A-Za-z0-9_]/.test(s[i + 6] ?? '')) {
+      let depth = 1;
+      let j = i + 6;
+      for (; j < s.length && depth > 0; j++) {
+        if (s[j] === '{') depth += 1;
+        else if (s[j] === '}') depth -= 1;
+      }
+      out += HOME_MARK + home;
+      // Sem } correspondente (sintaxe inválida/ambígua): o resto fica visível como texto depois de HOME (conservador).
+      i = depth > 0 ? i + 6 : j;
+      continue;
+    }
+    out += s[i]!;
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * Fragmento (sem espaços) como o shell o veria, só leitura: segmentos ANSI-C $'...' decodificados em qualquer posição
+ * (inválido/ambíguo = undefined = privado), ${HOME…} como HOME, e o mesmo unshell do resto (%XX, \uXXXX, aspas, ~, $HOME).
+ */
+function normalizeFragment(raw: string, home: string): string | undefined {
+  let f = raw;
+  if (f.includes("$'")) {
+    let out = '';
+    for (let i = 0; i < f.length; ) {
+      if (f[i] === '$' && f[i + 1] === "'") {
+        const ansi = ansiCWord(f, i);
+        if (ansi.unsafe) return undefined;
+        out += ansi.value;
+        i = ansi.next;
+        continue;
+      }
+      out += f[i]!;
+      i += 1;
+    }
+    f = out;
+  }
+  // `$HOME` simples também ganha a marca (ver HOME_MARK) antes de o unshell expandi-lo.
+  // Crase = substituição de comando: a saída dela pode ter espaço/tab (`` cat`printf '\t'`/abs ``) e separar a palavra.
+  // O unshell apagaria a crase e colaria "cat…/abs"; aqui ela vira a marca (não é caractere de nome = terminador).
+  f = f.replace(/`/g, HOME_MARK);
+  return unshell(expandHomeBraces(f, home).replace(/\$home(?![A-Za-z0-9_])/gi, `${HOME_MARK}$HOME`), home);
+}
+
+const NAME_CHAR = /[A-Za-z0-9._~\-]/;
+/** O que pode aparecer DENTRO de um nome de caminho (inclui glob/grupos/chaves); o resto termina o caminho. */
+const PATH_CHAR = /[A-Za-z0-9._~+@%^!#*?[\]{}()\-/\u0080-￿]/;
+
+/**
+ * Extração estrutural de candidatos (ZikaBOT 1791933110.238959 e seguintes): em vez de listar os caracteres que podem
+ * colar um caminho a outra coisa (`|`, `||`, `>|`, `(`, `{`, `,`, `:`, `=`, `}` de ${IFS}, aspas…), todo "/" do
+ * fragmento normalizado cujo caractere anterior NÃO é parte de um nome (início, ou fora de [A-Za-z0-9._~-] e de "/")
+ * inicia um candidato. Cada candidato vai até o fim do fragmento ou até um fechamento sem par (`)` `}` `]`), e
+ * também é testado cortado em cada terminador (qualquer caractere que não cabe num nome). Nada é executado.
+ */
+interface Candidate {
+  /** Do início ao fim (grupos já reescritos para `*`). */
+  full: string;
+  /** Posições dos terminadores; o prefixo cortado em cada uma é montado sob demanda (custo limitado por CUTS_MAX). */
+  stops: number[];
+  text: string;
+  start: number;
+}
+
+/** `$NOME` imediatamente antes do "/" (`cat$IFS/etc`, `$X/home`): a variável pode expandir para vazio ou espaço, então o "/" inicia caminho. */
+function afterVariable(n: string, s: number): boolean {
+  let i = s - 1;
+  for (const stop = Math.max(0, s - 65); i >= stop && /[A-Za-z0-9_]/.test(n[i]!); i--);
+  return i >= 0 && i < s - 1 && n[i] === '$';
+}
+
+/** Valor padrão de expansão de parâmetro: `${x:-/abs}`, `${x-/abs}`, `${x:=/abs}`, `${x:+/abs}`. */
+function afterParamOp(n: string, s: number): boolean {
+  const op = n[s - 1];
+  if (op !== '-' && op !== '=' && op !== '+' && op !== '?') return false;
+  let i = s - 2;
+  if (n[i] === ':') i -= 1;
+  const stop = Math.max(0, i - 64);
+  while (i >= stop && /[A-Za-z0-9_]/.test(n[i]!)) i -= 1;
+  return i >= 1 && n[i] === '{' && n[i - 1] === '$';
+}
+
+/** Prefixo de opção colado ao caminho (`-f/x`, `--file/x`, `-I/x`): só o primeiro "/" do fragmento. */
+const OPTION_PREFIX = /^-{1,2}[A-Za-z0-9_-]+$/;
+
+/** Candidatos de uma única grafia normalizada. undefined = privado na dúvida (candidato maior que TOKEN_MAX). */
+function candidatesIn(n: string, budget: { starts: number }): Candidate[] | undefined {
+  const out: Candidate[] = [];
+  const first = n.indexOf('/');
+  for (let s = first; s >= 0; s = n.indexOf('/', s + 1)) {
+    const prev = n[s - 1];
+    if (prev !== undefined && (prev === '/' || NAME_CHAR.test(prev) || prev.charCodeAt(0) > 127)) {
+      // Exceções: opção colada (`-f/x`) e "%XX"/"\\uXXXX" que o decodeEscapes deixou literais por serem separadores (`cat%7c/x`).
+      const encoded = isHexChar(prev) && isHexChar(n[s - 2]) && n[s - 3] === '%';
+      if (!encoded && !afterVariable(n, s) && !afterParamOp(n, s) && (s !== first || !OPTION_PREFIX.test(n.slice(0, s)))) continue;
+    }
+    let brace = 0;
+    let paren = 0;
+    let bracket = 0;
+    const stops: number[] = [];
+    const inner: number[] = [];
+    const limit = Math.min(n.length, s + TOKEN_MAX + 1);
+    let end = s + 1;
+    scan: for (; end < limit; end++) {
+      const c = n[end]!;
+      const flat = !brace && !paren && !bracket;
+      switch (c) {
+        case '{': if (flat) stops.push(end); brace += 1; break;
+        case '(': if (flat) stops.push(end); paren += 1; break;
+        case '[': if (flat) stops.push(end); bracket += 1; break;
+        case '}': if (brace === 0) break scan; brace -= 1; break;
+        case ')': if (paren === 0) break scan; paren -= 1; break;
+        case ']': if (bracket === 0) break scan; bracket -= 1; break;
+        default:
+          // `,` `|` dentro de {} ( ) [] balanceados são internos; se nunca fecharem, valem como cortes (estrutura quebrada).
+          if (!PATH_CHAR.test(c) || (c === '%' && isHexChar(n[end + 1]) && isHexChar(n[end + 2]))) (flat ? stops : inner).push(end);
+      }
+    }
+    if (end - s > TOKEN_MAX) return undefined;
+    if (brace || paren || bracket) stops.push(...inner);
+    if (--budget.starts < 0) return undefined; // candidatos demais no texto: privado (custo limitado)
+    out.push({ full: groupsToStar(n.slice(s, end)), stops, text: n, start: s });
+  }
+  return out;
+}
+
+function candidatesOf(raw: string, home: string, budget: { starts: number }): Candidate[] | undefined {
+  if (!/[/%\\]|\$'/.test(raw)) return [];
+  let n = normalizeFragment(raw, home);
+  if (n === undefined) return undefined;
+  // Barras repetidas colapsam ANTES do limite: padding de "/" não pode tirar o caminho da análise.
+  if (n.length > TOKEN_MAX) n = n.replace(/\/{2,}/g, '/');
+  const direct = candidatesIn(n, budget);
+  if (direct === undefined || !n.includes('\\')) return direct;
+  // Barra invertida: tanto terminador (JSON "\n", "\t") quanto escape do shell (`pr\iv` = `priv`). Vale as duas leituras.
+  const unescaped = candidatesIn(n.replace(/\\([^])/g, '$1'), budget);
+  return unescaped === undefined ? undefined : [...direct, ...unescaped];
 }
 
 /** O texto cita um caminho privado (absoluto, ~/, ~usuário/, $HOME, com aspas, %XX, "..", symlink ou cwd codificado)? */
@@ -1298,21 +1420,28 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
   // a small bounded window after each absolute-looking fragment; this keeps
   // `I'm reading /tmp/qode alias/secret.txt` observable without treating every
   // apostrophe as a shell error.
-  const fragments: string[] = [];
-  for (const f of text.split(/\s+/)) {
-    const r = rewriteFragment(f, cfg.home);
-    if (r === undefined) return true;
-    fragments.push(...r);
-  }
-  let absoluteFragments = 0;
-  for (let i = 0; i < fragments.length; i++) {
-    const first = fragments[i]!.replace(/^["'`]+/, '');
-    if (!first.startsWith('/')) continue;
-    absoluteFragments += 1;
-    if (absoluteFragments > MENTIONS_TOKENS_MAX) return true;
-    for (let width = 1; width <= 4 && i + width <= fragments.length; width++) {
-      const candidate = [first, ...fragments.slice(i + 1, i + width).map((part) => part.replace(/["'`]+$/g, ''))].join(' ');
-      if (isPrivateToken(cfg, candidate)) return true;
+  const words = text.split(/\s+/);
+  const seen = new Set<string>();
+  const budget = { starts: MENTIONS_TOKENS_MAX };
+  let cuts = 0;
+  for (let i = 0; i < words.length; i++) {
+    const found = candidatesOf(words[i]!, cfg.home, budget);
+    if (found === undefined) return true;
+    for (const c of found) {
+      for (let width = 1; width <= 4 && i + width <= words.length; width++) {
+        const candidate = [c.full, ...words.slice(i + 1, i + width).map((part) => stripQuotes(part))].join(' ');
+        if (width === 1 && seen.has(candidate)) break;
+        seen.add(candidate);
+        if (isPrivateToken(cfg, candidate)) return true;
+      }
+      for (const stop of c.stops) {
+        if (stop - c.start < 2) continue;
+        if (++cuts > CUTS_MAX) return true;
+        const cut = groupsToStar(c.text.slice(c.start, stop));
+        if (seen.has(cut)) continue;
+        seen.add(cut);
+        if (isPrivateToken(cfg, cut)) return true;
+      }
     }
   }
   const flatRaw = decodeToken(stripQuotes(expandVars(decodeEscapes(text), cfg.home))).toLowerCase();
