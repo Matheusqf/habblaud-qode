@@ -1157,3 +1157,90 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     expect(body.toLowerCase()).not.toMatch(/vida|documents|secret|~\//);
   });
 });
+
+// Consulta adversarial (DeepSeek v4.1 Flash, 13/10/2026) verificada: F3, F4, F5, F6, F8, F9. Só caminhos sintéticos.
+describe('consulta adversarial 13/10: bypasses confirmados', () => {
+  function qenv() {
+    const d = tempDir().dir;
+    const home = join(d, 'home', 'u');
+    const priv = join(home, 'priv');
+    const pub = join(home, 'public');
+    mkdirSync(join(priv, 'sub'), { recursive: true });
+    mkdirSync(pub, { recursive: true });
+    mkdirSync(join(home, 'repo-secret'), { recursive: true });
+    const cfg = parseConfig({ projetos: [{ nome: 'P', privado: true, caminhos: [priv] }, { nome: 'Q', caminhos: [pub] }] }, home);
+    const pre = parseConfig({ projetos: [{ nome: 'R', privado: true, caminhos: [`${home}/repo-*`] }] }, home);
+    return { d, home, priv, pub, cfg, pre };
+  }
+
+  it('F3: brace expansion que chega à raiz privada é privada', () => {
+    const { home, cfg } = qenv();
+    expect(mentionsPrivate(cfg, `cat ${home}/{priv,public}/secret`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/pr{i,x}v/secret`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat "${home}/{public,priv}"/secret`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/{pub,public}/secret`)).toBe(false);
+  });
+
+  it('F4: glob no diretório pai que pode casar com a raiz privada é privado; glob só em pasta pública não', () => {
+    const { d, home, priv, cfg } = qenv();
+    expect(mentionsPrivate(cfg, `cat ${home}/*/secret`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/p*/secret`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/?riv/secret`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/[pq]riv/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `grep -r x ${home}/**`)).toBe(true);
+    expect(mentionsPrivate(cfg, `ls ${home}/*`)).toBe(true);
+    // Via symlink no pai.
+    const link = join(d, 'homelink');
+    symlinkSync(home, link);
+    expect(mentionsPrivate(cfg, `cat ${link}/*/secret`)).toBe(true);
+    // Públicos continuam públicos.
+    expect(mentionsPrivate(cfg, `cat ${home}/public/*`)).toBe(false);
+    expect(mentionsPrivate(cfg, `cat ${home}/x*/secret`)).toBe(false);
+    expect(mentionsPrivate(cfg, `cat ${priv.replace('priv', 'pub')}*/x`)).toBe(false);
+  });
+
+  it('F5: raiz "repo-*" citada em texto livre (fora de JSON puro) é privada', () => {
+    const { home, pre } = qenv();
+    expect(mentionsPrivate(pre, `result: {"file":"${home}/repo-secret/x"}`)).toBe(true);
+    expect(mentionsPrivate(pre, `{"file":"${home}/repo-secret/x"}`)).toBe(true);
+    expect(mentionsPrivate(pre, `veja ${home}/repo-outra`)).toBe(true);
+    expect(mentionsPrivate(pre, `veja ${home}/public/x`)).toBe(false);
+  });
+
+  it('F9: JSON aninhado fundo (raiz exata e "repo-*") não escapa', () => {
+    const { home, priv, cfg, pre } = qenv();
+    const deep = (p: string) => '['.repeat(20000) + `"${p}/x"` + ']'.repeat(20000);
+    expect(mentionsPrivate(pre, deep(`${home}/repo-secret`))).toBe(true);
+    expect(mentionsPrivate(cfg, deep(priv))).toBe(true);
+  });
+
+  it('F6: feed/aviso de agente ausente nunca classificado como público fica privado; sessão contaminada depois também', () => {
+    const { cfg } = qenv();
+    const ag: Record<string, AgentInfo> = {};
+    const p = new Privacy(cfg, { agent: (id) => ag[id], agents: () => Object.values(ag), changed: () => {} });
+    const item = (agentId: string) => ({ id: 'f', agentId, roomId: 'publico', agentName: 'n', roomName: 'r', activity: { kind: 'read', text: 'X-SENT', detail: 'X-SENT' } }) as never;
+    p.taintSession('S');
+    expect(JSON.stringify(p.feed([item('A')]))).not.toContain('X-SENT');
+    // Público visto enquanto presente continua público depois de sair.
+    ag.M = { id: 'M', kind: 'main', roomId: 'publico', sessionId: 'SM' } as AgentInfo;
+    expect(p.isPrivate('M')).toBe(false);
+    delete ag.M;
+    expect(JSON.stringify(p.feed([item('M')]))).toContain('X-SENT');
+    // ...a não ser que a sessão dele seja contaminada depois.
+    p.taintSession('SM');
+    expect(JSON.stringify(p.feed([item('M')]))).not.toContain('X-SENT');
+  });
+
+  it('F8: subagente privado (órfão) que ganha pai público continua a contaminar os filhos', () => {
+    const { cfg } = qenv();
+    const ag: Record<string, AgentInfo> = {};
+    const p = new Privacy(cfg, { agent: (id) => ag[id], agents: () => Object.values(ag), changed: () => {} });
+    ag.A = { id: 'A', kind: 'sub', roomId: 'publico', sessionId: 'SA' } as AgentInfo;
+    expect(p.isPrivate('A')).toBe(true);
+    ag.M = { id: 'M', kind: 'main', roomId: 'publico', sessionId: 'SM' } as AgentInfo;
+    ag.A = { ...ag.A, parentId: 'M' } as AgentInfo;
+    ag.B = { id: 'B', kind: 'sub', parentId: 'A', roomId: 'publico', sessionId: 'SB' } as AgentInfo;
+    expect(p.isPrivate('B')).toBe(true);
+    expect(p.isPrivate('M')).toBe(false);
+  });
+});

@@ -61,6 +61,8 @@ export function lexical(p: string): string {
 }
 
 // Só acertos, e por pouco tempo: um symlink criado ou trocado depois precisa valer na próxima consulta.
+// F7 (consulta 13/10, aceito e documentado): um symlink trocado de público para privado pode ler o alvo antigo
+// por até REAL_CACHE_TTL_MS (2 s). Não há caminho trivialmente seguro sem perder o limite de custo; fica como está.
 const realCache = new Map<string, { real: string; at: number }>();
 
 function realOf(p: string): string | undefined {
@@ -594,7 +596,82 @@ export function unshell(text: string, home: string): string {
   return stripQuotes(expandVars(decodeEscapes(text), home));
 }
 
-const GLOB = /[*?[]/;
+const GLOB = /[*?[{]/;
+const GLOB_SEGS_MAX = 64;
+const BRACE_ALTS_MAX = 64;
+
+/** Um segmento de glob (`*`, `?`, `[...]`, `{a,b}`) como RegExp; ambíguo/malformado = casa qualquer nome (privado na dúvida). */
+function globSegment(seg: string): RegExp {
+  let re = '';
+  let depth = 0;
+  let alts = 0;
+  for (let i = 0; i < seg.length; i++) {
+    const c = seg[i]!;
+    if (c === '*') re += '.*';
+    else if (c === '?') re += '.';
+    else if (c === '[') {
+      const end = seg.indexOf(']', i + 2);
+      if (end < 0) return /^.*$/s;
+      let body = seg.slice(i + 1, end);
+      if (body.startsWith('!')) body = `^${body.slice(1)}`;
+      re += `[${body.replace(/\\/g, '\\\\')}]`;
+      i = end;
+    } else if (c === '{') {
+      depth += 1;
+      re += '(?:';
+    } else if (c === '}' && depth > 0) {
+      depth -= 1;
+      re += ')';
+    } else if (c === ',' && depth > 0) {
+      if (++alts > BRACE_ALTS_MAX) return /^.*$/s;
+      re += '|';
+    } else re += c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+  if (depth !== 0) return /^.*$/s;
+  try {
+    return new RegExp(`^${re}$`, 's');
+  } catch {
+    return /^.*$/s;
+  }
+}
+
+/** Divide em segmentos por "/" fora de chaves (para `{a/b,c}`). */
+function globSegs(p: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let depth = 0;
+  for (const c of p) {
+    if (c === '{') depth += 1;
+    else if (c === '}' && depth > 0) depth -= 1;
+    if (c === '/' && depth === 0) {
+      if (cur && cur !== '.') out.push(cur);
+      cur = '';
+    } else cur += c;
+  }
+  if (cur && cur !== '.') out.push(cur);
+  return out;
+}
+
+/** F3/F4: o padrão (com glob ou chaves em qualquer segmento) pode casar com a raiz privada ou algo dentro dela? */
+function globHitsRoot(pattern: string, root: QodeRoot): boolean {
+  const ps = globSegs(pattern.toLowerCase());
+  const rs = globSegs(root.path);
+  if (ps.length > GLOB_SEGS_MAX || ps.some((s) => s === '..' || (s.includes('{') && s.includes('/')))) return true;
+  for (let i = 0; i < ps.length; i++) {
+    if (i >= rs.length) return true;
+    const seg = ps[i]!;
+    if (seg.includes('**')) return true;
+    const last = i === rs.length - 1;
+    if (!GLOB.test(seg)) {
+      if (root.prefix && last ? !seg.startsWith(rs[i]!) : seg !== rs[i]) return false;
+      continue;
+    }
+    // Raiz "repo-*": qualquer glob no último segmento pode casar com um nome que começa pelo prefixo.
+    if (root.prefix && last) continue;
+    if (!globSegment(seg).test(rs[i]!)) return false;
+  }
+  return ps.length >= rs.length;
+}
 
 function takeQuoted(text: string, start: number): { token: string; next: number } {
   const q = text[start]!;
@@ -991,6 +1068,15 @@ export function isPrivateToken(cfg: QodeConfig, token: string): boolean {
     for (const lit of [...bases].map((l) => l.toLowerCase() + tail)) {
       if (cfg.privateRoots.some((r) => r.path.startsWith(lit) && lit.length > posix.dirname(r.path).length + 1)) return true;
     }
+    // F3/F4: glob/chaves em qualquer segmento (inclusive no diretório pai), também a partir do pai resolvido por symlink.
+    const fixedCut = tok.lastIndexOf('/', g);
+    const rest = tok.slice(fixedCut + 1);
+    const fixed = tok.slice(0, fixedCut + 1) || '/';
+    const starts = new Set<string>([lexical(fixed), ...readings(fixed)]);
+    for (const s of starts) {
+      const pattern = `${s.replace(/\/+$/, '')}/${rest}`;
+      if (cfg.privateRoots.some((r) => globHitsRoot(pattern, r))) return true;
+    }
     tok = tok.slice(0, tok.lastIndexOf('/', g) + 1) || '/';
   }
   const hit = readings(tok).some((r) => privateLower(cfg, r.toLowerCase()));
@@ -1094,25 +1180,31 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
     }
     return false;
   };
-  if (cfg.privateRoots.some((r) => !r.prefix && contains(r.path))) return true;
+  // F5/F9: raízes "repo-*" (prefixo) também valem no texto livre.
+  if (cfg.privateRoots.some((r) => (r.prefix ? r.path.length > 3 && flats.some((f) => f.includes(r.path)) : contains(r.path)))) return true;
   for (const a of cfg.privateAliases) if (contains(a)) return true;
   const trimmed = text.trimStart();
   if (depth < 2 && (trimmed.startsWith('{') || trimmed.startsWith('['))) {
+    let parsed: unknown;
     try {
-      const parsed: unknown = JSON.parse(text);
-      if (parsed && typeof parsed === 'object') {
-        const inner: string[] = [];
-        walkStrings(parsed, inner);
-        if (inner.length > MENTIONS_TOKENS_MAX) return true;
-        let bytes = 0;
-        for (const s of inner) {
-          bytes += s.length;
-          if (bytes > MENTIONS_BYTES_MAX) return true;
-        }
-        return inner.some((s) => mentionsPrivate(cfg, s, depth + 1));
-      }
+      parsed = JSON.parse(text);
     } catch {
-      /* texto cru já foi varrido */
+      parsed = undefined; /* não é JSON: texto cru já foi varrido */
+    }
+    if (parsed && typeof parsed === 'object') {
+      const inner: string[] = [];
+      try {
+        walkStrings(parsed, inner);
+      } catch {
+        return true; // F9: JSON fundo demais para percorrer = privado na dúvida.
+      }
+      if (inner.length > MENTIONS_TOKENS_MAX) return true;
+      let bytes = 0;
+      for (const s of inner) {
+        bytes += s.length;
+        if (bytes > MENTIONS_BYTES_MAX) return true;
+      }
+      return inner.some((s) => mentionsPrivate(cfg, s, depth + 1));
     }
   }
   return false;

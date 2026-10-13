@@ -205,6 +205,8 @@ export class Privacy implements OfficePrivacy {
   private seen = new Set<string>();
   /** Sessões que citaram um caminho privado, mesmo antes de o agente delas aparecer no escritório. */
   private taintedSessions = new Set<string>();
+  /** Agentes já classificados como públicos enquanto presentes, com a sessão deles (F6: quem nunca foi visto é privado). */
+  private publicSeen = new Map<string, string | undefined>();
   /** Há o que esconder: algum projeto privado, ou a config inválida (tudo privado). */
   readonly active: boolean;
   private readonly homeLower: string;
@@ -232,8 +234,13 @@ export class Privacy implements OfficePrivacy {
     let cur = lookup(id);
     if (!cur) return true;
     for (let hops = 0; hops <= MAX_HOPS; hops++) {
-      if (this.tainted.has(cur.id) || this.taintedSessions.has(cur.sessionId) || this.roomPrivate(cur.roomId)) return this.mark(id);
-      if (cur.kind === 'main') return false;
+      // F8: um ancestral já visto como privado (p.ex. órfão que depois ganhou pai) continua a contaminar.
+      if (this.tainted.has(cur.id) || this.seen.has(cur.id) || this.taintedSessions.has(cur.sessionId) || this.roomPrivate(cur.roomId)) return this.mark(id);
+      if (cur.kind === 'main') {
+        const self = lookup(id);
+        this.publicSeen.set(id, self?.sessionId);
+        return false;
+      }
       if (!cur.parentId) return this.mark(id);
       const parent: AgentInfo | undefined = lookup(cur.parentId);
       if (!parent) return this.mark(id);
@@ -253,7 +260,12 @@ export class Privacy implements OfficePrivacy {
     if (this.cfg.invalid) return true;
     if (roomId && this.roomPrivate(roomId)) return true;
     if (!agentId) return false;
-    return this.deps.agent(agentId) ? this.isPrivate(agentId) : this.tainted.has(agentId) || this.seen.has(agentId);
+    if (this.deps.agent(agentId)) return this.isPrivate(agentId);
+    if (this.tainted.has(agentId) || this.seen.has(agentId)) return true;
+    // F6: agente ausente nunca classificado como público, ou cuja sessão foi contaminada depois: na dúvida, privado.
+    if (!this.publicSeen.has(agentId)) return true;
+    const session = this.publicSeen.get(agentId);
+    return !!session && this.taintedSessions.has(session);
   }
 
   /** Contamina o agente e a família toda (do principal aos subagentes). */
