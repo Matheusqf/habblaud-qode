@@ -966,7 +966,7 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     const rel = vida(e).slice(e.home.length + 1);
     const dir = rel.slice(0, rel.lastIndexOf('/'));
     const name = rel.slice(dir.length + 1);
-    const forms = [`cat "$HOME"/${dir}/(${name}|nada)/x`, `cat "${e.home}"/${dir}/@(${name})/x`, `cat '${e.home}/${dir}'/!(nada)/x`, `cat ${e.home}/${dir}${'/'.repeat(5000)}(${name}|z)/x`];
+    const forms = [`cat "$HOME"/${dir}/(${name}|nada)/x`, `cat "${e.home}"/${dir}/@(${name})/x`, `cat '${e.home}/${dir}'/!(nada)/x`, `cat ${e.home}/${dir}${'/'.repeat(5000)}(${name}|z)/x`, `cat <$HOME/${dir}/(${name}|nada)/x`, `P=$HOME/${dir}/@(${name})/x`, `true;$HOME/${dir}/(${name}|q)/x`, `cat <"$HOME"/${dir}/(${name}|w)/x`, `cat <${e.home}/${dir}/(${name}|k)/x`];
     const ids = forms.map((_, i) => `q${i}`);
     forms.forEach((f, i) => {
       main(e, ids[i]!, clinicas(e));
@@ -1274,6 +1274,64 @@ describe('revisão Opus 13/10: grupos (a|b), extglob e TOKEN_MAX', () => {
     expect(mentionsPrivate(cfg, `cat ${g}/pub${pad}(a|b).txt`)).toBe(false);
     // Grupo num fragmento que continua longo mesmo colapsado = privado.
     expect(mentionsPrivate(cfg, `cat ${g}/pub/${'x'.repeat(5000)}(a|b)`)).toBe(true);
+  });
+  // Grok 4.6 (outra família) sobre 5bb3157: grupos colados a operadores; padding; grupo dentro de alias.
+  it('grupo colado a <, >, ;, ~ e VAR= é privado; controles públicos não', () => {
+    const { cfg } = oenv();
+    for (const t of ['cat <$HOME/GitHub/(priv|x)/.env', 'echo x >$HOME/GitHub/(priv|x)/out', 'true;$HOME/GitHub/(priv|x)/.env', 'cat <~/GitHub/(priv|x)/.env', 'P=$HOME/GitHub/(priv|x)/.env', 'a&&cat $HOME/GitHub/@(priv)/x'])
+      expect(mentionsPrivate(cfg, t), t).toBe(true);
+    for (const t of ['cat <$HOME/GitHub/pub/(a|b).txt', 'P=$HOME/GitHub/pub/(a|b)', 'echo x >$HOME/GitHub/pub/@(a)'])
+      expect(mentionsPrivate(cfg, t), t).toBe(false);
+  });
+  it('grupo colado: <"$HOME", </abs, <~, >>, 2>, --opt=, com e sem aspas; controles públicos', () => {
+    const { home, cfg } = oenv();
+    const bases = ['$HOME/GitHub', '"$HOME"/GitHub', '"${HOME}"/GitHub', '~/GitHub', `${home}/GitHub`, `"${home}"/GitHub`, `'${home}/GitHub'`];
+    for (const op of ['cat <', 'echo x >', 'echo x >>', 'cmd 2>', 'P=', 'grep --file=', 'true;'])
+      for (const b of bases) {
+        expect(mentionsPrivate(cfg, `${op}${b}/(priv|x)/.env`), `${op}${b}`).toBe(true);
+        expect(mentionsPrivate(cfg, `${op}${b}/@(priv)/.env`), `${op}${b} @`).toBe(true);
+        expect(mentionsPrivate(cfg, `${op}${b}/pub/(a|b).txt`), `${op}${b} pub`).toBe(false);
+      }
+    // Pipe real continua pipe.
+    expect(mentionsPrivate(cfg, `cat ${home}/GitHub/pub/x.txt|grep y`)).toBe(false);
+  });
+  it('P2 alias: caf* e caf(é|x) casam com o symlink NFD privado; NFC público e nomes Unicode distintos', () => {
+    const home = join(tempDir().dir, 'U');
+    const g = `${home}/GitHub`;
+    mkdirSync(`${g}/priv`, { recursive: true });
+    mkdirSync(`${g}/pub`, { recursive: true });
+    symlinkSync(`${g}/priv`, `${g}/cafe\u0301`);
+    symlinkSync(`${g}/pub`, `${g}/caf\u00e9`);
+    const cfg = parseConfig({ projetos: [{ nome: 'P', privado: true, caminhos: ['~/GitHub/priv'] }] }, home);
+    expect(mentionsPrivate(cfg, `cat ${g}/caf*/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${g}/caf(e\u0301|x)/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${g}/cafe\u0301/x`)).toBe(true);
+    // NFC "café" é outro nome físico (público): a classificação física (isPrivatePath, cwd/sala) distingue.
+    expect(isPrivatePath(cfg, `${g}/caf\u00e9/x`)).toBe(false);
+    // No texto livre, NFC/NFD é forma extra de comparação (eaf2e0c): citar o nome NFC mascara por precaução (fail closed).
+    expect(mentionsPrivate(cfg, `cat ${g}/caf\u00e9/x`)).toBe(true);
+    // Alias público sem homônimo Unicode privado continua público, com glob e grupo.
+    mkdirSync(`${g}/outro`, { recursive: true });
+    symlinkSync(`${g}/pub`, `${g}/bar\u00e9`);
+    const cfg2 = parseConfig({ projetos: [{ nome: 'P', privado: true, caminhos: ['~/GitHub/priv'] }] }, home);
+    expect(mentionsPrivate(cfg2, `cat ${g}/bar(\u00e9|x)/x`)).toBe(false);
+    expect(mentionsPrivate(cfg2, `cat ${g}/bar*/x`)).toBe(false);
+    expect(isPrivatePath(cfg, `${g}/cafe\u0301/x`)).toBe(true);
+  });
+  it('matriz ZikaBOT 1791933110.238959: operadores/atribuições colados, $( ), crase e bash -c', () => {
+    const { home, g: P, cfg } = oenv();
+    const priv = [`cat<${P}/(priv|x)/x`, `cat <${P}/(priv|x)/x`, 'cat<~/GitHub/(priv|x)/x', 'wc -l <$HOME/GitHub/(priv|x)/x', `true&&cat<${P}/@(priv)/x`,
+      `cp x 2>${P}/(priv|x)/y`, `echo $(<${P}/(priv|x)/x)`, `echo \`cat<${P}/(priv|x)/x\``, `bash -c 'cat<${P}/(priv|x)/x'`, `cat<${P}/priv/x`,
+      'cat <$HOME/GitHub/(priv|x)/x', `echo >${P}/(priv|x)/y`, 'P=$HOME/GitHub/(priv|x)/x', 'cat <"$HOME"/GitHub/(priv|x)/x', `cat </${P.slice(1)}/(priv|x)/x`, 'cat <~/GitHub/(priv|x)/x'];
+    const pub = [`cat<${P}/pub/(a|b).txt`, `echo $(<${P}/pub/(a|b).txt)`, `bash -c 'cat<${P}/pub/(a|b).txt'`, `echo \`cat<${P}/pub/(a|b).txt\``];
+    for (const t of priv) expect(mentionsPrivate(cfg, t), t.replace(home, '<h>')).toBe(true);
+    for (const t of pub) expect(mentionsPrivate(cfg, t), t.replace(home, '<h>')).toBe(false);
+  });
+  it('padding de "/" à frente e atrás do caminho com grupo privado é privado', () => {
+    const { home, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${'/'.repeat(5000)}${home.slice(1)}/GitHub/(priv|x)/.env`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/GitHub/(priv|x)/.env${'/'.repeat(5000)}`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${'/'.repeat(5000)}${home.slice(1)}/GitHub/pub/(a|b).txt`)).toBe(false);
   });
   it('TOKEN_MAX: token maior que o limite é privado (fail closed)', () => {
     const { g, cfg } = oenv();

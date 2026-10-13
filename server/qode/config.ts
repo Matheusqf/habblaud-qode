@@ -302,6 +302,8 @@ export function parseConfig(raw: unknown, home: string, file = QODE_CONFIG_FILE)
   const homeLex = lexical(home);
   const projects: QodeProject[] = [];
   const keys = new Set<string>();
+  // Pais das raízes privadas na grafia original (no Linux, readdir do caminho em minúsculas falha).
+  const privateDirs = new Set<string>();
   for (const [i, item] of top.projetos.entries()) {
     const where = `projetos[${i}]`;
     if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error(`${where} precisa ser um objeto`);
@@ -346,6 +348,7 @@ export function parseConfig(raw: unknown, home: string, file = QODE_CONFIG_FILE)
           variants.add(realishLiteral(form));
         }
         for (const v of variants) for (const f of compareForms(v.toLowerCase())) roots.push({ path: f, prefix: false });
+        if (p.privado === true) for (const v of variants) if (v.length > 1) privateDirs.add(posix.dirname(v));
         first ??= realishLiteral(abs);
       }
     }
@@ -357,14 +360,14 @@ export function parseConfig(raw: unknown, home: string, file = QODE_CONFIG_FILE)
   }
   const privateRoots = projects.filter((p) => p.privado).flatMap((p) => p.roots);
   const needles = [...new Set(privateRoots.filter((r) => r.path.length > 1).map((r) => r.path.replace(/[^a-z0-9]/g, '-')))];
-  const privateAliases = discoverAliases(privateRoots);
+  const privateAliases = discoverAliases(privateRoots, privateDirs);
   return { file, home, projects, privateRoots, needles, privateAliases };
 }
 
 /** Symlinks no diretório pai de cada raiz privada que apontam para ela. */
-function discoverAliases(roots: QodeRoot[]): Set<string> {
+function discoverAliases(roots: QodeRoot[], extraDirs: ReadonlySet<string> = new Set()): Set<string> {
   const out = new Set<string>();
-  const dirs = new Set(roots.filter((r) => r.path.length > 1 && !r.prefix).map((r) => posix.dirname(r.path)));
+  const dirs = new Set([...roots.filter((r) => r.path.length > 1 && !r.prefix).map((r) => posix.dirname(r.path)), ...extraDirs]);
   for (const dir of dirs) {
     let names: string[];
     try {
@@ -599,6 +602,7 @@ export function unshell(text: string, home: string): string {
 const GLOB = /[*?[{]/;
 const GLOB_SEGS_MAX = 64;
 const BRACE_ALTS_MAX = 64;
+const PRIVATE_ALIASES_MAX = 1024;
 
 /**
  * Expande `{a,b}` (aninhado) em alternativas literais, com limite. Sintaxe não suportada ou ambígua
@@ -1159,6 +1163,10 @@ export function isPrivateToken(cfg: QodeConfig, token: string): boolean {
     for (const s of starts) {
       const pattern = `${s.replace(/\/+$/, '')}/${rest}`;
       if (cfg.privateRoots.some((r) => globHitsRoot(pattern, r))) return true;
+      // P2 (ZikaBOT 1791933002.511909): aliases privados já descobertos (symlinks para a raiz) entram na mesma
+      // comparação limitada, na grafia física exata (sem NFC/NFD: "café" NFC e NFD são nomes distintos).
+      if (cfg.privateAliases.size > PRIVATE_ALIASES_MAX) return true;
+      for (const a of cfg.privateAliases) if (globHitsRoot(pattern, { path: a, prefix: false })) return true;
     }
     tok = tok.slice(0, tok.lastIndexOf('/', g) + 1) || '/';
   }
@@ -1228,6 +1236,34 @@ const GROUP_PASSES_MAX = 32;
  * viram `*` antes do isPrivateToken (que já é conservador com `*`), com aspas e ~/$HOME já normalizados. Parênteses que sobram também viram `*`.
  * Só fragmentos com "(", ")" ou "|" depois de uma "/" são reescritos; o resto volta igual.
  */
+/**
+ * Passo geral de extração (ZikaBOT 1791933110.238959): dentro de uma palavra, operadores e atribuições do shell que
+ * colam um caminho a outra coisa (`<`, `>`, `>>`, `2>`, `;`, `&&`, `VAR=`, `--opt=`, `` ` ``, `$(`) separam pedaços.
+ * Grupos `( | )` e aspas são preservados dentro de cada pedaço, e a normalização de aspas/~/$HOME vem depois
+ * (unshell em rewriteGroups). Só leitura: nada é avaliado.
+ */
+const SHELL_GLUE = /[<>;&=`]+|\$\(/;
+
+function shellPieces(word: string): string[] {
+  return SHELL_GLUE.test(word) ? word.split(SHELL_GLUE).filter(Boolean) : [word];
+}
+
+/** Palavra → candidatos: a palavra inteira e cada pedaço com grupos/extglob reescritos. undefined = privado. */
+function rewriteFragment(raw: string, home: string): string[] | undefined {
+  const pieces = shellPieces(raw);
+  if (pieces.length === 1 && pieces[0] === raw) {
+    const one = rewriteGroups(raw, home);
+    return one === undefined ? undefined : [one];
+  }
+  const out: string[] = [raw];
+  for (const piece of pieces) {
+    const r = rewriteGroups(piece, home);
+    if (r === undefined) return undefined;
+    out.push(r);
+  }
+  return out;
+}
+
 function rewriteGroups(raw: string, home: string): string | undefined {
   // Barras repetidas colapsam ANTES do limite: padding de "/" não pode tirar o grupo da análise.
   const fragment = raw.length > TOKEN_MAX ? raw.replace(/\/{2,}/g, '/') : raw;
@@ -1262,9 +1298,12 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
   // a small bounded window after each absolute-looking fragment; this keeps
   // `I'm reading /tmp/qode alias/secret.txt` observable without treating every
   // apostrophe as a shell error.
-  const rewritten = text.split(/\s+/).map((f) => rewriteGroups(f, cfg.home));
-  if (rewritten.some((f) => f === undefined)) return true;
-  const fragments = rewritten as string[];
+  const fragments: string[] = [];
+  for (const f of text.split(/\s+/)) {
+    const r = rewriteFragment(f, cfg.home);
+    if (r === undefined) return true;
+    fragments.push(...r);
+  }
   let absoluteFragments = 0;
   for (let i = 0; i < fragments.length; i++) {
     const first = fragments[i]!.replace(/^["'`]+/, '');
