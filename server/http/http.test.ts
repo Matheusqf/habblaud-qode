@@ -438,3 +438,45 @@ describe('guarda de Host/Origin', () => {
     expect(originAllowed('file://', 'localhost:4747', allowed)).toBe(false);
   });
 });
+
+// Candidata DTO: regressão da rota real, com grant sintético (não autenticação real).
+describe('continuity opt-in local', () => {
+  it('default off preserves snapshot and health routes; exposes no data', async () => {
+    const e=await start();
+    try {
+      expect(await (await fetch(`${e.base}/api/continuity`)).json()).toEqual({enabled:false,mode:'unavailable',status:'unavailable'});
+      expect((await fetch(`${e.base}/api/snapshot`)).status).toBe(200);
+      expect((await fetch(`${e.base}/api/health`)).status).toBe(200);
+      expect((await raw(e.base,'/api/continuity',{method:'POST',headers:JSON_HEADERS})).status).toBe(405);
+      expect((await raw(e.base,'/api/continuity',{headers:{Host:'192.168.1.10'}})).status).toBe(403);
+      expect((await raw(e.base,'/api/continuity',{headers:{Host:'evil.example'}})).status).toBe(403);
+    } finally {await e.close();e.cleanup();}
+  });
+  it('fixture shows blocked owner, then reader becomes unavailable without affecting native APIs', async () => {
+    let ready=true;
+    const e=await start({continuity:()=>ready?{enabled:true,mode:'fixture',status:'available',card:{task_id:'sol-blocked',project_id:'habblaud-fixture',initiated_by:'matheus',owner_ref:'sol',action:'merge',next_required:'review',capability:'blocked_policy',observed_at:'2026-10-13T13:00:00Z'}}:{enabled:true,mode:'unavailable',status:'unavailable'}});
+    try {
+      const r=await fetch(`${e.base}/api/continuity`);expect(r.headers.get('cache-control')).toBe('no-store');expect(r.headers.get('cross-origin-resource-policy')).toBe('same-origin');
+      expect(await r.json()).toMatchObject({card:{owner_ref:'sol',next_required:'review'}});
+      ready=false;expect(await (await fetch(`${e.base}/api/continuity`)).json()).not.toHaveProperty('card');
+      expect((await fetch(`${e.base}/api/snapshot`)).status).toBe(200);
+    } finally {await e.close();e.cleanup();}
+  });
+});
+
+describe('HB-INT-01 /api/tasks opt-in', () => {
+  it('default off; GET only; loopback only; native routes untouched', async () => {
+    const e=await start();
+    try {
+      expect(await (await fetch(`${e.base}/api/tasks`)).json()).toEqual({enabled:false,status:'unavailable'});
+      expect((await raw(e.base,'/api/tasks',{method:'POST',headers:JSON_HEADERS})).status).toBe(405);
+      expect((await raw(e.base,'/api/tasks',{headers:{Host:'evil.example'}})).status).toBe(403);
+      expect((await fetch(`${e.base}/api/snapshot`)).status).toBe(200);
+    } finally {await e.close();e.cleanup();}
+  });
+  it('serves only the injected projection with no-store', async () => {
+    const e=await start({tasks:()=>({enabled:true,status:'available',tasks:[]})});
+    try { const r=await fetch(`${e.base}/api/tasks`);expect(r.headers.get('cache-control')).toBe('no-store');expect(await r.json()).toEqual({enabled:true,status:'available',tasks:[]}); }
+    finally {await e.close();e.cleanup();}
+  });
+});

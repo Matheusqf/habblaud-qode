@@ -9,9 +9,16 @@ export function setQuiet(q: boolean): void {
   quiet = q;
 }
 
+let filter: ((msg: string) => string) | undefined;
+
+/** Reescreve cada linha antes de sair (fork QODE: tira caminhos privados, server/qode/privacy.ts). */
+export function setLogFilter(f: ((msg: string) => string) | undefined): void {
+  filter = f;
+}
+
 function write(level: Level, msg: string): void {
   if (quiet) return;
-  const line = `[habblaud] ${msg}`;
+  const line = `[habblaud] ${filter ? filter(msg) : msg}`;
   if (level === 'info') console.log(line);
   else if (level === 'warn') console.warn(line);
   else console.error(line);

@@ -13,14 +13,22 @@ import { handleSessionsRoute } from './sessions';
 import type { Hub } from './sse';
 import { handleStatsRoute } from './stats';
 import type { TerminalStreams } from './terminal';
+import type { ContinuityResponse } from '../qode/continuity-reader';
+import type { TasksResponse } from '../qode/task-registry-reader';
 
 export interface ApiDeps {
+  /** Leitor independente, off por padrão; só dados de fixture nesta candidata. */
+  continuity?: () => ContinuityResponse;
+  /** HB-INT-01: registo mínimo de tarefas, off por padrão, só leitura. */
+  tasks?: () => TasksResponse;
   office: Office;
   hub: Hub;
   accounts: AccountsService;
   sources: () => SourceInfo[];
   version: string;
   inDocker: boolean;
+  /** Campos a mais no /api/health (fork QODE: estado do qode.config.json). */
+  health?: () => Record<string, unknown>;
   /** Terminal ligado (ServerConfig.terminal: só com bind local). */
   terminal?: boolean;
   /** Streams do terminal; sem eles o recurso fica desligado mesmo com `terminal`. */
@@ -235,6 +243,18 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     const method = req.method ?? 'GET';
     const isRead = method === 'GET' || method === 'HEAD';
 
+    if (path === '/api/continuity') {
+      if (method !== 'GET') methodNotAllowed(res, 'GET');
+      else if (!isLoopbackHost(req.headers.host) || !isLoopbackAddress(req.socket.remoteAddress)) sendJson(res, 403, { error: 'acesso somente local' });
+      else sendJson(res, 200, deps.continuity?.() ?? {enabled:false,mode:'unavailable',status:'unavailable'});
+      return true;
+    }
+    if (path === '/api/tasks') {
+      if (method !== 'GET') methodNotAllowed(res, 'GET');
+      else if (!isLoopbackHost(req.headers.host) || !isLoopbackAddress(req.socket.remoteAddress)) sendJson(res, 403, { error: 'acesso somente local' });
+      else sendJson(res, 200, deps.tasks?.() ?? {enabled:false,status:'unavailable'});
+      return true;
+    }
     if (path === '/api/stream') {
       if (method !== 'GET') methodNotAllowed(res, 'GET');
       else hub.attach(req, res);
@@ -250,6 +270,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else {
         sendJson(res, 200, {
           ok: true,
+          ...deps.health?.(),
           version: deps.version,
           demo: office.isDemo(),
           docker: deps.inDocker,
