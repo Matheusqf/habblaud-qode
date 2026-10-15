@@ -292,7 +292,7 @@ export class OfficeStore {
         body: JSON.stringify(body),
       });
     } catch {
-      return 'Sem conexão com o Habblaud.';
+      return 'Sem conexão com o QODE Office.';
     }
     if (res.ok) return undefined;
     try {

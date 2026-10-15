@@ -1,4 +1,4 @@
-# Habblaud no Docker local.
+# QODE Office no Docker local.
 #
 # Suba com `npm run docker:up`: o script detecta as contas do Claude Code no host e gera o
 # docker-compose.override.yml (fora do controle de versão) com:

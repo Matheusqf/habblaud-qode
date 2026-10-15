@@ -49,7 +49,7 @@ const REFRESH_MS = 30_000;
 const NOTE =
   'Tempo de agentes é a soma de todos eles: dois agentes trabalhando por 1 hora contam 2 horas. ' +
   '“Esperando você” é o tempo de mão levantada no escritório (permissão, pergunta ou escolha). ' +
-  'O Habblaud só conta o que acontece enquanto ele está rodando.';
+  'O QODE Office só conta o que acontece enquanto ele está rodando.';
 
 /** De onde vêm os números: o servidor ou, no ?mock=1, o acumulador local. */
 interface DaySource {
@@ -337,7 +337,7 @@ export class DayPanel implements UiComponent {
         h('p', {
           class: 'ui-day__empty',
           text: today
-            ? 'Ainda não há tempo registrado hoje. Os números aparecem assim que algum agente trabalhar com o Habblaud aberto.'
+            ? 'Ainda não há tempo registrado hoje. Os números aparecem assim que algum agente trabalhar com o QODE Office aberto.'
             : 'Nada registrado neste dia.',
         }),
       );

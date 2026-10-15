@@ -177,7 +177,7 @@ describe('docker-up: migração do nome antigo (CodeTown)', () => {
     });
   });
 
-  it('cópia: imagem do Habblaud como root, sem rede, volume antigo só leitura', () => {
+  it('cópia: imagem do QODE Office como root, sem rede, volume antigo só leitura', () => {
     const args = copyVolumeArgs('velho', 'novo');
     expect(args[0]).toBe('run');
     expect(args).toContain('--rm');

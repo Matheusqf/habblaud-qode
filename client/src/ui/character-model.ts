@@ -8,7 +8,7 @@ import type { Appearance } from '../art/api';
 export interface EditGate {
   /** O agente ainda está no escritório. */
   live: boolean;
-  /** meta.terminal: o Habblaud só é acessível pelo próprio computador (bind local). */
+  /** meta.terminal: o QODE Office só é acessível pelo próprio computador (bind local). */
   terminal: boolean;
   /** A página foi aberta por localhost/127.x (o servidor recusa o resto). */
   local: boolean;

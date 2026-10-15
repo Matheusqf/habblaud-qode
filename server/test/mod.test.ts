@@ -113,7 +113,7 @@ describe('plugin habblaud-permissoes', () => {
     for (const spec of specs) expect(spec.startsWith('node:'), spec).toBe(true);
   });
 
-  it.skipIf(!SH)('o comando do plugin roda de verdade: com o Habblaud fora do ar, sai rápido e sem decisão', () => {
+  it.skipIf(!SH)('o comando do plugin roda de verdade: com o QODE Office fora do ar, sai rápido e sem decisão', () => {
     const input = JSON.stringify({ session_id: 's', hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' } });
     const t0 = Date.now();
     // O Claude Code troca ${CLAUDE_PLUGIN_ROOT} no comando e também o exporta; o sh expande do ambiente igual.

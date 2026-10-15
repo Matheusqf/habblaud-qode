@@ -111,7 +111,7 @@ describe('rotas do auxiliar do Codex', () => {
     expect(lines.join('\n')).not.toContain('o resto');
   });
 
-  it('Habblaud fora do ar ou recusando: a rodada só informa (nada roda)', async () => {
+  it('QODE Office fora do ar ou recusando: a rodada só informa (nada roda)', async () => {
     const run = async () => ({ ok: true as const });
     expect(await round(httpPost(1), run)).toEqual({ state: 'down' });
     const s = await serve(false);

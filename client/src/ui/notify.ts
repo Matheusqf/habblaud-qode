@@ -1,12 +1,13 @@
 // Notificações (opt-in): Notification do navegador para alertas com a aba oculta, sons de aviso
 // (sino de "precisa de você", estalo de conclusão; pela mesa de som da UI) e o contador no título da
 // aba quando há agentes esperando você.
+import { PRODUCT_NAME } from '../../../shared/brand';
 import type { Notice } from '../../../shared/types';
 import type { SoundBoard } from '../audio/board';
 import type { UiComponent, UiContext } from './context';
 import { computeCounters } from './model';
 
-const BASE_TITLE = 'Habblaud';
+const BASE_TITLE = PRODUCT_NAME;
 
 export type NotificationState = 'unsupported' | 'default' | 'granted' | 'denied';
 
@@ -53,7 +54,7 @@ export class Notifier implements UiComponent {
     else if (n.level === 'success') this.sounds.play('pop');
     if (n.level === 'alert' && prefs.browserNotifications && document.hidden && notificationState() === 'granted') {
       try {
-        const notification = new Notification('Habblaud — precisa de você', {
+        const notification = new Notification(`${PRODUCT_NAME} — precisa de você`, {
           body: n.text,
           tag: n.agentId ?? n.id,
           icon: '/assets/brand/favicon-32.png',

@@ -233,7 +233,7 @@ export class PermissionCard {
     this.preview = h('div', { class: 'ui-perm__preview' });
     this.note = h('p', { class: 'ui-perm__note', hidden: true });
     this.queue = h('p', { class: 'ui-perm__queue', hidden: true });
-    this.remote = h('p', { class: 'ui-perm__note', hidden: true, text: 'Para responder por aqui, abra o Habblaud por http://localhost (ou 127.0.0.1). Por enquanto, responda no terminal.' });
+    this.remote = h('p', { class: 'ui-perm__note', hidden: true, text: 'Para responder por aqui, abra o QODE Office por http://localhost (ou 127.0.0.1). Por enquanto, responda no terminal.' });
 
     this.approveBtn = h('button', { class: 'ui-btn ui-perm__btn ui-perm__btn--allow', type: 'button', on: { click: () => this.send({ behavior: 'allow' }) } }, '✓ Aprovar');
     this.answerBtn = h('button', { class: 'ui-btn ui-perm__btn ui-perm__btn--allow', type: 'button', hidden: true, on: { click: () => this.sendAnswer() } }, '✓ Responder');
@@ -246,7 +246,7 @@ export class PermissionCard {
     this.denyBtn = h('button', { class: 'ui-btn ui-perm__btn ui-perm__btn--deny', type: 'button', attrs: { 'aria-expanded': 'false' }, on: { click: () => this.toggleDeny() } }, '✕ Recusar…');
     this.terminalBtn = h(
       'button',
-      { class: 'ui-btn ui-perm__btn', type: 'button', title: 'O Habblaud deixa este pedido de lado: vale o que você responder no terminal', on: { click: () => this.send({ behavior: 'terminal' }) } },
+      { class: 'ui-btn ui-perm__btn', type: 'button', title: 'O QODE Office deixa este pedido de lado: vale o que você responder no terminal', on: { click: () => this.send({ behavior: 'terminal' }) } },
       'Responder no terminal',
     );
 
@@ -344,7 +344,7 @@ export class PermissionCard {
       this.timer,
       codex
         ? `Pedido feito às ${formatClock(p.createdAt)}. Sem resposta aqui até ${formatClock(p.expiresAt)}, o Codex segue sem a decisão do escritório e pede a aprovação no terminal.`
-        : `Pedido feito às ${formatClock(p.createdAt)}. Sem resposta aqui até ${formatClock(p.expiresAt)}, o Habblaud devolve o pedido ao terminal.`,
+        : `Pedido feito às ${formatClock(p.createdAt)}. Sem resposta aqui até ${formatClock(p.expiresAt)}, o QODE Office devolve o pedido ao terminal.`,
     );
 
     // Pergunta: o formulário com as opções no lugar do título da ferramenta e da prévia dos argumentos.
@@ -383,7 +383,7 @@ export class PermissionCard {
     setTitle(this.denyBtn, ask ? 'Não responder: o agente segue sem a resposta (com o motivo, se você escrever um)' : codex ? 'Recusar com um motivo (o Codex pede um)' : '');
     setTitle(
       this.terminalBtn,
-      codex ? 'O Habblaud solta o pedido agora: o Codex mostra a aprovação no terminal' : 'O Habblaud deixa este pedido de lado: vale o que você responder no terminal',
+      codex ? 'O QODE Office solta o pedido agora: o Codex mostra a aprovação no terminal' : 'O QODE Office deixa este pedido de lado: vale o que você responder no terminal',
     );
     this.suggestions.sync(opts.always ? (p.suggestions ?? []) : []);
     for (const b of this.suggestions.container.querySelectorAll('button')) b.disabled = busy;
@@ -466,7 +466,7 @@ export class PermissionCard {
     try {
       error = await this.ctx.store.decidePermission(id, d);
     } catch {
-      error = 'Não foi possível falar com o Habblaud. Responda no terminal.';
+      error = 'Não foi possível falar com o QODE Office. Responda no terminal.';
     }
     if (this.id !== id) return;
     if (error) {

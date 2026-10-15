@@ -752,7 +752,7 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     const lines: string[] = [];
     vi.spyOn(console, 'warn').mockImplementation((m: string) => void lines.push(m));
     log.warn(`Falha ao ler ${vida(e, 'diario/senhas.md')}`);
-    log.warn('Habblaud em http://127.0.0.1:4747');
+    log.warn('QODE Office em http://127.0.0.1:4747');
     expect(lines[0]).toBe('[habblaud] Falha ao ler [privado]');
     expect(lines[1]).toContain('127.0.0.1:4747');
   });

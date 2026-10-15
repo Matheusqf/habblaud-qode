@@ -6,7 +6,7 @@
 // - marca a PRESENÇA de cada sessão que pergunta pela caixa de entrada (AgentInfo.canMessage, via Office);
 // - guarda as mensagens de cada agente na ordem e acompanha a situação delas (queued → sent → delivered/failed);
 // - falha as que ninguém buscou, as que a sessão não confirmou e as do agente que saiu;
-// - põe a atividade "Mensagem pelo Habblaud" no agente quando a sessão confirma a entrega;
+// - põe a atividade "Mensagem pelo QODE Office" no agente quando a sessão confirma a entrega;
 // - simula a entrega para os agentes do demo (nada vai a uma sessão de verdade).
 // O texto vai à sessão exatamente como foi digitado (é do próprio usuário) e nunca sai nas respostas da página nem
 // no log; só a atividade do feed leva o começo dele, mascarado e cortado.
@@ -44,7 +44,7 @@ export const ERR_NOT_CONFIRMED = 'a sessão não confirmou a entrega';
 export const ERR_GONE = 'o agente saiu do escritório';
 export const ERR_REFUSED = 'a sessão não aceitou a mensagem';
 export const ERR_CODEX_UNAVAILABLE =
-  'não há como entregar ao Codex agora: rode o Habblaud fora do Docker com o `codex` no PATH (ou HABBLAUD_CODEX_BIN) ou, no Docker, deixe o npm run codex:bridge rodando no Mac';
+  'não há como entregar ao Codex agora: rode o QODE Office fora do Docker com o `codex` no PATH (ou HABBLAUD_CODEX_BIN) ou, no Docker, deixe o npm run codex:bridge rodando no Mac';
 export const ERR_CODEX_NOT_FETCHED = 'o auxiliar do Codex não buscou a mensagem: o npm run codex:bridge está rodando no Mac?';
 export const ERR_CODEX_SLOW = 'o Codex demorou demais com as mensagens anteriores a este agente';
 export const ERR_CODEX_NOT_CONFIRMED = 'o auxiliar do Codex não confirmou a entrega';
