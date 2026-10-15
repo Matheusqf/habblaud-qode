@@ -134,4 +134,9 @@ Se um caminho cair em mais de um projeto, o privado ganha.
   comparado por hashes antes de inspecionar os bytes novos. Uma reescrita exige nova varredura; o custo de validar
   cada mudança é proporcional ao tamanho do prefixo. Bytes UTF-8 incompletos bloqueiam até a próxima escrita.
 - Para agentes privados, as estatísticas do "Meu dia" contam a presença, mas não os tokens nem o custo.
-- Fora deste PR: OpenCode (o PR 2 mira a linha 1.x) e Docker. O Habblaud roda direto no Node.
+- **Origem/capacidade (Q3):** `/api/health` → `qode.capabilities` declara Claude/Codex (live|unknown), OpenCode e Cursor
+  como `unavailable` (ainda sem adaptador) e o registro manual como `manual`. Não trate Manual como trabalho live, nem
+  OpenCode/Cursor como integrados.
+- **Matriz canário (Q4):** `server/qode/canary-matrix.test.ts` usa o sentinela `QODE_CANARY_PRIVATE_48H` em fixtures
+  sintéticas. Gaps (relativo, variável ≠ HOME, paste sem path) estão reproduzidos à parte — não estão corrigidos.
+- Fora deste ciclo: adaptador OpenCode/Cursor e Docker. O Habblaud roda direto no Node.

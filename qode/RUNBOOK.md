@@ -46,3 +46,16 @@ curl -s localhost:4747/api/sessions/recent | grep -ci 'privado-sintetico' # 0
 
 **Zero exposição** de projetos proibidos na UI/API/logs. Não é "zero leitura": o servidor ainda lê transcripts em
 memória para saber o estado do agente. Pastas fora da lista ainda aparecem como no upstream (Q0, fora desta fatia).
+
+
+## Matriz canário (Q4)
+
+Canário sintético: `QODE_CANARY_PRIVATE_48H` (só fixtures; nunca Vida real).
+
+```bash
+export PATH="/opt/homebrew/opt/node@24/bin:$PATH"   # engines >=22.12
+npx vitest run server/qode/canary-matrix.test.ts server/qode/capabilities.test.ts
+```
+
+Aceite: zero canário nas saídas protegidas + controlo público visível. Gaps conhecidos (relativo / variável / paste)
+falham de propósito no sentido de *ainda vazam* — documentados, não corrigidos nesta fatia.
