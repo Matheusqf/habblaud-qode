@@ -15,7 +15,7 @@ import { delimiter, isAbsolute, join } from 'node:path';
 
 /** Prazo de um `codex queue`. */
 export const QUEUE_TIMEOUT_MS = 20_000;
-/** Id de thread do Codex (UUID; `codex queue --thread` também aceitaria nomes, mas o Habblaud só manda ids). */
+/** Id de thread do Codex (UUID; `codex queue --thread` também aceitaria nomes, mas o QODE Office só manda ids). */
 export const THREAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ERROR_MAX = 300;
 

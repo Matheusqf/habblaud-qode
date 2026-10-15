@@ -20,7 +20,7 @@ const SCAN_LINE_MAX = 1 << 20;
 const SCAN_CACHE_MAX = 1_000;
 /** Bloco da prova de continuidade. O prefixo é revalidado sem reexecutar a inspeção JSON. */
 const INTEGRITY_CHUNK = SCAN_CHUNK;
-export const PRIVATE_SESSION_ERROR = 'sessão de projeto privado: o Habblaud não mostra a conversa';
+export const PRIVATE_SESSION_ERROR = 'sessão de projeto privado: o QODE Office não mostra a conversa';
 
 /** Linha do transcript: JSON já decodificado; se não parseia, o texto cru; `{`/`[` duvidoso = fechado. */
 export function inspectTranscriptLine(line: string, mentions: (text: string) => boolean): boolean {

@@ -4,6 +4,7 @@
 // Organização: tudo o que flutua (placas, pílulas, balões, etiquetas) disputa espaço na tela.
 // Os itens são POSICIONADOS em ordem decrescente de prioridade (quem chega depois desvia, vira
 // só o ícone ou é descartado) e DESENHADOS em ordem crescente (o mais importante fica por cima).
+import { PRODUCT_NAME } from '../../../../shared/brand';
 import { TILE } from '../../art/api';
 import type { WorldOptions } from '../api';
 import type { Camera } from '../camera';
@@ -416,7 +417,7 @@ export class Overlay {
       const anim = room ? buildAnim(room.phase, room.progress(now)) : null;
       // texto da placa quando ela fica grande o bastante para ler; senão, o nome flutuante
       const rect = this.renderer.signRect(vis);
-      const text = room ? room.info.name : vis.id === 'core:recepcao' ? 'Habblaud' : null;
+      const text = room ? room.info.name : vis.id === 'core:recepcao' ? PRODUCT_NAME : null;
       const readable = !!rect && rect.h * zoom >= SIGN_MIN_PX;
       if (readable && rect && text && (!anim || anim.sign >= 1)) {
         const ax = this.sx(rect.x);

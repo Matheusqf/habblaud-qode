@@ -229,7 +229,7 @@ class AgentView {
   private actTime: HTMLElement;
   private actDetails: HTMLDetailsElement;
   private actDetail: HTMLElement;
-  /** Mandar mensagem ao agente principal pelo Habblaud (plugin habblaud-mensagens). */
+  /** Mandar mensagem ao agente principal pelo QODE Office (plugin habblaud-mensagens). */
   private composer: MessageComposer;
   private msgSec: ReturnType<typeof section>;
   private tasksSec: ReturnType<typeof section>;

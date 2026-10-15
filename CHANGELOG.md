@@ -1,7 +1,7 @@
 # Novidades
 
-O que entrou em cada versão do Habblaud. Cada versão tem a sua seção aqui, e o texto dela vira as notas da
-[release no GitHub](https://github.com/marmottajr/habblaud/releases) (`npm run release`), que o Habblaud abre em
+O que entrou em cada versão do QODE Office. Cada versão tem a sua seção aqui, e o texto dela vira as notas da
+[release no GitHub](https://github.com/marmottajr/habblaud/releases) (`npm run release`), que o QODE Office abre em
 **Configurações › Sobre › Ver o que mudou**.
 
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/), e os números seguem o
@@ -10,11 +10,15 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Alterado
+
+- A marca visível passou a ser **QODE Office** (título da página, header, Sobre, avisos e título do README). Pacote, caminhos, `HABBLAUD_*` e identificadores de protocolo continuam iguais.
+
 ## [0.8.0] - 2026-10-09
 
 Para atualizar: `git pull` e `npm run docker:up`. Renomear salas e editar o personagem funcionam só pelo próprio
 computador (a mesma trava do terminal). Os nomes das salas ficam em `rooms.json` e os personagens em `names.json`, na
-pasta de dados do Habblaud; voltar para a 0.7 faz os personagens escolhidos sumirem na primeira gravação.
+pasta de dados do QODE Office; voltar para a 0.7 faz os personagens escolhidos sumirem na primeira gravação.
 
 ### Adicionado
 
@@ -29,7 +33,7 @@ pasta de dados do Habblaud; voltar para a 0.7 faz os personagens escolhidos sumi
   o cabeçalho de uma sala muda a ordem das salas (no prédio elas ficam onde estão). A ordem fica guardada no
   navegador; a dos agentes vai pela sessão do Claude Code e sobrevive a retomar a sessão.
 - **Renomear sala:** botão direito numa sala (na lista lateral ou no escritório) abre um campo para dar outro nome a
-  ela; vazio volta ao nome da pasta. O nome fica no servidor (`rooms.json`, na pasta de dados do Habblaud), por pasta:
+  ela; vazio volta ao nome da pasta. O nome fica no servidor (`rooms.json`, na pasta de dados do QODE Office), por pasta:
   vale em qualquer navegador e sobrevive a reinícios. Na gaveta da sala, um lápis ao lado do nome abre o mesmo campo.
   Só pelo próprio computador; as salas de demonstração não mudam.
 - **Editar o personagem de um projeto.** Nos detalhes do agente principal, o lápis ao lado do nome abre um editor
@@ -45,10 +49,10 @@ pasta de dados do Habblaud; voltar para a 0.7 faz os personagens escolhidos sumi
 ### Corrigido
 
 - No Windows, as mensagens ao Codex procuravam `codex` no PATH e achavam o script que o npm instala ao lado do
-  executável: o Habblaud dizia que as mensagens estavam ligadas, mas cada entrega falhava, porque o script não roda
+  executável: o QODE Office dizia que as mensagens estavam ligadas, mas cada entrega falhava, porque o script não roda
   sem shell. Agora a busca é pelo `codex.exe`. Com o Codex instalado só pelo npm, aponte `HABBLAUD_CODEX_BIN` para um
   `codex.exe`.
-- No Windows, o comando de statusline que já existia antes do `npm run usage:install` (o Habblaud o guarda e
+- No Windows, o comando de statusline que já existia antes do `npm run usage:install` (o QODE Office o guarda e
   continua rodando) era executado pelo `cmd.exe`, e o que funcionava no Claude Code (aspas simples, variáveis, pipes)
   quebrava. Agora ele roda no Git Bash, como no Claude Code: o de `CLAUDE_CODE_GIT_BASH_PATH` ou o da instalação do
   Git. Sem o Git Bash, continua no `cmd.exe`.
@@ -60,8 +64,8 @@ pasta de dados do Habblaud; voltar para a 0.7 faz os personagens escolhidos sumi
 ## [0.7.0] - 2026-10-09
 
 Para atualizar: `git pull` e `npm run docker:up` (o Codex aparece sozinho, se houver uma pasta `~/.codex`). Para ver o
-Codex ao vivo e aprovar pelo escritório: `npm run codex:install` e aprove os hooks do Habblaud em `/hooks` no Codex
-(reinicie o Codex antes, se ele estava aberto). Com o Habblaud no Docker, para mandar mensagens ao Codex deixe
+Codex ao vivo e aprovar pelo escritório: `npm run codex:install` e aprove os hooks do QODE Office em `/hooks` no Codex
+(reinicie o Codex antes, se ele estava aberto). Com o QODE Office no Docker, para mandar mensagens ao Codex deixe
 `npm run codex:bridge` rodando no Mac.
 
 ### Adicionado
@@ -70,11 +74,11 @@ Codex ao vivo e aprovar pelo escritório: `npm run codex:install` e aprove os ho
   Claude Code: cada projeto é uma sala (a mesma do Claude Code, quando os dois estão no mesmo projeto), cada sessão um
   personagem com o selo **CODEX**, com atividade, subagentes, terminal, histórico, uso de 5 horas e semanal (com a
   idade dos números e "sem cota" quando acabam os créditos) e o Meu dia (só tokens: o Codex não informa custo). Sem
-  instalar nada, o Habblaud lê os arquivos do Codex (`~/.codex`, `CODEX_HOME` ou `~/.codex*`; `HABBLAUD_CODEX_DIRS`
+  instalar nada, o QODE Office lê os arquivos do Codex (`~/.codex`, `CODEX_HOME` ou `~/.codex*`; `HABBLAUD_CODEX_DIRS`
   escolhe as pastas e `HABBLAUD_CODEX=0` desliga). Uma sessão entra com a primeira mensagem, que é quando o Codex diz
   a pasta do projeto (uma CLI aberta e ainda sem conversa não aparece). No Docker, só `sessions/`,
   `archived_sessions/` e `thread-writer-locks/` são montadas, somente leitura.
-- **Codex ao vivo e aprovar pelo escritório:** `npm run codex:install` acrescenta os hooks do Habblaud no
+- **Codex ao vivo e aprovar pelo escritório:** `npm run codex:install` acrescenta os hooks do QODE Office no
   `~/.codex/hooks.json` (com backup; os hooks de outros apps ficam no mesmo lugar) e, depois de aprová-los em `/hooks`
   no Codex, a atividade é a de agora (e não só quando cada passo termina) e os pedidos de aprovação esperam a sua resposta no
   escritório por até 25 s (`-- --espera <s>`) antes de irem ao terminal. `codex:status` confere e `codex:uninstall`
@@ -115,7 +119,7 @@ mensagens); nas sessões já abertas, `/reload-plugins`.
   virou a caixa de mensagem (`Enter` manda, `Shift+Enter` quebra a linha). Subagentes e sessões do histórico continuam
   só para ler.
 - `npm run mod:install`, `mod:status` e `mod:uninstall` cuidam também do plugin `habblaud-mensagens`, e o
-  `mod:status` diz se o Habblaud está com as mensagens ligadas.
+  `mod:status` diz se o QODE Office está com as mensagens ligadas.
 
 ## [0.5.0] - 2026-10-09
 
@@ -128,7 +132,7 @@ mensagens); nas sessões já abertas, `/reload-plugins`.
 
 ### Corrigido
 
-- Quando um arquivo de transcript era apagado e outro, maior, era criado no lugar, o Habblaud podia não perceber a
+- Quando um arquivo de transcript era apagado e outro, maior, era criado no lugar, o QODE Office podia não perceber a
   troca: alguns sistemas de arquivos reaproveitam o número (inode) do arquivo apagado, e só o inode era comparado.
   Agora também contam o momento de criação do arquivo (quando o sistema o informa) e o começo dele, e a leitura
   recomeça do início do arquivo novo.
@@ -142,13 +146,13 @@ mensagens); nas sessões já abertas, `/reload-plugins`.
   antes do `git pull`.
 - No Windows, o mod não gravava o uso de 5 horas e semanal quando o `HOME` não estava definido (o normal fora do Git
   Bash): agora usa o `USERPROFILE`. E um `CLAUDE_CONFIG_DIR` com `\` (ex.: `C:\Users\voce\.claude-conta2`) virava um
-  nome de arquivo inválido; agora dá a mesma conta, inclusive com o Habblaud no Docker.
+  nome de arquivo inválido; agora dá a mesma conta, inclusive com o QODE Office no Docker.
 
 ## [0.4.0] - 2026-10-08
 
 ### Alterado
 
-- **O CodeTown agora se chama Habblaud.** O nome muda em toda parte: interface, logotipo, placa da recepção, totem da
+- **O CodeTown agora se chama QODE Office.** O nome muda em toda parte: interface, logotipo, placa da recepção, totem da
   entrada, prévia de link, repositório (`github.com/marmottajr/habblaud`), marketplace e plugins do Claude Code
   (`habblaud` e `habblaud-permissoes`, com o comando `/habblaud`), variáveis de ambiente (`HABBLAUD_*`), pasta de
   estado (`~/.habblaud`) e Docker (container e imagem `habblaud`, volume `habblaud-data`).
@@ -181,7 +185,7 @@ mensagens); nas sessões já abertas, `/reload-plugins`.
 
 ### Adicionado
 
-- **Mod do Habblaud para o Claude Code** (2.1.287 ou mais novo): `npm run mod:install` instala, em cada conta, o
+- **Mod do QODE Office para o Claude Code** (2.1.287 ou mais novo): `npm run mod:install` instala, em cada conta, o
   marketplace desta pasta com o mod `habblaud` (uso de 5 horas e semanal ao vivo, uma linha no terminal quando outra
   sessão precisa de você e o comando `/habblaud`) e o plugin `habblaud-permissoes` (responder permissões pelo
   escritório; `-- --sem-permissoes` deixa de fora). `npm run mod:status` mostra o que cada conta tem e
@@ -194,7 +198,7 @@ mensagens); nas sessões já abertas, `/reload-plugins`.
   o mesmo. A interface e o README passam a ensinar o `npm run mod:install`.
 - O script do hook de permissão mudou para `mod/habblaud-permissoes/hooks/permission-hook.mjs`. O caminho antigo
   (`scripts/permission-hook.mjs`) virou um atalho, então quem instalou o hook antes continua funcionando.
-- Em Contas e uso, a origem dos números diz quando vêm do mod ("ao vivo (mod do Habblaud)").
+- Em Contas e uso, a origem dos números diz quando vêm do mod ("ao vivo (mod do QODE Office)").
 - O leitor do uso ao vivo ignora um arquivo lido pela metade e fica com o último número bom, em vez de esconder a
   conta por um ciclo.
 
@@ -205,7 +209,7 @@ Primeira versão publicada.
 ### Adicionado
 
 - **Versão e atualizações:** a versão em uso aparece na barra superior e em Configurações › Sobre. A cada 6 horas o
-  Habblaud confere as releases no GitHub; quando sai uma versão nova, aparece o selo **Nova versão**, com um aviso e o
+  QODE Office confere as releases no GitHub; quando sai uma versão nova, aparece o selo **Nova versão**, com um aviso e o
   link do que mudou. `HABBLAUD_UPDATE_CHECK=0` desliga a consulta.
 - **Meu dia** (tecla M): para onde foi o tempo dos agentes, quanto tempo esperaram você, tokens e custo, com 30 dias
   de histórico.

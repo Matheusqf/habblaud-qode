@@ -114,7 +114,7 @@ interface Waiter {
 /** Formato ORIGINAL de uma pergunta do AskUserQuestion: para conferir as respostas, que voltam por posição. */
 interface AskFormat {
   multiSelect: boolean;
-  /** Quantas opções o original tem (inclusive as que o Habblaud não mostra). */
+  /** Quantas opções o original tem (inclusive as que o QODE Office não mostra). */
   options: number;
 }
 
@@ -216,7 +216,7 @@ function ruleText(raw: unknown): string | undefined {
 }
 
 /**
- * Sugestões "sempre permitir" que o Habblaud oferece: só `addRules` com `behavior: "allow"` num destino
+ * Sugestões "sempre permitir" que o QODE Office oferece: só `addRules` com `behavior: "allow"` num destino
  * conhecido. A página escolhe pela posição e o hook aplica a sugestão ORIGINAL que recebeu do Claude Code
  * (o servidor nunca inventa regras).
  */
@@ -513,8 +513,8 @@ export class PermissionRegistry {
     const now = this.now();
     const act: Activity =
       d.behavior === 'allow'
-        ? { id: `${p.agentId}#perm-ok:${id}`, at: now, kind: 'other', icon: '✅', text: d.suggestion !== undefined ? 'Aprovado no Habblaud (sempre permitir)' : 'Aprovado no Habblaud', detail: p.info.title, tool: 'PermissionRequest' }
-        : { id: `${p.agentId}#perm-no:${id}`, at: now, kind: 'wait', icon: '🚫', text: 'Recusado no Habblaud', detail: d.message ? `${p.info.title} — ${d.message}` : p.info.title, tool: 'PermissionRequest' };
+        ? { id: `${p.agentId}#perm-ok:${id}`, at: now, kind: 'other', icon: '✅', text: d.suggestion !== undefined ? 'Aprovado no QODE Office (sempre permitir)' : 'Aprovado no QODE Office', detail: p.info.title, tool: 'PermissionRequest' }
+        : { id: `${p.agentId}#perm-no:${id}`, at: now, kind: 'wait', icon: '🚫', text: 'Recusado no QODE Office', detail: d.message ? `${p.info.title} — ${d.message}` : p.info.title, tool: 'PermissionRequest' };
     this.opts.office.addActivity(p.agentId, act, false);
     return 'ok';
   }
@@ -528,7 +528,7 @@ export class PermissionRegistry {
     const answers = checkAnswers(questions, raw);
     if (!answers || answers.some((a) => !fitsFormat(p.askFormat?.[a.question], a))) return 'invalid-answer';
     this.resolve(p, { status: 'decided', behavior: 'answer', answers });
-    const act: Activity = { id: `${p.agentId}#perm-answer:${p.info.id}`, at: this.now(), kind: 'other', icon: '💬', text: 'Respondido no Habblaud', detail: answerSummary(questions, answers), tool: 'PermissionRequest' };
+    const act: Activity = { id: `${p.agentId}#perm-answer:${p.info.id}`, at: this.now(), kind: 'other', icon: '💬', text: 'Respondido no QODE Office', detail: answerSummary(questions, answers), tool: 'PermissionRequest' };
     this.opts.office.addActivity(p.agentId, act, false);
     return 'ok';
   }
@@ -567,7 +567,7 @@ export class PermissionRegistry {
 
   /**
    * Agente do Codex de um pedido: o do thread `agent_id ?? session_id` (o subagente tem thread próprio; o principal é o
-   * thread raiz). A conta só desempata (ids de thread são UUIDs). Subagente que o Habblaud não mostra: o pedido vai
+   * thread raiz). A conta só desempata (ids de thread são UUIDs). Subagente que o QODE Office não mostra: o pedido vai
    * para o principal, com o tipo dele.
    */
   private resolveCodexAgent(sessionId: string, agentId: string | undefined, agentType: string | undefined, account: string | undefined): { id: string; subagent?: string } | undefined {
@@ -592,7 +592,7 @@ export class PermissionRegistry {
   /** O tool_result da chamada apareceu no transcript (respondido no terminal)? Nunca lança. */
   private answeredInTerminal(p: Pending, now: number): boolean {
     p.lastScanAt = now;
-    // Subagente que o Habblaud não acompanha (pedido mostrado no principal): o transcript dele não é
+    // Subagente que o QODE Office não acompanha (pedido mostrado no principal): o transcript dele não é
     // conhecido e o do principal não tem a chamada; sobram a expiração e o órfão.
     if (p.hookAgentId && p.agentId !== `${p.sessionId}:${p.hookAgentId}`) return false;
     const path = this.opts.transcriptPathOf?.(p.agentId);

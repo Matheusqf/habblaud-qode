@@ -1,7 +1,7 @@
 # QODE: uma sala por projeto e Vida OS privado
 
 Personalização do fork QODE (código em `server/qode/`). Ela só liga quando existe o arquivo
-`~/.habblaud/qode.config.json`, ou o arquivo apontado por `HABBLAUD_QODE_CONFIG`. Sem esse arquivo, o Habblaud
+`~/.habblaud/qode.config.json`, ou o arquivo apontado por `HABBLAUD_QODE_CONFIG`. Sem esse arquivo, o QODE Office
 funciona igual ao upstream.
 
 ## O que faz
@@ -88,7 +88,7 @@ ls -d ~/Documents/GitHub/projeto-interiores ~/Documents/GitHub/fantasies-x
 Formato do arquivo:
 
 - `projetos`: lista com `nome` (até 40 caracteres), `caminhos` (absolutos ou começando com `~/`) e, opcionalmente,
-  `privado` (true/false) e `nota` (texto livre, que o Habblaud ignora).
+  `privado` (true/false) e `nota` (texto livre, que o QODE Office ignora).
 - Chaves começando com `_` ou `$` são comentários.
 
 Se um caminho cair em mais de um projeto, o privado ganha.
@@ -147,4 +147,4 @@ Se um caminho cair em mais de um projeto, o privado ganha.
   comparado por hashes antes de inspecionar os bytes novos. Uma reescrita exige nova varredura; o custo de validar
   cada mudança é proporcional ao tamanho do prefixo. Bytes UTF-8 incompletos bloqueiam até a próxima escrita.
 - Para agentes privados, as estatísticas do "Meu dia" contam a presença, mas não os tokens nem o custo.
-- Fora deste PR: OpenCode (o PR 2 mira a linha 1.x) e Docker. O Habblaud roda direto no Node.
+- Fora deste PR: OpenCode (o PR 2 mira a linha 1.x) e Docker. O QODE Office roda direto no Node.

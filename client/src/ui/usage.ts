@@ -3,7 +3,7 @@
 // - número velho nunca passa por atual: janela que já renovou depois da leitura mostra "—" e "renovada";
 //   números antigos ficam acinzentados com a idade ("há 6 d") no cabeçalho ou, no celular, um selo no chip;
 // - o reinício vem com verbo implícito no ícone ↻ e contagem regressiva quando falta menos de um dia;
-// - conta sem números diz "sem dados de uso" e oferece "Como ativar" (mod do Habblaud, recomendado).
+// - conta sem números diz "sem dados de uso" e oferece "Como ativar" (mod do QODE Office, recomendado).
 // Conta do Codex: os números vêm dos arquivos de sessão dele, que só se renovam enquanto alguma sessão roda; por isso
 // a idade ("há 12 min") fica sempre à mostra. Sem cota nem créditos ("sem cota") nunca vira 0%. Não há o que
 // instalar para o uso: "Como funciona" abre a ajuda na seção do Codex. Sem Opus/Sonnet nem e-mail (só o plano).
@@ -21,9 +21,9 @@ export const SOURCE_LABEL: Record<NonNullable<AccountInfo['usage']>['source'], s
   codex: 'arquivos do Codex',
 };
 
-/** Origem para mostrar: o arquivo ao vivo pode ter sido gravado pelo mod do Habblaud ou pelo tap. */
+/** Origem para mostrar: o arquivo ao vivo pode ter sido gravado pelo mod do QODE Office ou pelo tap. */
 export function sourceLabel(u: NonNullable<AccountInfo['usage']>): string {
-  if (u.source === 'statusline' && u.via === 'mod') return 'ao vivo (mod do Habblaud)';
+  if (u.source === 'statusline' && u.via === 'mod') return 'ao vivo (mod do QODE Office)';
   return SOURCE_LABEL[u.source] ?? u.source;
 }
 
@@ -34,7 +34,7 @@ export function sourceLabel(u: NonNullable<AccountInfo['usage']>): string {
 export const USAGE_SETUP_STEPS: readonly [string, string][] = [
   [
     'npm run mod:install',
-    'Recomendado: instala o mod do Habblaud no Claude Code (2.1.287 ou mais novo), que passa o uso de 5 h e da semana ao vivo. Rode na pasta do Habblaud, no computador onde o Claude Code roda; nas sessões já abertas, `/reload-plugins`.',
+    'Recomendado: instala o mod do QODE Office no Claude Code (2.1.287 ou mais novo), que passa o uso de 5 h e da semana ao vivo. Rode na pasta do QODE Office, no computador onde o Claude Code roda; nas sessões já abertas, `/reload-plugins`.',
   ],
   [
     'npm run usage:install',
@@ -344,7 +344,7 @@ export class UsageCards {
     setText(r.howLong, codex ? 'Como funciona' : 'Como ativar');
     setText(r.howShort, codex ? 'Saber' : 'Ativar');
     r.how.dataset.help = codex ? 'codex' : 'usage';
-    setTitle(r.how, codex ? 'Como o uso do Codex chega ao Habblaud (abre a ajuda em “Codex”)' : 'Como mostrar o uso desta conta (abre a ajuda em “Contas e uso”)');
+    setTitle(r.how, codex ? 'Como o uso do Codex chega ao QODE Office (abre a ajuda em “Codex”)' : 'Como mostrar o uso desta conta (abre a ajuda em “Contas e uso”)');
     this.updateTip(r, a, state, five, week, now);
   }
 

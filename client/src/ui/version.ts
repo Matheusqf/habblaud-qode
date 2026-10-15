@@ -1,6 +1,7 @@
-// Versão do Habblaud: o número na barra superior, o selo "Nova versão" quando o GitHub tem uma release mais
+// Versão do QODE Office: o número na barra superior, o selo "Nova versão" quando o GitHub tem uma release mais
 // nova (quem consulta é o servidor, server/updates/checker.ts), o aviso único por versão e a seção "Sobre"
 // das configurações (estado da verificação, "Verificar agora", novidades e como atualizar).
+import { PRODUCT_NAME } from '../../../shared/brand';
 import type { Notice, OfficeSnapshot, UpdateStatus } from '../../../shared/types';
 import type { UiComponent, UiContext } from './context';
 import { h, setAttr, setHidden, setText, setTitle, setVariant } from './dom';
@@ -56,8 +57,8 @@ export function updateStatusLine(version: string, s: UpdateStatus | undefined, n
 
 /** Dica do número de versão na barra superior. */
 export function versionChipTitle(version: string, s: UpdateStatus | undefined, now: number): string {
-  if (s?.available && s.latest) return `Nova versão do Habblaud: v${s.latest} (você usa a v${version}). Clique para ver as novidades e como atualizar.`;
-  return `Habblaud v${version}. ${updateStatusLine(version, s, now).text} Clique para ver detalhes.`;
+  if (s?.available && s.latest) return `Nova versão do ${PRODUCT_NAME}: v${s.latest} (você usa a v${version}). Clique para ver as novidades e como atualizar.`;
+  return `${PRODUCT_NAME} v${version}. ${updateStatusLine(version, s, now).text} Clique para ver detalhes.`;
 }
 
 /** Número da versão na barra superior; vira o selo "Nova versão" quando há release mais nova. */
@@ -113,7 +114,7 @@ export class UpdateToaster implements UiComponent {
     } catch {
       // Sem armazenamento: avisa uma vez por página aberta.
     }
-    this.push({ id: `update:${s.latest}`, level: 'success', text: `Nova versão do Habblaud: v${s.latest}. Veja as novidades e como atualizar em Configurações › Sobre.`, at: this.ctx.now() });
+    this.push({ id: `update:${s.latest}`, level: 'success', text: `Nova versão do ${PRODUCT_NAME}: v${s.latest}. Veja as novidades e como atualizar em Configurações › Sobre.`, at: this.ctx.now() });
   }
 }
 
@@ -141,7 +142,7 @@ export class AboutGroup {
       h(
         'p',
         { class: 'ui-set__hint' },
-        'Para atualizar, na pasta do Habblaud: ',
+        `Para atualizar, na pasta do ${PRODUCT_NAME}: `,
         h('code', { class: 'ui-usage-setup__cmd', text: 'git pull' }),
         ' e de novo ',
         h('code', { class: 'ui-usage-setup__cmd', text: 'npm run docker:up' }),
@@ -155,7 +156,7 @@ export class AboutGroup {
       'div',
       { class: 'ui-set-group ui-about', attrs: { id: 'ui-about' } },
       h('h3', { text: 'Sobre', tabIndex: -1 }),
-      h('div', { class: 'ui-about__head' }, h('span', { class: 'ui-about__name' }, 'Habblaud ', this.name), this.checkBtn),
+      h('div', { class: 'ui-about__head' }, h('span', { class: 'ui-about__name' }, `${PRODUCT_NAME} `, this.name), this.checkBtn),
       this.status,
       this.fresh,
       this.repo,
@@ -201,9 +202,9 @@ export class AboutGroup {
     this.failure = undefined;
     this.render();
     try {
-      if (!(await this.ctx.store.checkUpdates())) this.failure = 'Não deu para falar com o servidor do Habblaud.';
+      if (!(await this.ctx.store.checkUpdates())) this.failure = 'Não deu para falar com o servidor do QODE Office.';
     } catch {
-      this.failure = 'Não deu para falar com o servidor do Habblaud.';
+      this.failure = 'Não deu para falar com o servidor do QODE Office.';
     } finally {
       this.checking = false;
       this.render();

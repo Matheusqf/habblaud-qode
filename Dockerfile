@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Habblaud em container: escritório virtual dos agentes do Claude Code.
+# QODE Office em container: escritório virtual dos agentes do Claude Code.
 #
 # Use `npm run docker:up` (scripts/docker-up.ts): ele detecta as contas do Claude Code no host,
 # gera o docker-compose.override.yml com as montagens SOMENTE LEITURA de <conta>/projects,
@@ -38,7 +38,7 @@ WORKDIR /app
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/dist ./dist
 
-# Estado do Habblaud (nomes persistidos). O volume nomeado herda este dono na primeira montagem.
+# Estado do QODE Office (nomes persistidos). O volume nomeado herda este dono na primeira montagem.
 RUN mkdir -p /data && chown node:node /data
 
 # Usuário sem privilégios (já existe na imagem oficial do Node). O código fica com dono root,

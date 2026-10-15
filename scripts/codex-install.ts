@@ -1,8 +1,8 @@
-// Instala (ou remove) os hooks do Habblaud no OpenAI Codex (CLI `codex` e o app desktop). Roda no HOST, com tsx:
+// Instala (ou remove) os hooks do QODE Office no OpenAI Codex (CLI `codex` e o app desktop). Roda no HOST, com tsx:
 //
-//   npm run codex:install     # acrescenta os grupos do Habblaud em <CODEX_HOME>/hooks.json (backup antes)
-//   npm run codex:uninstall   # tira só os grupos do Habblaud (os outros hooks ficam)
-//   npm run codex:status      # mostra, por pasta, se os grupos estão lá e se o Habblaud está respondendo
+//   npm run codex:install     # acrescenta os grupos do QODE Office em <CODEX_HOME>/hooks.json (backup antes)
+//   npm run codex:uninstall   # tira só os grupos do QODE Office (os outros hooks ficam)
+//   npm run codex:status      # mostra, por pasta, se os grupos estão lá e se o QODE Office está respondendo
 //   (opções: --dry-run, --conta <id>, --port <n>, --espera <s>)
 //
 // O hook (mod/habblaud-codex/hook.mjs) manda ao escritório o que as sessões do Codex fazem (SessionStart,
@@ -15,18 +15,18 @@
 //
 // Em <pasta>/hooks.json ({description?, hooks: {<Evento>: [{matcher?, hooks: [handler]}]}}) só mudam as listas dos
 // eventos acima: entra, no FIM da lista de cada um, um grupo sem matcher com o handler
-// {type: "command", command: 'node "<Habblaud>/mod/habblaud-codex/hook.mjs"', ...}. O resto do arquivo fica como
+// {type: "command", command: 'node "<QODE Office>/mod/habblaud-codex/hook.mjs"', ...}. O resto do arquivo fica como
 // está. Antes de gravar, uma cópia vai para hooks.json.habblaud-backup-<data>.
 //
 // Confiança: o Codex só roda um hook novo ou alterado depois que você o aprova em /hooks, e guarda essa aprovação
 // (config.toml, [hooks.state."<hooks.json>:<evento>:<grupo>:<handler>"].trusted_hash) pela POSIÇÃO do grupo e por um
 // hash do evento, do matcher e do handler (comando, timeout, async, statusMessage). Por isso o instalador:
 // - nunca grava a confiança nem mexe no config.toml (quem aprova é você, em /hooks);
-// - sempre ACRESCENTA no fim e, ao atualizar, troca o handler do Habblaud NO MESMO lugar: os grupos de outros apps
+// - sempre ACRESCENTA no fim e, ao atualizar, troca o handler do QODE Office NO MESMO lugar: os grupos de outros apps
 //   (ex.: o Orca) nunca mudam de posição nem de conteúdo;
 // - usa um comando sem opções e valores fixos (porta e espera ficam em ~/.habblaud/codex-hook.json, que o hook lê):
 //   mudar a porta não pede aprovação nova; mudar a espera muda o timeout do PermissionRequest e pede.
-// Rodar de novo não duplica (o grupo do Habblaud é reconhecido pelo comando).
+// Rodar de novo não duplica (o grupo do QODE Office é reconhecido pelo comando).
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -38,7 +38,7 @@ import { quotePath, readSettings, tildify, writeSettings, type Settings } from '
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const HOOK_SCRIPT = join(ROOT, 'mod', 'habblaud-codex', 'hook.mjs');
-/** O hook do Habblaud é reconhecido pelo caminho do script no comando (em qualquer pasta do repositório). */
+/** O hook do QODE Office é reconhecido pelo caminho do script no comando (em qualquer pasta do repositório). */
 const HOOK_MARK = /habblaud-codex[\\/]+hook\.mjs/;
 export const DEFAULT_PORT = 4747;
 export const DEFAULT_WAIT_S = 25;
@@ -46,7 +46,7 @@ export const MIN_WAIT_S = 5;
 export const MAX_WAIT_S = 120;
 /** Eventos só de observação: em segundo plano (async), sem atrasar a sessão. */
 export const OBSERVE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop', 'SubagentStart', 'SubagentStop'] as const;
-/** Todos os eventos em que o Habblaud entra. */
+/** Todos os eventos em que o QODE Office entra. */
 export const EVENTS = [...OBSERVE_EVENTS, 'SessionEnd', 'PermissionRequest'] as const;
 /** Tempo limite dos eventos de observação (o hook manda o evento com prazo de 1,5 s). */
 export const OBSERVE_TIMEOUT_S = 5;
@@ -54,31 +54,31 @@ export const OBSERVE_TIMEOUT_S = 5;
 export const SESSION_END_TIMEOUT_S = 1;
 /** Folga do tempo limite do PermissionRequest sobre a espera (node subindo, evento e registro; o hook desiste antes). */
 export const PERMISSION_SLACK_S = 10;
-export const STATUS_MESSAGE = 'Aguardando resposta no Habblaud…';
+export const STATUS_MESSAGE = 'Aguardando resposta no QODE Office…';
 /** Configuração lida pelo hook (porta e espera), em ~/.habblaud. */
 export const CONFIG_NAME = 'codex-hook.json';
 
-/** Versão mínima do Node para o hook (o mesmo `engines` do Habblaud, na parte que importa: fetch e AbortSignal). */
+/** Versão mínima do Node para o hook (o mesmo `engines` do QODE Office, na parte que importa: fetch e AbortSignal). */
 export const MIN_NODE_MAJOR = 22;
 
 const USAGE = `Uso: npm run codex:<install|uninstall|status> [-- opções]
 
-  install     acrescenta os hooks do Habblaud no hooks.json de cada pasta do Codex (faz backup antes)
-  uninstall   tira os hooks do Habblaud de cada pasta (os outros hooks ficam)
-  status      mostra se os hooks estão lá e se o Habblaud está respondendo
+  install     acrescenta os hooks do QODE Office no hooks.json de cada pasta do Codex (faz backup antes)
+  uninstall   tira os hooks do QODE Office de cada pasta (os outros hooks ficam)
+  status      mostra se os hooks estão lá e se o QODE Office está respondendo
 
 Opções:
   --dry-run        mostra o que mudaria, sem gravar nada
   --conta <id>     só a pasta desta conta (o nome da pasta, ex.: .codex)
-  --port <n>       porta do Habblaud (padrão: HABBLAUD_PORT ou ${DEFAULT_PORT})
-  --espera <s>     quanto o Codex espera sua resposta no Habblaud antes de pedir a aprovação no terminal
+  --port <n>       porta do QODE Office (padrão: HABBLAUD_PORT ou ${DEFAULT_PORT})
+  --espera <s>     quanto o Codex espera sua resposta no QODE Office antes de pedir a aprovação no terminal
                    (padrão: ${DEFAULT_WAIT_S} s; entre ${MIN_WAIT_S} e ${MAX_WAIT_S})
   --node <caminho> o Node ${MIN_NODE_MAJOR}+ que roda os hooks (padrão: o \`node\` do shell de login, se for ${MIN_NODE_MAJOR}+;
                    senão o primeiro ${MIN_NODE_MAJOR}+ entre /opt/homebrew/bin, /usr/local/bin e o deste comando)
   -h, --help       mostra esta ajuda
 
 Pastas: HABBLAUD_CODEX_DIRS (lista separada por vírgula) ou CODEX_HOME e as pastas ~/.codex* do Codex.
-Depois de instalar, abra o Codex e aprove os hooks do Habblaud em /hooks.`;
+Depois de instalar, abra o Codex e aprove os hooks do QODE Office em /hooks.`;
 
 // ---------------------------------------------------------------------------------------------
 // Funções puras (testadas em server/test/codex-install.test.ts)
@@ -125,7 +125,7 @@ export function permissionTimeout(waitS: number): number {
   return waitS + PERMISSION_SLACK_S;
 }
 
-/** O handler do Habblaud para um evento, como o Codex o lê em hooks.<Evento>[].hooks[]. */
+/** O handler do QODE Office para um evento, como o Codex o lê em hooks.<Evento>[].hooks[]. */
 export function handlerFor(event: string, command: string, waitS: number): Rec {
   if (event === 'PermissionRequest') return { type: 'command', command, timeout: permissionTimeout(waitS), statusMessage: STATUS_MESSAGE };
   if (event === 'SessionEnd') return { type: 'command', command, timeout: SESSION_END_TIMEOUT_S };
@@ -174,7 +174,7 @@ function hooksOf(file: Settings): Rec | string {
   return hooks;
 }
 
-/** Posições (grupo, handler) dos handlers do Habblaud numa lista de grupos, na ordem. */
+/** Posições (grupo, handler) dos handlers do QODE Office numa lista de grupos, na ordem. */
 function ourPositions(list: unknown[]): Array<{ g: number; h: number }> {
   const out: Array<{ g: number; h: number }> = [];
   list.forEach((g, gi) => {
@@ -210,7 +210,7 @@ function removeAt(list: unknown[], positions: Array<{ g: number; h: number }>): 
 }
 
 /**
- * Plano de instalação para um hooks.json já lido (não grava nada). Evento sem o Habblaud: um grupo novo no FIM da
+ * Plano de instalação para um hooks.json já lido (não grava nada). Evento sem o QODE Office: um grupo novo no FIM da
  * lista. Com ele: o handler é trocado no MESMO lugar se mudou (caminho do repositório, espera); cópias repetidas saem.
  */
 export function planInstall(file: Settings, command: string, waitS: number): PlanAction {
@@ -251,8 +251,8 @@ export function planInstall(file: Settings, command: string, waitS: number): Pla
 }
 
 /**
- * Plano de remoção: tira só os handlers do Habblaud (e os grupos que ficarem vazios por isso; a lista de um evento que
- * esvaziar sai, e `hooks` também, se ficar vazio). Grupos de outros apps que vinham DEPOIS de um grupo do Habblaud
+ * Plano de remoção: tira só os handlers do QODE Office (e os grupos que ficarem vazios por isso; a lista de um evento que
+ * esvaziar sai, e `hooks` também, se ficar vazio). Grupos de outros apps que vinham DEPOIS de um grupo do QODE Office
  * sobem uma posição: o Codex pede para aprová-los de novo em /hooks (`shifted`).
  */
 export function planUninstall(file: Settings): PlanAction {
@@ -267,7 +267,7 @@ export function planUninstall(file: Settings): PlanAction {
     if (!found.length) continue;
     const next = removeAt(list, found);
     removed += found.length;
-    // Algum handler de outro app mudou de posição (vinha depois de um do Habblaud)?
+    // Algum handler de outro app mudou de posição (vinha depois de um do QODE Office)?
     if (otherPositions(list) !== otherPositions(next)) shifted.push(event);
     if (next.length) hooks[event] = next;
     else delete hooks[event];
@@ -276,13 +276,13 @@ export function planUninstall(file: Settings): PlanAction {
   const next: Settings = { ...file };
   if (Object.keys(hooks).length) next.hooks = hooks;
   else delete next.hooks;
-  return { action: 'uninstall', file: next, message: 'hooks do Habblaud removidos', shifted };
+  return { action: 'uninstall', file: next, message: 'hooks do QODE Office removidos', shifted };
 }
 
 export interface InstallState {
-  /** Eventos com o handler do Habblaud igual ao esperado. */
+  /** Eventos com o handler do QODE Office igual ao esperado. */
   ok: string[];
-  /** Eventos com o handler do Habblaud diferente (outro caminho ou outra espera). */
+  /** Eventos com o handler do QODE Office diferente (outro caminho ou outra espera). */
   outdated: string[];
   missing: string[];
   /** Caminhos do script nos handlers instalados. */
@@ -323,7 +323,7 @@ export function discoverCodexHomes(env: NodeJS.ProcessEnv, home: string): { dirs
 }
 
 // ---------------------------------------------------------------------------------------------
-// Efeitos (arquivos e o /api/health do Habblaud)
+// Efeitos (arquivos e o /api/health do QODE Office)
 // ---------------------------------------------------------------------------------------------
 
 export interface HookConfig {
@@ -354,7 +354,7 @@ export interface RunContext {
   now: Date;
   hookPath: string;
   out: (line: string) => void;
-  /** Consulta o /api/health do Habblaud (testes injetam um falso). */
+  /** Consulta o /api/health do QODE Office (testes injetam um falso). */
   health?: (port: number) => Promise<Health | undefined>;
   /** Versão de um Node (ver chooseNode); ausente = não consulta e usa `node` (os testes não rodam shells). */
   nodeProbe?: (bin: string | undefined) => string | undefined;
@@ -506,7 +506,7 @@ export async function run(opts: RunOptions, ctx: RunContext): Promise<number> {
       changed++;
       if (plan.action === 'install') for (const e of plan.approve) approve.add(e);
       if (plan.action === 'uninstall' && plan.shifted.length) {
-        out(`    Hooks de outros apps que vinham depois dos do Habblaud (${plan.shifted.join(', ')}) mudaram de posição:`);
+        out(`    Hooks de outros apps que vinham depois dos do QODE Office (${plan.shifted.join(', ')}) mudaram de posição:`);
         out('    o Codex vai pedir para aprová-los de novo em /hooks.');
       }
     } catch (err) {
@@ -537,33 +537,33 @@ export async function run(opts: RunOptions, ctx: RunContext): Promise<number> {
     );
     const port = cfg?.port ?? opts.port;
     const health = await (ctx.health ?? fetchHealth)(port);
-    if (!health) out(`Habblaud em http://127.0.0.1:${port}: fora do ar (com ele parado, os hooks saem na hora e o Codex segue normal).`);
+    if (!health) out(`QODE Office em http://127.0.0.1:${port}: fora do ar (com ele parado, os hooks saem na hora e o Codex segue normal).`);
     else {
       const events = health.codexEvents ? 'recebendo os eventos do Codex' : 'no ar, mas sem a fonte do Codex (os eventos são ignorados)';
       const perms = health.permissions ? 'aprovar pelo escritório ligado (com alguma página aberta)' : 'aprovar pelo escritório desligado (porta exposta na rede ou HABBLAUD_TERMINAL=0)';
-      out(`Habblaud em http://127.0.0.1:${port}: ${events}; ${perms}.`);
+      out(`QODE Office em http://127.0.0.1:${port}: ${events}; ${perms}.`);
     }
     out('Confiança: o Codex só roda um hook novo ou alterado depois que você o aprova; confira em /hooks dentro do Codex.');
   }
   if (opts.command === 'install' && opts.account && !opts.dryRun) {
     // A espera fica num arquivo só, mas o timeout do PermissionRequest fica em cada hooks.json: as outras pastas com o
-    // Habblaud e outra espera cortariam o hook antes da hora.
+    // QODE Office e outra espera cortariam o hook antes da hora.
     const behind = found.dirs.filter((d) => {
       if (dirs.includes(d)) return false;
       const r = readSettings(join(d, 'hooks.json'));
       return !('error' in r) && installState(r.settings, command, opts.waitS).outdated.includes('PermissionRequest');
     });
     if (behind.length) {
-      out(`! ${behind.map((d) => basename(d)).join(', ')}: o Habblaud está lá com outra espera; rode npm run codex:install sem --conta para alinhar.`);
+      out(`! ${behind.map((d) => basename(d)).join(', ')}: o QODE Office está lá com outra espera; rode npm run codex:install sem --conta para alinhar.`);
     }
   }
   if (opts.command === 'install' && approve.size && !opts.dryRun) {
     out('');
-    out('Pronto. Falta um passo: abra o Codex e aprove os hooks do Habblaud em /hooks (o Codex só roda hook novo');
-    out('ou alterado depois que você aprova). Com o Habblaud aberto no navegador, as sessões do Codex aparecem no');
+    out('Pronto. Falta um passo: abra o Codex e aprove os hooks do QODE Office em /hooks (o Codex só roda hook novo');
+    out('ou alterado depois que você aprova). Com o QODE Office aberto no navegador, as sessões do Codex aparecem no');
     out(`escritório e os pedidos de aprovação esperam sua resposta lá por até ${opts.waitS} s antes de irem para o terminal.`);
     if (approve.has('PermissionRequest') && approve.size < EVENTS.length) {
-      out('(A espera ou o caminho do Habblaud mudou: aprove de novo os hooks alterados em /hooks.)');
+      out('(A espera ou o caminho do QODE Office mudou: aprove de novo os hooks alterados em /hooks.)');
     }
     out('Para desfazer: npm run codex:uninstall');
   }
