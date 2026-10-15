@@ -1,10 +1,65 @@
-<!-- Fonte: pesquisa B4 (sanitizada para o repo). -->
-# QODE B4 — Auth local + remoto seguro
+# QODE B4 — Auth local + remoto seguro (docs para revisão adversarial)
 
 - **Data:** 2026-10-16 ~00:55 PT (WEST)
 - **Repo inventariado:** `Matheusqf/habblaud-qode` @ `6a6c214` (main pós-PR #4)
 - **Autorização Matheus:** remoto sim, desde que seguro (senha/criptografia); túnel live só após validação dele
 - **Escopo deste passe:** inventário + pesquisa verificável + desenho + critérios de aceite. **Sem túnel live, sem bind 0.0.0.0, sem PR de auth incompleta.**
+
+---
+
+## 0) Respostas explícitas à revisão adversarial
+
+> **Estado:** proposta de desenho. A separação *auth na app + transporte privado* **NÃO** é aprovação da topologia; a topologia (Serve vs WireGuard vs Access) continua pendente de revisão e de validação explícita do Matheus. Nenhum túnel live, nenhum bind externo, nenhuma credencial nesta PR.
+
+### 0.1 Superfícies (HTTP / SSE / WebSocket / hooks)
+
+| Tipo | Superfícies | Requisito alvo com `HABBLAUD_AUTH=1` |
+|---|---|---|
+| HTTP UI/estáticos | `server/http/static.ts` (`dist/client`); Vite middleware em dev (`server/index.ts`) | SPA pode carregar shell; **nenhum dado** sem sessão; dev/Vite nunca em modo remote |
+| HTTP API | todas as `/api/*` (§1.4) | sessão válida obrigatória, excepto `POST /api/auth/login` e `GET /api/auth/status` mínimo |
+| SSE | `/api/stream`, `/api/agents/:id/terminal`, `/api/sessions/:conta/:id/terminal` | cookie de sessão verificado **na abertura** e **re-verificado periodicamente / em evento de revogação**; stream encerrado quando a sessão é revogada/expira |
+| WebSocket | Só o HMR do Vite (modo dev, mesmo servidor HTTP). A app não tem WS próprio | modo remote **recusa arrancar** em dev; `upgrade` sem sessão → fechar; qualquer WS futuro herda a mesma verificação de sessão |
+| Hooks/bridge/plugins | `/api/codex/events`, `/api/permissions*`, `/api/mod/inbox*`, `/api/codex/bridge/*`, `/api/mod/summary` | Bearer de máquina (`hooks.token`, `0600`) **e** política local; nunca isenção só por Host/endereço |
+
+### 0.2 Como o servidor distingue local vs remoto — e porque Host/loopback não chega
+
+**Achado (main `6a6c214`):** as travas de terminal, permissões, mensagens, personagem, eventos Codex e `/api/continuity`/`/api/tasks` dependem de **bind local + `Host` loopback** (`isLoopbackHost`, `server/http/guard.ts`; uso em `server/http/app.ts`; bind/flags em `server/config.ts` `terminalOffReason`/`messagesOffReason`; `server/index.ts` `listen(config.host)`). Algumas também exigem `remoteAddress` loopback.
+
+Um proxy/túnel **local** (Tailscale Serve, `cloudflared`, Caddy, socat) liga-se ao QODE **a partir de 127.0.0.1** e pode reescrever `Host` para `localhost`. Para o servidor, o pedido de um cliente remoto fica indistinguível de um pedido local: Host loopback ✔, `remoteAddress` loopback ✔, bind loopback ✔. **Logo loopback + túnel criptografado NÃO bastam** — o túnel cifra o transporte mas entrega ao processo um pedido que satisfaz todas as travas actuais.
+
+Consequência de desenho:
+
+1. **Local vs remoto deixa de ser um sinal de segurança.** O servidor não tenta adivinhar a origem pela rede; **autentica a origem** (sessão de utilizador ou Bearer de máquina) em cada pedido.
+2. **Autorização por capacidade**: cada capacidade (`read`, `terminal`, `messages`, `permissions`, `character`, `tasks`, `hooks-ingest`) é verificada explicitamente contra a identidade autenticada; ex.: sessão de browser não usa rotas de ingestão de hooks; Bearer de hooks não lê snapshot nem terminal.
+3. Host/Origin/bind/`remoteAddress` mantêm-se como **defesa em profundidade** (anti DNS-rebinding/CSRF), nunca como credencial.
+4. Headers de identidade do proxy (`Tailscale-User-*`, `Cf-Access-Jwt-Assertion`) só como sinal adicional, e no caso Cloudflare apenas com validação criptográfica do JWT.
+
+### 0.3 Sessões e revogação
+
+- Store server-side; cookie `HttpOnly; SameSite=Strict` (+`__Host-`/`Secure` em HTTPS); ID ≥128 bits CSPRNG, guardado como hash; nunca em query string.
+- Regeneração no login; idle + absolute timeout; logout invalida no servidor.
+- **Revogação**: `logout`, "terminar todas as sessões", rotação da senha e rotação do `hooks.token` invalidam imediatamente. Pedidos seguintes → 401; **streams SSE abertos são encerrados** (o hub mantém o session-id por ligação e fecha as ligações cuja sessão foi revogada/expirou).
+
+### 0.4 Impedir acesso alternativo que contorne o proxy
+
+- Processo sempre em `127.0.0.1`; modo remote recusa `HABBLAUD_HOST`/`HABBLAUD_BIND` não-loopback e `HABBLAUD_ALLOWED_HOSTS` sem auth (preflight).
+- Mas como qualquer processo local (ou um segundo proxy) também chega a loopback, **o controlo decisivo é a autenticação na app em todas as rotas** — contornar o proxy não dá acesso sem sessão/Bearer.
+- Funnel / túneis públicos sem IdP continuam NO-GO; `Tailscale-User-*` ignorados se o serviço for alcançável fora de localhost.
+
+### 0.5 Modos e fail-closed
+
+- **Opt-in local:** sem `HABBLAUD_AUTH` e com bind loopback, comportamento actual preservado (compatibilidade), com aviso.
+- **Modo remote (`HABBLAUD_REMOTE=1`) é fail-closed:** se auth estiver desligada, sem senha configurada, sem `hooks.token`, em modo dev/Vite, ou com bind não-loopback → **recusa arrancar** (não degrada para aberto).
+
+### 0.6 Testes negativos obrigatórios (pelo proxy)
+
+Executados com um proxy de teste local que reescreve `Host: 127.0.0.1` e liga a partir de loopback:
+
+- sem cookie → 401 em `/api/snapshot`, `/api/stream`, terminais, `/api/tasks`, `/api/continuity`, permissions, messages, character, codex events;
+- Bearer de hooks em rota de leitura de UI → 403; sessão de browser em rota de ingestão → 403;
+- sessão revogada → 401 e SSE aberto encerrado em ≤ N s;
+- session-id em query → rejeitado;
+- modo remote com auth off → processo não arranca.
 
 ---
 
@@ -129,7 +184,7 @@ Objetivo: telemóvel / outro Mac a ver e operar o escritório **sem** expor admi
 4. **Não** túnel live / DNS público / partilha de URL sem **validação explícita do Matheus** neste ciclo.
 5. **Não** confiar em `Tailscale-User-*` se o processo for alcançável fora de localhost.
 6. **Não** meter session ID na query do EventSource (logs, Referer, histórico).
-7. **Não** dados de tracks sensíveis (pessoais/clientes) neste track.
+7. **Não** dados reais de tracks sensíveis neste track.
 8. **Não** push `main` / `--force`.
 9. **Não** alegar “remoto pronto” só com documentação — critérios §6 têm de passar em teste.
 
@@ -219,6 +274,7 @@ Auth completa (hash, store, cookie, login UI, EventSource, hooks token, testes) 
 
 **Quick patch deliberadamente *não* aberto:** stub “401 se flag” sem login UI / sem cookies quebraria o uso local e os hooks.
 
+Esta PR é **só documentação**; nenhum código de auth/túnel incluído.
 
 ---
 
@@ -235,19 +291,5 @@ Auth completa (hash, store, cookie, login UI, EventSource, hooks token, testes) 
 
 - B2 (ops room / bots) depende de B4 para qualquer superfície remota.
 - B1 executor não deve ser accionável por rede sem C1–C7.
-- B3 (track sensível): mesmo com auth, esse conteúdo continua **fora** deste track até gate próprio.
+- B3 Vida: mesmo com auth, conteúdo Vida continua **fora** deste track até gate próprio.
 
-
----
-
-## Adenda — revisão ZikaBOT (2026-10-16)
-
-**Achado:** um proxy local (ou túnel) que reescreve `Host: 127.0.0.1` contorna hoje a combinação *bind loopback + Host loopback* em terminal, permissions, messages e tasks. Host não é identidade: qualquer processo que fale com a porta e escreva o cabeçalho passa.
-
-**Consequências para o desenho:**
-
-1. **Autenticar a origem** (sessão por cookie ou Bearer de máquina com `remoteAddress` loopback) **e autorizar cada capacidade** (terminal, permissions, messages, tasks, hooks) separadamente — não um único "é local" global.
-2. **Testes negativos pelo proxy** (C9 antecipado): proxy de teste que reescreve Host **sem** credencial → 401 em cada capacidade; com sessão → só as capacidades autorizadas.
-3. **SSE:** `/api/stream` exige sessão; após logout/revogação a ligação SSE aberta é **fechada** pelo servidor (não basta recusar novos pedidos).
-4. **Modos:** auth **opt-in em local** (`HABBLAUD_AUTH=1`) é aceitável na transição; **perfil remoto é fail-closed** — `HABBLAUD_REMOTE=1` (ou `HABBLAUD_ALLOWED_HOSTS` não vazio) com auth off → servidor recusa arrancar.
-5. Nenhum passo de túnel/Funnel é "ready" até C9 passar e Matheus validar C10.
