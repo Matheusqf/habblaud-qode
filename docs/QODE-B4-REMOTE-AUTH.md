@@ -291,5 +291,17 @@ Esta PR é **só documentação**; nenhum código de auth/túnel incluído.
 
 - B2 (ops room / bots) depende de B4 para qualquer superfície remota.
 - B1 executor não deve ser accionável por rede sem C1–C7.
-- B3 Vida: mesmo com auth, conteúdo Vida continua **fora** deste track até gate próprio.
+- B3 (track sensível): mesmo com auth, esse conteúdo continua **fora** deste track até gate próprio.
 
+---
+
+## Adenda — revisão ZikaBOT (2026-10-16)
+
+**Achado:** um proxy local (ou túnel) que reescreve `Host: 127.0.0.1` contorna hoje a combinação *bind loopback + Host loopback* em terminal, permissions, messages e tasks. Host não é identidade: qualquer processo que fale com a porta e escreva o cabeçalho passa. (Detalhe e desenho em §0.)
+
+**Consequências para o desenho:**
+1. **Autenticar a origem** (sessão por cookie ou Bearer de máquina com `remoteAddress` loopback) **e autorizar cada capacidade** (terminal, permissions, messages, tasks, hooks) separadamente — não um único "é local" global.
+2. **Testes negativos pelo proxy** (C9 antecipado): proxy de teste que reescreve Host **sem** credencial → 401 em cada capacidade; com sessão → só as capacidades autorizadas.
+3. **SSE:** `/api/stream` exige sessão; após logout/revogação a ligação SSE aberta é **fechada** pelo servidor (não basta recusar novos pedidos).
+4. **Modos:** auth **opt-in em local** (`HABBLAUD_AUTH=1`) é aceitável na transição; **perfil remoto é fail-closed** — `HABBLAUD_REMOTE=1` (ou `HABBLAUD_ALLOWED_HOSTS` não vazio) com auth off → servidor recusa arrancar.
+5. Nenhum passo de túnel/Funnel é "ready" até C9 passar e Matheus validar C10.
