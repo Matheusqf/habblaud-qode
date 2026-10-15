@@ -30,6 +30,7 @@
     "usage:install": "tsx scripts/statusline-install.ts install",
     "usage:uninstall": "tsx scripts/statusline-install.ts uninstall",
     "usage:status": "tsx scripts/statusline-install.ts status",
+    "auth:set-password": "tsx scripts/auth-set-password.ts",
     "hooks:install": "tsx scripts/hooks-install.ts install",
     "hooks:uninstall": "tsx scripts/hooks-install.ts uninstall",
     "hooks:status": "tsx scripts/hooks-install.ts status",

@@ -145,3 +145,7 @@ Se um caminho cair em mais de um projeto, o privado ganha.
 - **Matriz canário (Q4):** `server/qode/canary-matrix.test.ts` usa o sentinela `QODE_CANARY_PRIVATE_48H` em fixtures
   sintéticas. Gaps (relativo, variável ≠ HOME, paste sem path) estão reproduzidos à parte — não estão corrigidos.
 - Fora deste ciclo: adaptador OpenCode/Cursor e Docker. O QODE Office roda direto no Node.
+
+## Auth local (B4 L1, opt-in)
+
+`HABBLAUD_AUTH=1` liga login por senha + sessão em todas as `/api/*`. Remoto **não** está pronto (sem Funnel; Serve TBD). Ver `docs/remote-access.md`.

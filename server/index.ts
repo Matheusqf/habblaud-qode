@@ -9,6 +9,8 @@ import { AccountsService } from './accounts/service';
 import { loadConfig, messagesOffReason, terminalOffReason } from './config';
 import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard } from './http/guard';
+import { authEnabled, authFile, createAuth } from './http/auth';
+import { existsSync as authFileExists } from 'node:fs';
 import { Hub } from './http/sse';
 import { createStaticHandler } from './http/static';
 import { TerminalStreams } from './http/terminal';
@@ -251,11 +253,17 @@ if (config.dev) {
 
 // Host/Origin/Content-Type: barra DNS rebinding e CSRF antes de qualquer rota (inclusive o Vite).
 const guard = createRequestGuard({ allowedHosts: config.allowedHosts });
+// B4 L1: auth opt-in (HABBLAUD_AUTH=1 ou HABBLAUD_REMOTE=1). Sem a variável, comportamento atual.
+const auth = createAuth({ enabled: authEnabled(process.env), dataDir: config.dataDir, hooksToken: process.env.HABBLAUD_HOOKS_TOKEN });
+if (auth.enabled && !authFileExists(authFile(config.dataDir))) {
+  log.warn('HABBLAUD_AUTH ligado mas sem senha definida: rode `npm run auth:set-password`. Login recusado até lá.');
+}
 
 server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
+    if (auth.handle(req, res, url.pathname)) return;
     if (!api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(`Erro ao responder ${req.method} ${url.pathname}: ${errMsg(err)}`);
