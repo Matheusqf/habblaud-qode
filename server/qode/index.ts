@@ -15,6 +15,7 @@ import { createTerminalParser, type TerminalParser } from '../sources/terminal';
 import { isPrivatePath, loadQodeConfig, MENTIONS_BYTES_MAX, opaqueRoomKey, PRIVATE_ROOM_PREFIX, projectOf, type QodeConfig } from './config';
 import { Privacy } from './privacy';
 import { qodeCapabilities, type SourceCapability } from './capabilities';
+import { qodeOrchestrateStatus, type OrchestrateStatus } from './orchestrate-status';
 
 const SCAN_CHUNK = 1 << 20;
 const SCAN_LINE_MAX = 1 << 20;
@@ -279,6 +280,8 @@ export interface QodeHealth {
   erro?: string;
   /** Q3: origem/capacidade explícitas (Manual≠live; OpenCode/Cursor=unavailable). */
   capabilities: SourceCapability[];
+  /** B1: coordenador = floating-flow; QODE só observa (nunca despacha). */
+  orchestrate: OrchestrateStatus;
 }
 
 export interface QodeSetup {
@@ -332,7 +335,16 @@ export function setupQode(o: QodeOptions): QodeSetup {
     if (o.inDocker) log.warn(`${msg} No Docker, o arquivo precisa estar no volume /data.`);
     else log.info(msg);
     return {
-      health: () => ({ config: 'ausente', projetos: 0, privados: 0, capabilities: qodeCapabilities() }),
+      health: () => {
+        const orchestrate = qodeOrchestrateStatus(o.env, o.home);
+        return {
+          config: 'ausente',
+          projetos: 0,
+          privados: 0,
+          capabilities: qodeCapabilities({ orchestrate }),
+          orchestrate,
+        };
+      },
       transcriptPathOf: (inner) => inner,
       parserFor: (inner) => inner,
       history: (inner) => inner,
@@ -382,10 +394,13 @@ export function setupQode(o: QodeOptions): QodeSetup {
   return {
     config: cfg,
     privacy,
-    health: () =>
-      cfg.invalid
-        ? { config: 'invalida', projetos: 0, privados: 0, erro: privacy.redact(cfg.invalid), capabilities: qodeCapabilities() }
-        : { config: 'ok', projetos: cfg.projects.length, privados, capabilities: qodeCapabilities() },
+    health: () => {
+      const orchestrate = qodeOrchestrateStatus(o.env, o.home);
+      const capabilities = qodeCapabilities({ orchestrate });
+      return cfg.invalid
+        ? { config: 'invalida', projetos: 0, privados: 0, erro: privacy.redact(cfg.invalid), capabilities, orchestrate }
+        : { config: 'ok', projetos: cfg.projects.length, privados, capabilities, orchestrate };
+    },
     roomOf: (cwd) => {
       if (!cfg.invalid) return projectOf(cfg, cwd)?.roomKey;
       const key = opaqueRoomKey(cfg, cwd);

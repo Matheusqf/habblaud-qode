@@ -142,6 +142,9 @@ Se um caminho cair em mais de um projeto, o privado ganha.
 - **Origem/capacidade (Q3):** `/api/health` → `qode.capabilities` declara Claude/Codex (live|unknown), OpenCode e Cursor
   como `unavailable` (ainda sem adaptador) e o registro manual como `manual`. Não trate Manual como trabalho live, nem
   OpenCode/Cursor como integrados.
+- **Orquestração (B1):** `qode.orchestrate` + capability `floating-flow` — coordenador único = floating-flow (dev-flow);
+  o QODE só observa (`observe-only`). Defina `QODE_DEVFLOW_ROOT` ou use `~/Documents/GitHub/dev-flow`. Nunca despacha
+  `dispatch.sh run/review` a partir do escritório.
 - **Matriz canário (Q4):** `server/qode/canary-matrix.test.ts` usa o sentinela `QODE_CANARY_PRIVATE_48H` em fixtures
   sintéticas. Gaps (relativo, variável ≠ HOME, paste sem path) estão reproduzidos à parte — não estão corrigidos.
 - Fora deste ciclo: adaptador OpenCode/Cursor e Docker. O QODE Office roda direto no Node.
