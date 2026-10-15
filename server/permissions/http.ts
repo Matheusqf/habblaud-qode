@@ -72,7 +72,7 @@ export function createPermissionRoutes(registry: Pick<PermissionRegistry, 'regis
       case 'invalid-answer':
         return sendJson(res, 400, { error: 'resposta que não serve para este pedido: pergunta se responde com "answer" (cada pergunta uma vez, com as opções dela); os outros pedidos, com "allow" ou "deny"' });
       case 'unsupported':
-        return sendJson(res, 400, { error: 'o Codex não aceita interromper nem "sempre permitir" pelo Habblaud: aprove, recuse (com um motivo, se quiser) ou responda no terminal' });
+        return sendJson(res, 400, { error: 'o Codex não aceita interromper nem "sempre permitir" pelo QODE Office: aprove, recuse (com um motivo, se quiser) ou responda no terminal' });
     }
   };
 

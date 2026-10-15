@@ -61,6 +61,8 @@ export function lexical(p: string): string {
 }
 
 // Só acertos, e por pouco tempo: um symlink criado ou trocado depois precisa valer na próxima consulta.
+// F7 (consulta 13/10, aceito e documentado): um symlink trocado de público para privado pode ler o alvo antigo
+// por até REAL_CACHE_TTL_MS (2 s). Não há caminho trivialmente seguro sem perder o limite de custo; fica como está.
 const realCache = new Map<string, { real: string; at: number }>();
 
 function realOf(p: string): string | undefined {
@@ -128,10 +130,15 @@ function walkInto(start: string, add: (s: string) => void): void {
  * Leituras candidatas de um caminho: léxica, física estrita (prefixo existente + "..") e léxica+física
  * (colapsa o furo e continua). Qualquer uma privada vence; erro numa leitura não descarta as outras.
  */
+/** Formas extras só para comparação (NFC/NFD); nunca substituem o caminho antes do realpath. */
+function compareForms(s: string): string[] {
+  return [...new Set([s, s.normalize('NFC'), s.normalize('NFD')])];
+}
+
 function readings(p: string): string[] {
   const found = new Set<string>();
   const add = (s: string) => {
-    if (s) found.add(s);
+    if (s) for (const f of compareForms(s)) found.add(f);
   };
   for (const raw of pathForms(p)) {
     add(lexical(raw));
@@ -163,12 +170,50 @@ export function canonical(p: string): string {
   return realish(p);
 }
 
+const UTF8 = new TextDecoder('utf-8', { fatal: true });
+
+/**
+ * Decodifica uma corrida de %XX consecutivos a partir de `i` como bytes UTF-8 (P1-a).
+ * Sequência UTF-8 inválida cai no comportamento antigo (um caractere por byte), sem lançar.
+ * `keep(byte)` devolve true para bytes que devem ficar literais ("%XX"), p.ex. separadores de token.
+ */
+function decodePercentRun(t: string, i: number, keep?: (byte: number) => boolean): { text: string; next: number } {
+  const bytes: number[] = [];
+  const raw: string[] = [];
+  let j = i;
+  while (t[j] === '%' && isHexChar(t[j + 1]) && isHexChar(t[j + 2])) {
+    bytes.push(Number.parseInt(t.slice(j + 1, j + 3), 16));
+    raw.push(t.slice(j, j + 3));
+    j += 3;
+  }
+  let text = '';
+  let group: number[] = [];
+  const flush = () => {
+    if (!group.length) return;
+    try {
+      text += UTF8.decode(Uint8Array.from(group));
+    } catch {
+      for (const b of group) text += String.fromCharCode(b);
+    }
+    group = [];
+  };
+  bytes.forEach((b, k) => {
+    if (keep?.(b)) {
+      flush();
+      text += raw[k]; // forma original, mesma caixa do hex
+    } else group.push(b);
+  });
+  flush();
+  return { text, next: j };
+}
+
 /**
  * Forma de caminho para a allowlist: tira file://, decodifica %XX e \uXXXX (inclusive espaço) até estabilizar.
  * A forma crua e a decodificada entram nas leituras; o privado ganha se qualquer uma casar.
  */
 function decodePath(p: string): string {
-  let t = p.trim().replace(/\\/g, '/');
+  // \uXXXX antes de trocar \ por / (antes o \ virava / e o escape nunca era decodificado).
+  let t = p.trim().replace(/\\[uU]([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(Number.parseInt(h, 16))).replace(/\\/g, '/');
   if (t.slice(0, 16).toLowerCase() === 'file://localhost' && t[16] === '/') t = t.slice(16);
   else if (t.slice(0, 7).toLowerCase() === 'file://' && t[7] === '/') t = t.slice(7);
   for (let n = 0; n < 4; n++) {
@@ -177,8 +222,9 @@ function decodePath(p: string): string {
     let changed = false;
     while (i < t.length) {
       if (t[i] === '%' && isHexChar(t[i + 1]) && isHexChar(t[i + 2])) {
-        next += String.fromCharCode(Number.parseInt(t.slice(i + 1, i + 3), 16));
-        i += 3;
+        const run = decodePercentRun(t, i);
+        next += run.text;
+        i = run.next;
         changed = true;
         continue;
       }
@@ -194,6 +240,7 @@ function decodePath(p: string): string {
     t = next;
     if (!changed) break;
   }
+  // Sem normalizar: no Linux "café" NFC e NFD são caminhos físicos distintos. O NFC entra só como forma extra (pathForms).
   return t;
 }
 
@@ -201,6 +248,7 @@ function decodePath(p: string): string {
 function pathForms(p: string): string[] {
   const raw = p.trim().replace(/\\/g, '/');
   const decoded = decodePath(p);
+  // Só as grafias recebida e decodificada (UTF-8, sem normalizar): são estas que vão ao realpath.
   return decoded === raw ? [decoded] : [decoded, raw];
 }
 
@@ -254,6 +302,8 @@ export function parseConfig(raw: unknown, home: string, file = QODE_CONFIG_FILE)
   const homeLex = lexical(home);
   const projects: QodeProject[] = [];
   const keys = new Set<string>();
+  // Pais das raízes privadas na grafia original (no Linux, readdir do caminho em minúsculas falha).
+  const privateDirs = new Set<string>();
   for (const [i, item] of top.projetos.entries()) {
     const where = `projetos[${i}]`;
     if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error(`${where} precisa ser um objeto`);
@@ -288,7 +338,7 @@ export function parseConfig(raw: unknown, home: string, file = QODE_CONFIG_FILE)
           const dir = slash ? formLex : posix.dirname(formLex);
           const base = slash ? '' : posix.basename(formLex);
           for (const d of new Set([dir, realishLiteral(dir)])) {
-            roots.push({ path: posix.join(d, base).toLowerCase() + (slash ? '/' : ''), prefix: true });
+            for (const f of compareForms(posix.join(d, base).toLowerCase() + (slash ? '/' : ''))) roots.push({ path: f, prefix: true });
           }
         }
       } else {
@@ -297,7 +347,8 @@ export function parseConfig(raw: unknown, home: string, file = QODE_CONFIG_FILE)
           variants.add(lexical(form));
           variants.add(realishLiteral(form));
         }
-        for (const v of variants) roots.push({ path: v.toLowerCase(), prefix: false });
+        for (const v of variants) for (const f of compareForms(v.toLowerCase())) roots.push({ path: f, prefix: false });
+        if (p.privado === true) for (const v of variants) if (v.length > 1) privateDirs.add(posix.dirname(v));
         first ??= realishLiteral(abs);
       }
     }
@@ -309,14 +360,14 @@ export function parseConfig(raw: unknown, home: string, file = QODE_CONFIG_FILE)
   }
   const privateRoots = projects.filter((p) => p.privado).flatMap((p) => p.roots);
   const needles = [...new Set(privateRoots.filter((r) => r.path.length > 1).map((r) => r.path.replace(/[^a-z0-9]/g, '-')))];
-  const privateAliases = discoverAliases(privateRoots);
+  const privateAliases = discoverAliases(privateRoots, privateDirs);
   return { file, home, projects, privateRoots, needles, privateAliases };
 }
 
 /** Symlinks no diretório pai de cada raiz privada que apontam para ela. */
-function discoverAliases(roots: QodeRoot[]): Set<string> {
+function discoverAliases(roots: QodeRoot[], extraDirs: ReadonlySet<string> = new Set()): Set<string> {
   const out = new Set<string>();
-  const dirs = new Set(roots.filter((r) => r.path.length > 1 && !r.prefix).map((r) => posix.dirname(r.path)));
+  const dirs = new Set([...roots.filter((r) => r.path.length > 1 && !r.prefix).map((r) => posix.dirname(r.path)), ...extraDirs]);
   for (const dir of dirs) {
     let names: string[];
     try {
@@ -418,8 +469,9 @@ function decodeToken(t: string): string {
   let out = '';
   for (let i = 0; i < t.length; i++) {
     if (t[i] === '%' && isHexChar(t[i + 1]) && isHexChar(t[i + 2])) {
-      out += String.fromCharCode(Number.parseInt(t.slice(i + 1, i + 3), 16));
-      i += 2;
+      const run = decodePercentRun(t, i);
+      out += run.text;
+      i = run.next - 1;
       continue;
     }
     out += t[i];
@@ -435,13 +487,10 @@ function decodeEscapes(text: string): string {
   while (i < n) {
     const c = text[i];
     if (c === '%' && isHexChar(text[i + 1]) && isHexChar(text[i + 2])) {
-      const code = Number.parseInt(text.slice(i + 1, i + 3), 16);
-      if (isTokenBreaker(code)) {
-        out.push('%', text[i + 1]!, text[i + 2]!);
-      } else {
-        out.push(String.fromCharCode(code));
-      }
-      i += 3;
+      // Bytes < 0x80 que partem token ficam literais; o resto decodifica como UTF-8 (P1-a).
+      const run = decodePercentRun(text, i, (b) => b < 0x80 && isTokenBreaker(b));
+      out.push(run.text);
+      i = run.next;
       continue;
     }
     if (c === '\\' && (text[i + 1] === 'u' || text[i + 1] === 'U')) {
@@ -515,7 +564,7 @@ function expandVars(text: string, home: string): string {
         continue;
       }
     }
-    if (text[i] === '~' && (i === 0 || /[\s=:(,;{[|&>'"`]/.test(text[i - 1]!))) {
+    if (text[i] === '~' && (i === 0 || /[\s=:(,;{[|&><)}'"`]/.test(text[i - 1]!))) {
       let j = i + 1;
       while (j < n && /[A-Za-z0-9._-]/.test(text[j]!)) j++;
       const next = text[j];
@@ -550,7 +599,163 @@ export function unshell(text: string, home: string): string {
   return stripQuotes(expandVars(decodeEscapes(text), home));
 }
 
-const GLOB = /[*?[]/;
+const GLOB = /[*?[{]/;
+const GLOB_SEGS_MAX = 64;
+const BRACE_ALTS_MAX = 64;
+const PRIVATE_ALIASES_MAX = 1024;
+
+/**
+ * Expande `{a,b}` (aninhado) em alternativas literais, com limite. Sintaxe não suportada ou ambígua
+ * (`{p..r}`, `{x}` sem vírgula, chaves desbalanceadas, alternativas demais) devolve undefined = privado na dúvida.
+ */
+function expandBraces(seg: string, budget = { left: BRACE_ALTS_MAX }): string[] | undefined {
+  const open = seg.indexOf('{');
+  if (open < 0) return seg.includes('}') ? undefined : [seg];
+  let depth = 0;
+  let close = -1;
+  const commas: number[] = [];
+  for (let i = open; i < seg.length; i++) {
+    const c = seg[i];
+    if (c === '{') depth += 1;
+    else if (c === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        close = i;
+        break;
+      }
+    } else if (c === ',' && depth === 1) commas.push(i);
+  }
+  if (close < 0 || !commas.length) return undefined;
+  const head = seg.slice(0, open);
+  if (head.includes('}')) return undefined;
+  const tail = seg.slice(close + 1);
+  const bounds = [open, ...commas, close];
+  const out: string[] = [];
+  for (let k = 0; k + 1 < bounds.length; k++) {
+    const alt = expandBraces(seg.slice(bounds[k]! + 1, bounds[k + 1]), budget);
+    if (!alt) return undefined;
+    for (const x of alt) {
+      const rest = expandBraces(`${x}${tail}`, budget);
+      if (!rest) return undefined;
+      for (const r of rest) {
+        if (--budget.left < 0) return undefined;
+        out.push(head + r);
+      }
+    }
+  }
+  return out;
+}
+
+/** `[...]` a partir de `i` (que aponta para `[`): casa `ch`? undefined = classe malformada. */
+function classAt(p: string, i: number, ch: string): { ok: boolean; next: number } | undefined {
+  let j = i + 1;
+  let neg = false;
+  if (p[j] === '!' || p[j] === '^') {
+    neg = true;
+    j += 1;
+  }
+  let ok = false;
+  let first = true;
+  while (j < p.length && (p[j] !== ']' || first)) {
+    first = false;
+    const lo = p[j]!;
+    if (p[j + 1] === '-' && p[j + 2] !== undefined && p[j + 2] !== ']') {
+      if (ch >= lo && ch <= p[j + 2]!) ok = true;
+      j += 3;
+    } else {
+      if (ch === lo) ok = true;
+      j += 1;
+    }
+  }
+  if (j >= p.length) return undefined;
+  return { ok: ok !== neg, next: j + 1 };
+}
+
+/**
+ * Glob de um segmento (`*`, `?`, `[...]`) sem RegExp: casamento iterativo com um único ponto de retorno
+ * (último `*`), custo O(|padrão|·|nome|) no pior caso. undefined = sintaxe malformada.
+ */
+function globMatch(p: string, name: string): boolean | undefined {
+  let pi = 0;
+  let ni = 0;
+  let starP = -1;
+  let starN = 0;
+  while (ni < name.length) {
+    const c = p[pi];
+    if (c === '*') {
+      while (p[pi] === '*') pi += 1;
+      starP = pi;
+      starN = ni;
+      continue;
+    }
+    if (c === '[') {
+      const cls = classAt(p, pi, name[ni]!);
+      if (!cls) return undefined;
+      if (cls.ok) {
+        pi = cls.next;
+        ni += 1;
+        continue;
+      }
+    } else if (c !== undefined && (c === '?' || c === name[ni])) {
+      pi += 1;
+      ni += 1;
+      continue;
+    }
+    if (starP < 0) return false;
+    pi = starP;
+    starN += 1;
+    ni = starN;
+  }
+  while (p[pi] === '*') pi += 1;
+  if (pi < p.length && p.slice(pi).includes('[') && classAt(p, p.indexOf('[', pi), 'a') === undefined) return undefined;
+  return pi === p.length;
+}
+
+/** Segmento com glob/chaves casa com o nome? Sintaxe não suportada = casa (privado na dúvida). */
+function segMatch(seg: string, name: string): boolean {
+  if (seg.length > TOKEN_MAX) return true;
+  const alts = expandBraces(seg);
+  if (!alts) return true;
+  return alts.some((alt) => globMatch(alt, name) !== false);
+}
+
+/** Divide em segmentos por "/" fora de chaves (para `{a/b,c}`). */
+function globSegs(p: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let depth = 0;
+  for (const c of p) {
+    if (c === '{') depth += 1;
+    else if (c === '}' && depth > 0) depth -= 1;
+    if (c === '/' && depth === 0) {
+      if (cur && cur !== '.') out.push(cur);
+      cur = '';
+    } else cur += c;
+  }
+  if (cur && cur !== '.') out.push(cur);
+  return out;
+}
+
+/** F3/F4: o padrão (com glob ou chaves em qualquer segmento) pode casar com a raiz privada ou algo dentro dela? */
+function globHitsRoot(pattern: string, root: QodeRoot): boolean {
+  const ps = globSegs(pattern.toLowerCase());
+  const rs = globSegs(root.path);
+  if (ps.length > GLOB_SEGS_MAX || ps.some((s) => s === '..' || (s.includes('{') && s.includes('/')))) return true;
+  for (let i = 0; i < ps.length; i++) {
+    if (i >= rs.length) return true;
+    const seg = ps[i]!;
+    if (seg.includes('**')) return true;
+    const last = i === rs.length - 1;
+    if (!GLOB.test(seg)) {
+      if (root.prefix && last ? !seg.startsWith(rs[i]!) : seg !== rs[i]) return false;
+      continue;
+    }
+    // Raiz "repo-*": qualquer glob no último segmento pode casar com um nome que começa pelo prefixo.
+    if (root.prefix && last) continue;
+    if (!segMatch(seg, rs[i]!)) return false;
+  }
+  return ps.length >= rs.length;
+}
 
 function takeQuoted(text: string, start: number): { token: string; next: number } {
   const q = text[start]!;
@@ -935,7 +1140,10 @@ function privateLower(cfg: QodeConfig, lower: string): boolean {
 
 /** Caminho absoluto (já sem aspas nem ~) que cai num projeto privado, inclusive por symlink ou "..". */
 export function isPrivateToken(cfg: QodeConfig, token: string): boolean {
-  let tok = token.slice(0, TOKEN_MAX).replace(/[.,:;!?]+$/, '');
+  // Opus: token maior que TOKEN_MAX é privado (fail closed), em vez de ser cortado.
+  // Barras repetidas colapsam antes do teste; o que continua longo demais é privado. Nunca corta o token.
+  if (token.length > TOKEN_MAX && token.replace(/[\\/]+/g, '/').length > TOKEN_MAX) return true;
+  let tok = token.replace(/[.,:;!?]+$/, '');
   if (tok.length < 2) return false;
   const g = tok.search(GLOB);
   if (g >= 0) {
@@ -946,6 +1154,19 @@ export function isPrivateToken(cfg: QodeConfig, token: string): boolean {
     const bases = new Set<string>([lexical(raw), ...readings(raw.slice(0, cut) || '/').map((b) => posix.join(b, raw.slice(cut + 1)))]);
     for (const lit of [...bases].map((l) => l.toLowerCase() + tail)) {
       if (cfg.privateRoots.some((r) => r.path.startsWith(lit) && lit.length > posix.dirname(r.path).length + 1)) return true;
+    }
+    // F3/F4: glob/chaves em qualquer segmento (inclusive no diretório pai), também a partir do pai resolvido por symlink.
+    const fixedCut = tok.lastIndexOf('/', g);
+    const rest = tok.slice(fixedCut + 1);
+    const fixed = tok.slice(0, fixedCut + 1) || '/';
+    const starts = new Set<string>([lexical(fixed), ...readings(fixed)]);
+    for (const s of starts) {
+      const pattern = `${s.replace(/\/+$/, '')}/${rest}`;
+      if (cfg.privateRoots.some((r) => globHitsRoot(pattern, r))) return true;
+      // P2 (ZikaBOT 1791933002.511909): aliases privados já descobertos (symlinks para a raiz) entram na mesma
+      // comparação limitada, na grafia física exata (sem NFC/NFD: "café" NFC e NFD são nomes distintos).
+      if (cfg.privateAliases.size > PRIVATE_ALIASES_MAX) return true;
+      for (const a of cfg.privateAliases) if (globHitsRoot(pattern, { path: a, prefix: false })) return true;
     }
     tok = tok.slice(0, tok.lastIndexOf('/', g) + 1) || '/';
   }
@@ -1007,6 +1228,183 @@ function walkStrings(value: unknown, out: string[]): void {
   else if (value && typeof value === 'object') for (const v of Object.values(value)) walkStrings(v, out);
 }
 
+const GROUP = /[@!+?*]?\([^()]*\)/g;
+const GROUP_PASSES_MAX = 32;
+/** Variantes cortadas (um corte por terminador) têm teto próprio; os candidatos continuam limitados por MENTIONS_TOKENS_MAX. */
+const CUTS_MAX = MENTIONS_TOKENS_MAX * 4;
+
+/**
+ * Opus P1: grupos do zsh `(a|b)` e extglob do bash `@( ) !( ) +( ) ?( ) *( )` viram `*` (isPrivateToken já é
+ * conservador com `*`); parênteses e `|` que sobram também viram `*`. Texto já normalizado (sem aspas, com ~/$HOME expandidos).
+ */
+function groupsToStar(f: string): string {
+  if (!/[()|^#]/.test(f)) return f;
+  for (let n = 0; n < GROUP_PASSES_MAX && f.includes('('); n++) {
+    const next = f.replace(GROUP, '*');
+    if (next === f) break;
+    f = next;
+  }
+  // zsh EXTENDED_GLOB: `^pub` (negação: o segmento inteiro vira `*`) e `priv#` (repetição) também podem casar com a raiz; `[^x]` (classe) fica como está.
+  return f
+    .replace(/[()|#]/g, '*')
+    .split('/')
+    .map((seg) => (/(?<!\[)\^/.test(seg) ? '*' : seg))
+    .join('/');
+}
+
+/**
+ * Marca (U+0001) posta antes de cada $HOME/${HOME…} expandido: o que vem antes dela (outra variável como `$IFS`,
+ * `cat$IFS$HOME/x`) nunca faz o caminho parecer relativo. Não é caractere de nome, então vira terminador.
+ */
+const HOME_MARK = '\u0001';
+
+/** `${HOME<qualquer coisa até o } correspondente>}` vale HOME (conservador: ${HOME%/}, ${HOME:-/x}, ${HOME/a/b}…). Só leitura. */
+function expandHomeBraces(s: string, home: string): string {
+  if (!/\$\{home/i.test(s)) return s;
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] === '$' && s[i + 1] === '{' && s.slice(i + 2, i + 6).toLowerCase() === 'home' && !/[A-Za-z0-9_]/.test(s[i + 6] ?? '')) {
+      let depth = 1;
+      let j = i + 6;
+      for (; j < s.length && depth > 0; j++) {
+        if (s[j] === '{') depth += 1;
+        else if (s[j] === '}') depth -= 1;
+      }
+      out += HOME_MARK + home;
+      // Sem } correspondente (sintaxe inválida/ambígua): o resto fica visível como texto depois de HOME (conservador).
+      i = depth > 0 ? i + 6 : j;
+      continue;
+    }
+    out += s[i]!;
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * Fragmento (sem espaços) como o shell o veria, só leitura: segmentos ANSI-C $'...' decodificados em qualquer posição
+ * (inválido/ambíguo = undefined = privado), ${HOME…} como HOME, e o mesmo unshell do resto (%XX, \uXXXX, aspas, ~, $HOME).
+ */
+function normalizeFragment(raw: string, home: string): string | undefined {
+  let f = raw;
+  if (f.includes("$'")) {
+    let out = '';
+    for (let i = 0; i < f.length; ) {
+      if (f[i] === '$' && f[i + 1] === "'") {
+        const ansi = ansiCWord(f, i);
+        if (ansi.unsafe) return undefined;
+        out += ansi.value;
+        i = ansi.next;
+        continue;
+      }
+      out += f[i]!;
+      i += 1;
+    }
+    f = out;
+  }
+  // `$HOME` simples também ganha a marca (ver HOME_MARK) antes de o unshell expandi-lo.
+  // Crase = substituição de comando: a saída dela pode ter espaço/tab (`` cat`printf '\t'`/abs ``) e separar a palavra.
+  // O unshell apagaria a crase e colaria "cat…/abs"; aqui ela vira a marca (não é caractere de nome = terminador).
+  f = f.replace(/`/g, HOME_MARK);
+  return unshell(expandHomeBraces(f, home).replace(/\$home(?![A-Za-z0-9_])/gi, `${HOME_MARK}$HOME`), home);
+}
+
+const NAME_CHAR = /[A-Za-z0-9._~\-]/;
+/** O que pode aparecer DENTRO de um nome de caminho (inclui glob/grupos/chaves); o resto termina o caminho. */
+const PATH_CHAR = /[A-Za-z0-9._~+@%^!#*?[\]{}()\-/\u0080-￿]/;
+
+/**
+ * Extração estrutural de candidatos (ZikaBOT 1791933110.238959 e seguintes): em vez de listar os caracteres que podem
+ * colar um caminho a outra coisa (`|`, `||`, `>|`, `(`, `{`, `,`, `:`, `=`, `}` de ${IFS}, aspas…), todo "/" do
+ * fragmento normalizado cujo caractere anterior NÃO é parte de um nome (início, ou fora de [A-Za-z0-9._~-] e de "/")
+ * inicia um candidato. Cada candidato vai até o fim do fragmento ou até um fechamento sem par (`)` `}` `]`), e
+ * também é testado cortado em cada terminador (qualquer caractere que não cabe num nome). Nada é executado.
+ */
+interface Candidate {
+  /** Do início ao fim (grupos já reescritos para `*`). */
+  full: string;
+  /** Posições dos terminadores; o prefixo cortado em cada uma é montado sob demanda (custo limitado por CUTS_MAX). */
+  stops: number[];
+  text: string;
+  start: number;
+}
+
+/** `$NOME` imediatamente antes do "/" (`cat$IFS/etc`, `$X/home`): a variável pode expandir para vazio ou espaço, então o "/" inicia caminho. */
+function afterVariable(n: string, s: number): boolean {
+  let i = s - 1;
+  for (const stop = Math.max(0, s - 65); i >= stop && /[A-Za-z0-9_]/.test(n[i]!); i--);
+  return i >= 0 && i < s - 1 && n[i] === '$';
+}
+
+/** Valor padrão de expansão de parâmetro: `${x:-/abs}`, `${x-/abs}`, `${x:=/abs}`, `${x:+/abs}`. */
+function afterParamOp(n: string, s: number): boolean {
+  const op = n[s - 1];
+  if (op !== '-' && op !== '=' && op !== '+' && op !== '?') return false;
+  let i = s - 2;
+  if (n[i] === ':') i -= 1;
+  const stop = Math.max(0, i - 64);
+  while (i >= stop && /[A-Za-z0-9_]/.test(n[i]!)) i -= 1;
+  return i >= 1 && n[i] === '{' && n[i - 1] === '$';
+}
+
+/** Prefixo de opção colado ao caminho (`-f/x`, `--file/x`, `-I/x`): só o primeiro "/" do fragmento. */
+const OPTION_PREFIX = /^-{1,2}[A-Za-z0-9_-]+$/;
+
+/** Candidatos de uma única grafia normalizada. undefined = privado na dúvida (candidato maior que TOKEN_MAX). */
+function candidatesIn(n: string, budget: { starts: number }): Candidate[] | undefined {
+  const out: Candidate[] = [];
+  const first = n.indexOf('/');
+  for (let s = first; s >= 0; s = n.indexOf('/', s + 1)) {
+    const prev = n[s - 1];
+    if (prev !== undefined && (prev === '/' || NAME_CHAR.test(prev) || prev.charCodeAt(0) > 127)) {
+      // Exceções: opção colada (`-f/x`) e "%XX"/"\\uXXXX" que o decodeEscapes deixou literais por serem separadores (`cat%7c/x`).
+      const encoded = isHexChar(prev) && isHexChar(n[s - 2]) && n[s - 3] === '%';
+      if (!encoded && !afterVariable(n, s) && !afterParamOp(n, s) && (s !== first || !OPTION_PREFIX.test(n.slice(0, s)))) continue;
+    }
+    let brace = 0;
+    let paren = 0;
+    let bracket = 0;
+    const stops: number[] = [];
+    const inner: number[] = [];
+    const limit = Math.min(n.length, s + TOKEN_MAX + 1);
+    let end = s + 1;
+    scan: for (; end < limit; end++) {
+      const c = n[end]!;
+      const flat = !brace && !paren && !bracket;
+      switch (c) {
+        case '{': if (flat) stops.push(end); brace += 1; break;
+        case '(': if (flat) stops.push(end); paren += 1; break;
+        case '[': if (flat) stops.push(end); bracket += 1; break;
+        case '}': if (brace === 0) break scan; brace -= 1; break;
+        case ')': if (paren === 0) break scan; paren -= 1; break;
+        case ']': if (bracket === 0) break scan; bracket -= 1; break;
+        default:
+          // `,` `|` dentro de {} ( ) [] balanceados são internos; se nunca fecharem, valem como cortes (estrutura quebrada).
+          if (!PATH_CHAR.test(c) || (c === '%' && isHexChar(n[end + 1]) && isHexChar(n[end + 2]))) (flat ? stops : inner).push(end);
+      }
+    }
+    if (end - s > TOKEN_MAX) return undefined;
+    if (brace || paren || bracket) stops.push(...inner);
+    if (--budget.starts < 0) return undefined; // candidatos demais no texto: privado (custo limitado)
+    out.push({ full: groupsToStar(n.slice(s, end)), stops, text: n, start: s });
+  }
+  return out;
+}
+
+function candidatesOf(raw: string, home: string, budget: { starts: number }): Candidate[] | undefined {
+  if (!/[/%\\]|\$'/.test(raw)) return [];
+  let n = normalizeFragment(raw, home);
+  if (n === undefined) return undefined;
+  // Barras repetidas colapsam ANTES do limite: padding de "/" não pode tirar o caminho da análise.
+  if (n.length > TOKEN_MAX) n = n.replace(/\/{2,}/g, '/');
+  const direct = candidatesIn(n, budget);
+  if (direct === undefined || !n.includes('\\')) return direct;
+  // Barra invertida: tanto terminador (JSON "\n", "\t") quanto escape do shell (`pr\iv` = `priv`). Vale as duas leituras.
+  const unescaped = candidatesIn(n.replace(/\\([^])/g, '$1'), budget);
+  return unescaped === undefined ? undefined : [...direct, ...unescaped];
+}
+
 /** O texto cita um caminho privado (absoluto, ~/, ~usuário/, $HOME, com aspas, %XX, "..", symlink ou cwd codificado)? */
 export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth = 0): boolean {
   if (!text || !cfg.privateRoots.length) return false;
@@ -1022,20 +1420,35 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
   // a small bounded window after each absolute-looking fragment; this keeps
   // `I'm reading /tmp/qode alias/secret.txt` observable without treating every
   // apostrophe as a shell error.
-  const fragments = text.split(/\s+/);
-  let absoluteFragments = 0;
-  for (let i = 0; i < fragments.length; i++) {
-    const first = fragments[i]!.replace(/^["'`]+/, '');
-    if (!first.startsWith('/')) continue;
-    absoluteFragments += 1;
-    if (absoluteFragments > MENTIONS_TOKENS_MAX) return true;
-    for (let width = 1; width <= 4 && i + width <= fragments.length; width++) {
-      const candidate = [first, ...fragments.slice(i + 1, i + width).map((part) => part.replace(/["'`]+$/g, ''))].join(' ');
-      if (isPrivateToken(cfg, candidate)) return true;
+  const words = text.split(/\s+/);
+  const seen = new Set<string>();
+  const budget = { starts: MENTIONS_TOKENS_MAX };
+  let cuts = 0;
+  for (let i = 0; i < words.length; i++) {
+    const found = candidatesOf(words[i]!, cfg.home, budget);
+    if (found === undefined) return true;
+    for (const c of found) {
+      for (let width = 1; width <= 4 && i + width <= words.length; width++) {
+        const candidate = [c.full, ...words.slice(i + 1, i + width).map((part) => stripQuotes(part))].join(' ');
+        if (width === 1 && seen.has(candidate)) break;
+        seen.add(candidate);
+        if (isPrivateToken(cfg, candidate)) return true;
+      }
+      for (const stop of c.stops) {
+        if (stop - c.start < 2) continue;
+        if (++cuts > CUTS_MAX) return true;
+        const cut = groupsToStar(c.text.slice(c.start, stop));
+        if (seen.has(cut)) continue;
+        seen.add(cut);
+        if (isPrivateToken(cfg, cut)) return true;
+      }
     }
   }
-  const flat = decodeToken(stripQuotes(expandVars(decodeEscapes(text), cfg.home))).toLowerCase();
-  const contains = (root: string) => {
+  const flatRaw = decodeToken(stripQuotes(expandVars(decodeEscapes(text), cfg.home))).toLowerCase();
+  // Grafia recebida + NFC/NFD apenas como formas extras de comparação.
+  const flats = compareForms(flatRaw);
+  const contains = (root: string) => flats.some((flat) => containsIn(flat, root));
+  const containsIn = (flat: string, root: string) => {
     if (root.length <= 3) return false;
     let i = 0;
     while (i < flat.length) {
@@ -1047,25 +1460,31 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
     }
     return false;
   };
-  if (cfg.privateRoots.some((r) => !r.prefix && contains(r.path))) return true;
+  // F5/F9: raízes "repo-*" (prefixo) também valem no texto livre.
+  if (cfg.privateRoots.some((r) => (r.prefix ? r.path.length > 3 && flats.some((f) => f.includes(r.path)) : contains(r.path)))) return true;
   for (const a of cfg.privateAliases) if (contains(a)) return true;
   const trimmed = text.trimStart();
   if (depth < 2 && (trimmed.startsWith('{') || trimmed.startsWith('['))) {
+    let parsed: unknown;
     try {
-      const parsed: unknown = JSON.parse(text);
-      if (parsed && typeof parsed === 'object') {
-        const inner: string[] = [];
-        walkStrings(parsed, inner);
-        if (inner.length > MENTIONS_TOKENS_MAX) return true;
-        let bytes = 0;
-        for (const s of inner) {
-          bytes += s.length;
-          if (bytes > MENTIONS_BYTES_MAX) return true;
-        }
-        return inner.some((s) => mentionsPrivate(cfg, s, depth + 1));
-      }
+      parsed = JSON.parse(text);
     } catch {
-      /* texto cru já foi varrido */
+      parsed = undefined; /* não é JSON: texto cru já foi varrido */
+    }
+    if (parsed && typeof parsed === 'object') {
+      const inner: string[] = [];
+      try {
+        walkStrings(parsed, inner);
+      } catch {
+        return true; // F9: JSON fundo demais para percorrer = privado na dúvida.
+      }
+      if (inner.length > MENTIONS_TOKENS_MAX) return true;
+      let bytes = 0;
+      for (const s of inner) {
+        bytes += s.length;
+        if (bytes > MENTIONS_BYTES_MAX) return true;
+      }
+      return inner.some((s) => mentionsPrivate(cfg, s, depth + 1));
     }
   }
   return false;

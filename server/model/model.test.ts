@@ -620,7 +620,7 @@ describe('Office: personagem do projeto', () => {
     expect(names.get('s2')).toBeUndefined();
   });
 
-  describe('reinício do Habblaud (names.json em arquivo)', () => {
+  describe('reinício do QODE Office (names.json em arquivo)', () => {
     /** Grava o names.json e sobe um NameStore e um Office novos lendo o mesmo arquivo. */
     const restart = (before: NameStore, file: string) => {
       before.flush();

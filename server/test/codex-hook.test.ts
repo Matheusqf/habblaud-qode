@@ -1,7 +1,7 @@
 // Hook do Codex (mod/habblaud-codex/hook.mjs) rodado como processo de verdade contra o servidor de teste (rotas de
 // verdade e uma fonte do Codex falsa): eventos de observação (sem saída), a conta pelo CODEX_HOME, pelo
 // transcript_path ou ~/.codex, a configuração em ~/.habblaud/codex-hook.json, e o PermissionRequest (aprovar, recusar,
-// terminal, tempo esgotado, Habblaud fora do ar). HOME e CODEX_HOME sempre em pastas temporárias; stdin sintético.
+// terminal, tempo esgotado, QODE Office fora do ar). HOME e CODEX_HOME sempre em pastas temporárias; stdin sintético.
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
@@ -150,7 +150,7 @@ describe('hook.mjs do Codex (processo)', () => {
     expect((live.calls[0].input.tool_response as { output: string }).output.length).toBe(8_000);
   });
 
-  it('PermissionRequest aprovado no Habblaud: manda o evento, registra e imprime allow (só isso)', async () => {
+  it('PermissionRequest aprovado no QODE Office: manda o evento, registra e imprime allow (só isso)', async () => {
     srv = await servePermissions({ codex: true, codexLive: live });
     writeConfig({ port: srv.port, permissionTimeoutS: 30 });
     const run = runHook(JSON.stringify(permission()), { CODEX_HOME: codexHome });
@@ -173,7 +173,7 @@ describe('hook.mjs do Codex (processo)', () => {
     let run = runHook(JSON.stringify(permission()), { CODEX_HOME: codexHome });
     expect(srv.registry!.decide(await pendingId(srv), { behavior: 'deny', message: 'use pnpm' })).toBe('ok');
     let r = await run;
-    expect(JSON.parse(r.stdout)).toEqual({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message: 'Recusado pelo usuário no Habblaud: use pnpm' } } });
+    expect(JSON.parse(r.stdout)).toEqual({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message: 'Recusado pelo usuário no QODE Office: use pnpm' } } });
     run = runHook(JSON.stringify(permission()), { CODEX_HOME: codexHome });
     srv.registry!.decide(await pendingId(srv), { behavior: 'terminal' });
     r = await run;
@@ -187,7 +187,7 @@ describe('hook.mjs do Codex (processo)', () => {
     expect(JSON.parse((await run).stdout).hookSpecificOutput.decision).toEqual({ behavior: 'allow' });
   });
 
-  it('Habblaud fora do ar, sem página aberta ou sessão desconhecida: sai rápido, sem decisão', async () => {
+  it('QODE Office fora do ar, sem página aberta ou sessão desconhecida: sai rápido, sem decisão', async () => {
     writeConfig({ port: await deadPort() });
     let r = await runHook(JSON.stringify(permission()), { CODEX_HOME: codexHome });
     expect(r).toMatchObject({ code: 0, stdout: '' });
@@ -211,7 +211,7 @@ describe('hook.mjs do Codex (processo)', () => {
     expect(r.ms).toBeLessThan(10_000);
   }, 20_000);
 
-  it('stdin inválido ou evento que o Habblaud não usa: nada é mandado', async () => {
+  it('stdin inválido ou evento que o QODE Office não usa: nada é mandado', async () => {
     srv = await servePermissions({ codex: true, codexLive: live });
     writeConfig({ port: srv.port });
     for (const stdin of ['', 'não é json', '[]', JSON.stringify({ hook_event_name: 'Stop' }), JSON.stringify(codexEvent('PreCompact', { trigger: 'auto' }))]) {
@@ -246,7 +246,7 @@ describe('hook.mjs do Codex (funções)', () => {
     expect(hook.accountOf('/u/.codex')).toBe('.codex');
   });
 
-  it('permissionBody: provider codex, conta e só o que o Habblaud usa', () => {
+  it('permissionBody: provider codex, conta e só o que o QODE Office usa', () => {
     const body = hook.permissionBody(permission({ agent_id: 'filho', agent_type: 'worker', tool_input: { command: 'y'.repeat(20_000) } }), '.codex', '/u/.codex', 25_000);
     expect(Object.keys(body).sort()).toEqual(['account', 'agent_id', 'agent_type', 'codexHome', 'cwd', 'provider', 'session_id', 'timeout_ms', 'tool_input', 'tool_name', 'turn_id']);
     expect(body).toMatchObject({ provider: 'codex', account: '.codex', codexHome: '/u/.codex', session_id: CODEX_THREAD, tool_name: 'Bash', timeout_ms: 25_000 });
@@ -258,7 +258,7 @@ describe('hook.mjs do Codex (funções)', () => {
     const allow = hook.decisionOutput({ status: 'decided', behavior: 'allow', suggestion: 0 });
     expect(allow).toEqual({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } });
     expect(hook.decisionOutput({ status: 'decided', behavior: 'deny', interrupt: true })).toEqual({
-      hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message: 'Recusado pelo usuário no Habblaud.' } },
+      hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message: 'Recusado pelo usuário no QODE Office.' } },
     });
     expect(hook.decisionOutput({ status: 'decided', behavior: 'answer', answers: [] })).toBeUndefined();
     expect(hook.decisionOutput({ status: 'released', reason: 'terminal' })).toBeUndefined();

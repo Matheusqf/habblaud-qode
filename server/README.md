@@ -1,4 +1,4 @@
-# Servidor do Habblaud
+# Servidor do QODE Office
 
 Node puro (sem dependências de runtime). Observa as sessões **abertas** do Claude Code em todas as
 contas da máquina, mantém o modelo do escritório e transmite tudo via SSE.
@@ -16,7 +16,7 @@ npm run build && npm start   # produção: serve dist/client
 | Atividades, tarefas, título, números | `<config>/projects/<cwd>/<sessionId>.jsonl` (lê o último ~1 MB no boot; o começo em segundo plano) |
 | Subagentes (inclusive de workflows) | `<config>/projects/<cwd>/<sessionId>/subagents/**/agent-*.jsonl` + `.meta.json` |
 | Conta (e-mail, organização) e cache de uso | `~/.claude.json` (conta padrão) ou `<config>/.claude.json` — só esses campos |
-| Uso ao vivo (5h e semanal) | `~/.habblaud/usage/<conta>.json`, gravado pelo mod do Habblaud (`npm run mod:install`) ou pelo `scripts/statusline-tap.mjs` (`npm run usage:install`) |
+| Uso ao vivo (5h e semanal) | `~/.habblaud/usage/<conta>.json`, gravado pelo mod do QODE Office (`npm run mod:install`) ou pelo `scripts/statusline-tap.mjs` (`npm run usage:install`) |
 | Atalho da conta (`c`, `d`...) | linhas `alias x='... claude ...'` de `~/.zshrc`, `~/.bashrc`, `~/.zprofile`, `~/.bash_profile` |
 
 **Forks** (subagentes que herdam o contexto do pai): o transcript começa com uma linha `fork-context-ref`, a
@@ -272,7 +272,7 @@ o plugin `habblaud-mensagens` da sessão o busca (`POST /api/mod/inbox`, a cada 
 - **estados:** `queued` → `sent` (o plugin buscou) → `delivered` ou `failed`. `queued` sem ser buscada em 60 s, `sent`
   sem confirmação em 30 s ou agente que saiu = `failed`, com o motivo. `delivered` = entrou na sessão ou na fila dela
   (com o agente ocupado, entra quando ele terminar o turno). Resolvidas ficam 10 min para o `GET`;
-- entregue: atividade ✉️ "Mensagem pelo Habblaud" no agente (o detalhe mascarado e cortado); agentes do demo recebem
+- entregue: atividade ✉️ "Mensagem pelo QODE Office" no agente (o detalhe mascarado e cortado); agentes do demo recebem
   mensagens fictícias, entregues em ~1 s, sem sessão real.
 
 As rotas (`messages/http.ts`) seguem a trava do terminal e mais uma chave: `ServerConfig.messages` = terminal ligado e
@@ -303,7 +303,7 @@ Regras:
   `parts` e `custom: true`. Quem está saindo não conta, porque costuma ser a mesma sessão reaberta. Se o nome não
   estiver livre, vale o sorteio de sempre.
 - O personagem tem dono (`owner`, o `sessionId` de quem o recebeu ou salvou por último; o `/clear` passa o dono para a
-  sessão nova): uma sessão que não é a dona e já tem nome guardado mantém o dela, para que um reinício do Habblaud
+  sessão nova): uma sessão que não é a dona e já tem nome guardado mantém o dela, para que um reinício do QODE Office
   não troque identidades nem mude o personagem de uma sessão no meio dela.
 - Os nomes escolhidos ficam reservados: o sorteio não os entrega, sem diferenciar maiúsculas. O `PUT` responde `409`
   para o nome de alguém presente (inclusive do demo) ou o de outra sala.
@@ -367,7 +367,7 @@ do Codex levam `provider: 'codex'` (ausente = Claude Code). Ids: `<conta>:<threa
 | `HABBLAUD_CODEX_BIN` | `codex` do PATH | binário do Codex para o `codex queue` (modo Node e `npm run codex:bridge`) |
 | `HABBLAUD_MENSAGENS` | ligado (com o terminal) | `0`, `false`, `off` ou `no` desligam só as mensagens pelo escritório |
 | `HABBLAUD_CLAUDE_DIRS` | — | config dirs separados por vírgula; substitui a detecção (`~/.claude*` com `projects/` ou `sessions/` + `CLAUDE_CONFIG_DIR`) |
-| `HABBLAUD_DATA_DIR` | `~/.habblaud` (Docker: `/data`) | estado do Habblaud (nomes e personagens dos projetos persistidos em `names.json`, linha do tempo em `timeline/`, estatísticas do Meu dia em `stats/`, última verificação de versão em `updates.json`) |
+| `HABBLAUD_DATA_DIR` | `~/.habblaud` (Docker: `/data`) | estado do QODE Office (nomes e personagens dos projetos persistidos em `names.json`, linha do tempo em `timeline/`, estatísticas do Meu dia em `stats/`, última verificação de versão em `updates.json`) |
 | `HABBLAUD_TIMELINE` | ligado | `0` desliga a gravação da linha do tempo do timelapse |
 | `HABBLAUD_UPDATE_CHECK` | ligado | `0` desliga a verificação de versão nova (releases do repositório do `package.json` no GitHub, a cada 6 h) |
 | `HABBLAUD_DEMO` | desligado | `1` liga o modo demonstração ao iniciar |
@@ -377,8 +377,8 @@ do Codex levam `provider: 'codex'` (ausente = Claude Code). Ids: `<conta>:<threa
 | `HABBLAUD_ALLOWED_HOSTS` | — | nomes extras aceitos no `Host`/`Origin` (vírgula); `localhost`, `*.localhost` e IPs sempre valem |
 
 No hook de permissão (ambiente do Claude Code; os argumentos `--port`/`--timeout` gravados pelo instalador têm
-preferência): `HABBLAUD_PORT` (porta do Habblaud, padrão `4747`), `HABBLAUD_PERMISSION_TIMEOUT` (segundos de espera
-pela resposta no Habblaud, padrão `300`, entre 5 e 1800) e `HABBLAUD_HOOK_DEBUG=1` (conta no stderr o que fez).
+preferência): `HABBLAUD_PORT` (porta do QODE Office, padrão `4747`), `HABBLAUD_PERMISSION_TIMEOUT` (segundos de espera
+pela resposta no QODE Office, padrão `300`, entre 5 e 1800) e `HABBLAUD_HOOK_DEBUG=1` (conta no stderr o que fez).
 
 ## Uso do plano (5h e semanal)
 
@@ -389,7 +389,7 @@ Duas fontes, ambas arquivos locais (nada de credenciais nem chamadas de rede); v
   com `rate_limits` (`five_hour`/`seven_day`: `used_percentage` e `resets_at` em segundos). O
   `scripts/statusline-tap.mjs`, instalado na frente do statusline de cada conta por `npm run usage:install`,
   grava só esses números em `~/.habblaud/usage/<conta>.json` (casado com a conta pelo `configDir`; senão pelo
-  `accountId`). No Claude Code 2.1.287+ o mod do Habblaud grava o mesmo arquivo (ver abaixo);
+  `accountId`). No Claude Code 2.1.287+ o mod do QODE Office grava o mesmo arquivo (ver abaixo);
 - `cache`: o `cachedUsageUtilization` que o próprio Claude Code grava ao rodar `/usage`, relido a cada 60 s.
 
 Sem nenhuma das duas, a conta fica `disabled` ("sem dados de uso"). Números com mais de 30 min aparecem como
@@ -407,7 +407,7 @@ O repositório é também um marketplace de plugins do Claude Code (`.claude-plu
   `statusline`. O mod escreve com `$.fs.write`, que não é atômico; por isso `StatuslineUsageReader` ignora uma
   leitura vazia ou pela metade, fica com o último registro bom daquele arquivo e o relê no ciclo seguinte;
 - **`GET /api/mod/summary`** (`modSummary` em `http/app.ts`), perguntado a cada 5 s por sessão que desenha (30 s com
-  o Habblaud fora do ar) e pelo comando `/habblaud`: só contagens e quem espera, montado do snapshot atual. Ficam de
+  o QODE Office fora do ar) e pelo comando `/habblaud`: só contagens e quem espera, montado do snapshot atual. Ficam de
   fora os agentes do demo (que vivem só no snapshot, não no `Office`), quem já encerrou ou entregou e, com
   `?session=` (e `?account=`, se vier), a sessão de quem pergunta: o principal com esse `sessionId` e os subagentes
   dela (o `sessionId` deles é o da sessão que os disparou; por garantia, também quem tem um ancestral dela).

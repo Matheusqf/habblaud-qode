@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="client/public/assets/brand/logo-mark@4x.png" width="96" alt="Logo do Habblaud: um pequeno prédio em pixel art" />
+  <img src="client/public/assets/brand/logo-mark@4x.png" width="96" alt="Logo do QODE Office: um pequeno prédio em pixel art" />
 </p>
 
-<h1 align="center">Habblaud</h1>
+<h1 align="center">QODE Office</h1>
 
 <p align="center">
   <b>O escritório virtual dos seus agentes do Claude Code (e do Codex).</b><br />
@@ -18,13 +18,13 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/office.gif" width="820" alt="Animação de uma sala do Habblaud: personagens digitando nas mesas, subagentes com crachá e balões de atividade" />
+  <img src="docs/screenshots/office.gif" width="820" alt="Animação de uma sala do QODE Office: personagens digitando nas mesas, subagentes com crachá e balões de atividade" />
 </p>
 
 ---
 
 Você abre o Claude Code em vários projetos, dispara subagentes, deixa tarefas rodando… e perde a noção de quem está
-fazendo o quê. O **Habblaud** transforma isso num escritório que dá para entender de relance: quem está digitando,
+fazendo o quê. O **QODE Office** transforma isso num escritório que dá para entender de relance: quem está digitando,
 quem levantou a mão porque **precisa de você**, quem entregou o trabalho e foi embora, quem foi tomar um café
 enquanto espera a próxima instrução — e quanto de cada conta você já gastou na sessão de 5 horas e na semana.
 
@@ -33,7 +33,7 @@ eles veem futebol juntos no lounge, jogam videogame e ping-pong, fofocam na copa
 moedinhas no jokenpô. Veja em [Vida social](#vida-social).
 
 Tudo roda na sua máquina, lendo os arquivos que o próprio Claude Code já grava (e só as linhas `alias` do seu shell,
-para dar a letra de cada conta). Nada sai do computador: o Habblaud não lê credenciais nem faz chamadas externas.
+para dar a letra de cada conta). Nada sai do computador: o QODE Office não lê credenciais nem faz chamadas externas.
 
 ## Sumário
 
@@ -56,7 +56,7 @@ para dar a letra de cada conta). Nada sai do computador: o Habblaud não lê cre
 ganha a sua sala ao longo do corredor. No topo, os contadores e o uso de cada conta; à esquerda, as salas e os
 agentes; embaixo, o feed de atividade.
 
-![Visão geral do Habblaud: prédio com recepção, copa, banheiros, lounge e salas de projeto; barra lateral com salas e agentes; uso das contas no topo; feed de atividade embaixo](docs/screenshots/overview.png)
+![Visão geral do QODE Office: prédio com recepção, copa, banheiros, lounge e salas de projeto; barra lateral com salas e agentes; uso das contas no topo; feed de atividade embaixo](docs/screenshots/overview.png)
 
 <table>
   <tr>
@@ -107,7 +107,7 @@ ela, e o endereço antigo apaga e é desmontado. Assim o prédio não fica com b
 
 <table>
   <tr>
-    <td width="34%"><img src="docs/screenshots/mobile.png" alt="Habblaud no celular, com o uso das contas no topo" /></td>
+    <td width="34%"><img src="docs/screenshots/mobile.png" alt="QODE Office no celular, com o uso das contas no topo" /></td>
     <td>
       <b>Também no celular.</b> A interface se adapta a telas pequenas: o uso das contas fica no topo, a lista de
       salas vira uma gaveta e os detalhes abrem de baixo para cima. Veja como liberar o acesso pela rede local em
@@ -135,10 +135,10 @@ cd habblaud
 npm install
 ```
 
-> O `npm install` só baixa ferramentas de compilação (Vite, TypeScript, tsx…). O servidor do Habblaud não tem
+> O `npm install` só baixa ferramentas de compilação (Vite, TypeScript, tsx…). O servidor do QODE Office não tem
 > dependências de runtime: usa só módulos nativos do Node.
 
-### 2. Suba o Habblaud
+### 2. Suba o QODE Office
 
 **Opção A — Docker (recomendado para deixar sempre ligado)**
 
@@ -160,7 +160,7 @@ Abra **http://localhost:4747**. Para desenvolver, use `npm run dev` (servidor + 
 
 Agora abra o Claude Code em qualquer projeto e veja o seu agente chegar pelo elevador. 🎉
 
-### 3. Instale o mod do Habblaud no Claude Code (recomendado)
+### 3. Instale o mod do QODE Office no Claude Code (recomendado)
 
 ```bash
 npm run mod:install                        # o mod e os plugins de permissões e de mensagens, em cada conta
@@ -168,10 +168,10 @@ npm run mod:install -- --sem-permissoes    # sem responder permissões e pergunt
 npm run mod:install -- --sem-mensagens     # sem mandar mensagens aos agentes pelo escritório
 ```
 
-O Habblaud traz um [mod](https://code.claude.com/docs/en/plugins/mods/overview) (um plugin que roda dentro do
+O QODE Office traz um [mod](https://code.claude.com/docs/en/plugins/mods/overview) (um plugin que roda dentro do
 Claude Code) e o instala em cada conta, pelo próprio `claude plugin`, a partir desta pasta. Com ele:
 
-- o **uso de 5 horas e semanal** de cada conta aparece ao vivo no Habblaud;
+- o **uso de 5 horas e semanal** de cada conta aparece ao vivo no QODE Office;
 - o terminal mostra uma linha quando **outra sessão precisa de você** (permissão ou resposta);
 - o comando **`/habblaud`** passa a existir no Claude Code;
 - dá para **aprovar ou recusar pelo escritório** os pedidos de permissão ("Do you want to…") e **responder as
@@ -210,22 +210,22 @@ não ficarem dois capturando o uso ou respondendo o mesmo pedido.
 
 Se você também usa o **Codex** da OpenAI (a CLI `codex` ou o app), as sessões dele entram no mesmo escritório: cada
 projeto é uma sala — a mesma sala do Claude Code, quando os dois estão abertos no mesmo projeto — e cada sessão, um
-personagem com o selo **CODEX**. O Habblaud acha sozinho a pasta do Codex (`~/.codex`, `CODEX_HOME` ou `~/.codex*`) e
+personagem com o selo **CODEX**. O QODE Office acha sozinho a pasta do Codex (`~/.codex`, `CODEX_HOME` ou `~/.codex*`) e
 lê as conversas, sem instalar nada. Para ver o Codex **ao vivo** (o que está fazendo agora, quem precisa de você) e
 aprovar comandos pelo escritório, instale os hooks:
 
 ```bash
-npm run codex:install      # acrescenta os hooks do Habblaud em ~/.codex/hooks.json (backup antes; os outros ficam)
+npm run codex:install      # acrescenta os hooks do QODE Office em ~/.codex/hooks.json (backup antes; os outros ficam)
 npm run codex:status       # confere
 ```
 
-Depois, **abra o Codex e aprove os hooks do Habblaud em `/hooks`**: o Codex só roda um hook novo depois que você o
-aprova (o Habblaud nunca grava essa aprovação). Com o Habblaud no Docker, para mandar mensagens às sessões do Codex
+Depois, **abra o Codex e aprove os hooks do QODE Office em `/hooks`**: o Codex só roda um hook novo depois que você o
+aprova (o QODE Office nunca grava essa aprovação). Com o QODE Office no Docker, para mandar mensagens às sessões do Codex
 deixe também `npm run codex:bridge` rodando no Mac (veja [Codex](#codex)).
 
 ### Abrir no celular (opcional)
 
-Por padrão o Habblaud só aceita conexões do próprio computador. Para abrir no celular (no mesmo Wi-Fi), com Docker:
+Por padrão o QODE Office só aceita conexões do próprio computador. Para abrir no celular (no mesmo Wi-Fi), com Docker:
 
 ```bash
 printf 'HABBLAUD_BIND=0.0.0.0\n' > .env
@@ -242,7 +242,7 @@ Depois abra `http://<ip-do-computador>:4747` no celular (no macOS: `ipconfig get
 ### Atualizar
 
 A versão em uso aparece na barra superior, ao lado de "Conectado", e em **Configurações › Sobre**. A cada 6 horas o
-Habblaud confere no GitHub se saiu uma versão nova (as [releases](https://github.com/marmottajr/habblaud/releases)
+QODE Office confere no GitHub se saiu uma versão nova (as [releases](https://github.com/marmottajr/habblaud/releases)
 deste repositório). Quando sai, aparece o selo verde **Nova versão** no lugar do número, com um aviso e um ponto no
 botão de configurações. Em **Sobre** ficam o link do que mudou e o botão **Verificar agora** (as notas de cada
 versão também estão no [`CHANGELOG.md`](CHANGELOG.md)). Para atualizar:
@@ -263,7 +263,7 @@ depois de atualizar. Para não consultar o GitHub, use `HABBLAUD_UPDATE_CHECK=0`
 
 #### Vindo do CodeTown
 
-O Habblaud se chamava **CodeTown** até a 0.3.2. Depois do `git pull`, rode uma vez:
+O QODE Office se chamava **CodeTown** até a 0.3.2. Depois do `git pull`, rode uma vez:
 
 ```bash
 npm install
@@ -288,7 +288,7 @@ npm run docker:up        # tira o container codetown e copia os dados do volume 
 
 ```bash
 npm run mod:uninstall                       # tira o mod, os plugins de permissões e de mensagens e o marketplace
-npm run codex:uninstall                     # tira os hooks do Habblaud do Codex (os outros ficam)
+npm run codex:uninstall                     # tira os hooks do QODE Office do Codex (os outros ficam)
 npm run docker:down                         # para o container
 docker volume rm habblaud_habblaud-data     # apaga os dados do container (nomes, salas, linha do tempo e estatísticas)
 docker image rm habblaud:local              # apaga a imagem
@@ -374,7 +374,7 @@ estiver ocupado, entra quando ele terminar o que está fazendo. Subagentes e ses
   por dia, com busca por título, projeto ou conta. Uma sessão encerrada abre no terminal com projeto, título e data no
   cabeçalho e "Sessão encerrada às …" no rodapé; uma sessão ainda aberta abre o terminal ao vivo do agente.
 
-Como o terminal (e o histórico) mostra a conversa inteira, ele só existe quando o Habblaud está acessível **apenas pelo
+Como o terminal (e o histórico) mostra a conversa inteira, ele só existe quando o QODE Office está acessível **apenas pelo
 próprio computador** (o padrão) e só abre por `http://localhost` ou `http://127.0.0.1`. Com a porta liberada para a rede
 (`HABBLAUD_BIND=0.0.0.0` ou `HABBLAUD_HOST=0.0.0.0`), ele fica desligado. Detalhes em
 [Privacidade e segurança](#privacidade-e-segurança).
@@ -406,7 +406,7 @@ botões:
 - **Aprovar** — e, quando o Claude Code sugere, **Aprovar e não perguntar de novo** (a mesma regra que o terminal
   ofereceria, por exemplo `Bash(npm test:*)` neste projeto);
 - **Recusar** — com um motivo opcional, que vai para o agente, e a opção de interrompê-lo;
-- **Responder no terminal** — o Habblaud deixa o pedido de lado.
+- **Responder no terminal** — o QODE Office deixa o pedido de lado.
 
 O diálogo continua aparecendo no terminal ao mesmo tempo, e vale o que você responder primeiro: respondeu no
 terminal, o pedido some do escritório sozinho. O contador **precisam de você** (e a tecla `P`) leva até cada pedido.
@@ -417,13 +417,13 @@ a sua em **Outro**, e use **Responder**; **Recusar…** diz ao agente que você 
 terminal** deixa a pergunta lá. A resposta chega ao agente como se você tivesse escolhido no terminal.
 
 - O pedido passa por um hook `PermissionRequest` do Claude Code (o do plugin, ou o do jeito antigo), que só o desvia
-  quando há **alguma página do Habblaud aberta** neste computador; com o Habblaud parado ou sem nenhuma página, ele
+  quando há **alguma página do QODE Office aberta** neste computador; com o QODE Office parado ou sem nenhuma página, ele
   sai na hora e o terminal segue normal.
 - Sem resposta pelo escritório em 5 minutos, o pedido volta a valer só no terminal (as opções do plugin estão em
   [`mod/README.md`](mod/README.md); no jeito antigo, `npm run hooks:install -- --timeout 120` muda o tempo e
   `--port`, a porta). Em **subagentes em segundo plano** o Claude Code só mostra o diálogo no terminal depois que o
   hook termina: responda pelo escritório ou use **Responder no terminal**.
-- Funciona com a mesma trava do terminal: só com o Habblaud acessível apenas pelo próprio
+- Funciona com a mesma trava do terminal: só com o QODE Office acessível apenas pelo próprio
   computador e aberto por `http://localhost`. Confira com `npm run mod:status` (ou `npm run hooks:status`, no jeito
   antigo).
 - No modo demonstração, os agentes fictícios também pedem permissão e fazem perguntas (de mentira), para
@@ -440,7 +440,7 @@ e espera o próximo pedido, dar uma instrução nova ou corrigir o rumo, sem pro
 - A caixa mostra a situação: **na fila** (a sessão busca as mensagens a cada 2 segundos), **entregue** ou **não
   entregue**, com o motivo. Com o agente ocupado, a mensagem espera e entra quando ele terminar o turno, como um
   prompt digitado com o agente trabalhando.
-- O plugin roda dentro de cada sessão e só fala com o Habblaud em `127.0.0.1`. Sem ele (ou numa sessão aberta antes
+- O plugin roda dentro de cada sessão e só fala com o QODE Office em `127.0.0.1`. Sem ele (ou numa sessão aberta antes
   da instalação: use `/reload-plugins`), aparece a dica de instalação no lugar da caixa. Subagentes não recebem
   mensagens.
 - Funciona com a mesma trava do terminal (só com acesso local) e pode ser desligado com `HABBLAUD_MENSAGENS=0`.
@@ -462,7 +462,7 @@ agente principal e clique no lápis ao lado do nome (**Editar personagem**). No 
 
 A escolha fica em `~/.habblaud/names.json` e some depois de 60 dias sem uso do projeto. O editor tem a mesma trava do
 terminal: o lápis só aparece com o terminal ligado (sem `HABBLAUD_TERMINAL=0`) e o acesso local, isto
-é, com o Habblaud acessível apenas pelo próprio computador e aberto por `http://localhost`.
+é, com o QODE Office acessível apenas pelo próprio computador e aberto por `http://localhost`.
 
 ### Codex
 
@@ -470,20 +470,20 @@ As sessões do Codex (CLI ou app) aparecem como as do Claude Code: personagem, s
 subagentes, terminal e histórico, uso de 5 horas e semanal e o **Meu dia** (só tokens: o Codex não informa custo). O
 chip da conta do Codex é vazado e leva o selo **CODEX**.
 
-- **Sem instalar nada**, o Habblaud lê os arquivos que o próprio Codex grava (as conversas em `~/.codex/sessions` e as
+- **Sem instalar nada**, o QODE Office lê os arquivos que o próprio Codex grava (as conversas em `~/.codex/sessions` e as
   travas das sessões abertas em `~/.codex/thread-writer-locks`). Só que o Codex grava cada passo **depois** que ele
   termina e nunca grava "esperando você": sem os hooks, o escritório mostra o Codex com atraso e não avisa quando ele
   precisa de você.
-- **Com os hooks** (`npm run codex:install` e aprovar em `/hooks`), o Codex avisa o Habblaud a cada passo: a sessão
+- **Com os hooks** (`npm run codex:install` e aprovar em `/hooks`), o Codex avisa o QODE Office a cada passo: a sessão
   aparece na hora, a atividade é a de agora e um pedido de aprovação levanta a mão do personagem.
-- **Aprovar pelo escritório:** com alguma página do Habblaud aberta, o pedido de aprovação do Codex espera a sua
+- **Aprovar pelo escritório:** com alguma página do QODE Office aberta, o pedido de aprovação do Codex espera a sua
   resposta no cartão **Pede permissão** por até **25 segundos** (`npm run codex:install -- --espera <s>`, de 5 a 120):
   **Aprovar** ou **Recusar** (com o motivo). Diferente do Claude Code, o Codex só mostra a aprovação no terminal
   **depois** que o escritório responde ou o prazo acaba — nesse meio-tempo o terminal mostra "Aguardando resposta no
-  Habblaud…". Não há "sempre permitir" nem "interromper", e o Codex não deixa responder as perguntas dele por fora.
+  QODE Office…". Não há "sempre permitir" nem "interromper", e o Codex não deixa responder as perguntas dele por fora.
 - **Mandar mensagens:** a caixa **Mandar mensagem** funciona para o Codex também, pelo `codex queue`: a mensagem entra
   na fila da sessão e o Codex a pega quando termina o que está fazendo (até uns 10 segundos depois). No modo Node o
-  próprio Habblaud roda o comando; **no Docker**, deixe `npm run codex:bridge` rodando no Mac (o container não
+  próprio QODE Office roda o comando; **no Docker**, deixe `npm run codex:bridge` rodando no Mac (o container não
   enxerga o seu Codex).
 - **Uso de 5 horas e semanal:** vem dos próprios arquivos do Codex e só se renova enquanto alguma sessão roda; o cartão
   mostra a idade dos números e "sem cota" quando o workspace ficou sem créditos.
@@ -496,7 +496,7 @@ chip da conta do Codex é vazado e leva o selo **CODEX**.
 
 ### GitHub no escritório
 
-O que os agentes fazem no GitHub anima a sala do projeto, sem token e sem acessar a internet: o Habblaud lê nos
+O que os agentes fazem no GitHub anima a sala do projeto, sem token e sem acessar a internet: o QODE Office lê nos
 transcripts as chamadas (`gh pr create`, `gh pr merge`, `git push`, `gh run watch`, `gh pr checks`, `gh run view`,
 `gh release create` e as ferramentas do MCP do GitHub) e os resultados delas.
 
@@ -514,7 +514,7 @@ transcripts as chamadas (`gh pr create`, `gh pr merge`, `git push`, `gh run watc
 </table>
 
 Cada evento também gera um aviso ("🎉 Danilo abriu o PR #12 em habblaud", "🚨 CI falhou em habblaud (feat/x)") e entra
-no feed. Só o que acontece ao vivo anima a sala: o que já estava nos transcripts quando o Habblaud abriu vai só para o
+no feed. Só o que acontece ao vivo anima a sala: o que já estava nos transcripts quando o QODE Office abriu vai só para o
 histórico. Com "reduzir movimento" ligado no sistema, nada pisca nem gira. No modo demonstração, PRs, merges e CIs
 fictícios aparecem de tempos em tempos.
 ### Meu dia
@@ -523,10 +523,10 @@ O botão **Meu dia** (ou a tecla `M`) mostra para onde foi o dia: quanto tempo o
 em destaque, quanto tempo ficaram **esperando você** (permissão, pergunta ou escolha) — com a maior espera, quem
 esperou, onde e quando. Ao lado, sessões, subagentes, pedidos, tokens e custo (quando o Claude Code grava o custo no
 transcript), e gráficos por hora, por projeto (do que mais esperou você para o que menos esperou) e por conta, além
-do ranking das maiores esperas. Escolha o dia no seletor (o Habblaud guarda os últimos 30); aberto no dia de hoje,
+do ranking das maiores esperas. Escolha o dia no seletor (o QODE Office guarda os últimos 30); aberto no dia de hoje,
 o painel se atualiza a cada 30 s. Cada gráfico tem uma versão em tabela, e a legenda liga e desliga cada status.
 
-O tempo é **tempo de agente**: dois agentes trabalhando por uma hora contam duas horas. O Habblaud só conta o que
+O tempo é **tempo de agente**: dois agentes trabalhando por uma hora contam duas horas. O QODE Office só conta o que
 acontece enquanto ele está rodando, e o dia segue o fuso do seu navegador. Com o modo demonstração ligado, o painel
 mostra números fictícios (com o selo "demonstração") e deixa alternar para os dados reais; os agentes do demo nunca
 entram nas estatísticas de verdade.
@@ -548,11 +548,11 @@ Quer ver o escritório cheio sem ter sessões abertas?
 > desta seção é sobre o Claude Code.
 
 Se você usa mais de uma conta do Claude Code (por exemplo, um atalho `c` com `~/.claude` e um `d` com
-`CLAUDE_CONFIG_DIR=~/.claude-conta2`), o Habblaud mostra todas juntas: cada agente leva o chip da sua conta e o topo
+`CLAUDE_CONFIG_DIR=~/.claude-conta2`), o QODE Office mostra todas juntas: cada agente leva o chip da sua conta e o topo
 mostra, para cada conta, o **percentual usado** da sessão de 5 horas e da semana e **quando cada limite reinicia**.
 
 **Como as contas são reconhecidas.** Cada pasta de configuração do Claude Code é uma conta: `~/.claude` e qualquer
-`~/.claude*` com `projects/` ou `sessions/` (além de `CLAUDE_CONFIG_DIR`). Para dar a letra de cada uma, o Habblaud
+`~/.claude*` com `projects/` ou `sessions/` (além de `CLAUDE_CONFIG_DIR`). Para dar a letra de cada uma, o QODE Office
 lê nos arquivos do shell (`~/.zshrc`, `~/.bashrc`…) **somente** as linhas `alias x='... claude ...'`:
 
 ```bash
@@ -562,7 +562,7 @@ alias d='CLAUDE_CONFIG_DIR=~/.claude-conta2 claude'
 
 vira **Conta C** e **Conta D**. Só valem atalhos de até 3 letras; contas sem atalho recebem A, B…
 
-**De onde vêm os números.** O jeito recomendado é o mod do Habblaud (`npm run mod:install`, Claude Code 2.1.287+):
+**De onde vêm os números.** O jeito recomendado é o mod do QODE Office (`npm run mod:install`, Claude Code 2.1.287+):
 dentro de cada sessão, ele recebe do próprio Claude Code os limites do plano e guarda só os percentuais de 5 horas e
 da semana (e quando reiniciam) em `~/.habblaud/usage/<conta>.json`. Os números chegam depois da próxima resposta de
 cada conta. Confira com `npm run mod:status`. Em versões anteriores do Claude Code, o tap de statusline
@@ -572,19 +572,19 @@ cada conta. Confira com `npm run mod:status`. Em versões anteriores do Claude C
 <summary><b>Detalhes do tap e do cache do /usage</b></summary>
 
 - O `usage:install` (jeito antigo) altera, em `<conta>/settings.json`, **só** o campo `statusLine.command`: o comando
-  original (ex.: `npx -y ccstatusline`) passa a rodar através de `node "<pasta do Habblaud>/scripts/statusline-tap.mjs" --
+  original (ex.: `npx -y ccstatusline`) passa a rodar através de `node "<pasta do QODE Office>/scripts/statusline-tap.mjs" --
   <comando original>` (no Windows, o comando original roda no Git Bash, como o Claude Code o rodaria). Uma cópia do
   arquivo vai antes para `settings.json.habblaud-backup-<data>`. Se a conta não tinha statusline, é criado um que só
   captura o uso. `npm run usage:install -- --dry-run` mostra o que mudaria sem gravar.
 - O tap repassa o mesmo JSON ao seu statusline (saída e código de saída continuam os dele) e grava **somente**
   `{accountId, configDir, fetchedAt, five_hour, seven_day}` — nada de prompts, custos ou caminhos de projeto. Qualquer
-  falha na captura é ignorada: o statusline nunca quebra por causa do Habblaud.
+  falha na captura é ignorada: o statusline nunca quebra por causa do QODE Office.
 
 | Fonte | Como funciona |
 | --- | --- |
-| **Mod do Habblaud** (recomendado) | Ao vivo, como descrito acima. Substitui o tap: o `mod:install` tira o tap da conta. |
+| **Mod do QODE Office** (recomendado) | Ao vivo, como descrito acima. Substitui o tap: o `mod:install` tira o tap da conta. |
 | Tap de statusline (Claude Code anterior ao 2.1.287) | Ao vivo, pelo comando de statusline, no mesmo arquivo. |
-| Cache do `/usage` (sempre ligado) | O Claude Code grava o último resultado do comando `/usage`. No modo Node, o Habblaud relê a cada 60 s; no Docker, vale o valor lido no último `npm run docker:up`. Só muda quando alguém roda `/usage`. |
+| Cache do `/usage` (sempre ligado) | O Claude Code grava o último resultado do comando `/usage`. No modo Node, o QODE Office relê a cada 60 s; no Docker, vale o valor lido no último `npm run docker:up`. Só muda quando alguém roda `/usage`. |
 
 As fontes são arquivos locais: nenhuma lê senhas ou tokens, nem faz chamadas de rede. Vale sempre a fonte com os
 números mais recentes. Números com mais de 30 minutos aparecem como **desatualizados**; uma janela que já reiniciou
@@ -602,7 +602,7 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 | `HABBLAUD_HOST` | `127.0.0.1` | Interface do servidor no modo Node. Fora de `127.0.0.1`/`localhost`, o terminal (e responder e mandar mensagens pelo escritório) fica desligado. |
 | `HABBLAUD_BIND` | `127.0.0.1` | Só Docker (no `.env`): onde a porta é publicada. `0.0.0.0` libera a rede local (e desliga o terminal e o que age sobre as sessões). |
 | `HABBLAUD_CLAUDE_DIRS` | detecção automática | Pastas das contas, separadas por vírgula (ex.: `/caminho/conta1,/caminho/conta2`). |
-| `HABBLAUD_DATA_DIR` | `~/.habblaud` | Onde o Habblaud guarda os próprios dados (nomes dos personagens e das salas, linha do tempo do timelapse e estatísticas do Meu dia). |
+| `HABBLAUD_DATA_DIR` | `~/.habblaud` | Onde o QODE Office guarda os próprios dados (nomes dos personagens e das salas, linha do tempo do timelapse e estatísticas do Meu dia). |
 | `HABBLAUD_TIMELINE` | ligado | `0` desliga a gravação da linha do tempo (os dias já gravados continuam no timelapse). No Docker fica sempre ligado. |
 | `HABBLAUD_USAGE_DIR` | `~/.habblaud/usage` | Onde o mod (ou o tap de statusline) grava o uso. |
 | `HABBLAUD_DEMO` | desligado | `1` liga o modo demonstração ao iniciar. |
@@ -654,7 +654,7 @@ shared/   protocolo (types.ts), atividades em PT-BR, nomes, simulador de demonst
 server/   servidor HTTP + SSE: contas e uso, leitura das sessões e transcripts, modelo do escritório
 client/   Vite: src/art (pixel art procedural), src/world (o escritório no canvas), src/ui (interface)
 scripts/  build do servidor, docker-up, instaladores (mod, tap de statusline e hook de permissão) e screenshots
-mod/      o mod do Habblaud e os plugins de permissões e de mensagens (plugins do Claude Code; marketplace em .claude-plugin/)
+mod/      o mod do QODE Office e os plugins de permissões e de mensagens (plugins do Claude Code; marketplace em .claude-plugin/)
 ```
 
 | Rota | Descrição |
@@ -692,7 +692,7 @@ Mais detalhes do servidor em [`server/README.md`](server/README.md).
 | `<conta>/sessions/` | `/claude/<conta>/sessions` (somente leitura) | Sessões abertas e seus status. |
 | `<conta>/projects/` | `/claude/<conta>/projects` (somente leitura) | Transcripts das sessões e dos subagentes. |
 | `~/.habblaud/usage/` | `/usage` (somente leitura) | Uso capturado pelo mod (ou pelo tap de statusline). |
-| volume `habblaud-data` | `/data` | Dados do próprio Habblaud (nomes dos personagens, linha do tempo do timelapse e estatísticas do Meu dia). |
+| volume `habblaud-data` | `/data` | Dados do próprio QODE Office (nomes dos personagens, linha do tempo do timelapse e estatísticas do Meu dia). |
 
 A pasta da conta **nunca** é montada inteira (lá ficam credenciais e configurações). O container roda como usuário sem
 privilégios, com sistema de arquivos somente leitura, sem capabilities extras e com `no-new-privileges`. Os metadados
@@ -702,7 +702,7 @@ das contas (letra, e-mail, organização) são lidos no host pelo `docker:up` e 
 
 ## Privacidade e segurança
 
-- **Só leitura:** o Habblaud nunca grava nas pastas do Claude Code. As exceções são os instaladores, que você roda:
+- **Só leitura:** o QODE Office nunca grava nas pastas do Claude Code. As exceções são os instaladores, que você roda:
   o `npm run mod:install` / `mod:uninstall` usa o próprio `claude plugin` (que registra o marketplace e os plugins
   no `settings.json` e em `<conta>/plugins/`) e, na instalação, tira o tap e o hook antigos com backup; no jeito
   antigo, o `npm run usage:install` / `usage:uninstall` muda só o `statusLine.command` do `settings.json` e o
@@ -710,7 +710,7 @@ das contas (letra, e-mail, organização) são lidos no host pelo `docker:up` e 
 - **O mod:** roda dentro de cada sessão do Claude Code, com as suas permissões (como todo mod), e faz só o que está
   listado em [`mod/README.md`](mod/README.md) — `claude plugin validate mod/habblaud` mostra os eventos e as chamadas,
   sem rodar nada. Grava só os percentuais de uso de 5 horas e da semana (e quando reiniciam) em
-  `~/.habblaud/usage/<conta>.json`; para a linha de "precisa de você" e o `/habblaud`, só fala com o Habblaud em
+  `~/.habblaud/usage/<conta>.json`; para a linha de "precisa de você" e o `/habblaud`, só fala com o QODE Office em
   `127.0.0.1`. Não lê a conversa, não chama o modelo e não envia nada para fora do computador. Ele é lido desta
   pasta: o que estiver nela (inclusive depois de um `git pull`) é o que roda. O plugin de mensagens
   (`habblaud-mensagens`) é separado justamente porque age: digita na sessão o que você mandou pelo escritório.
@@ -719,14 +719,14 @@ das contas (letra, e-mail, organização) são lidos no host pelo `docker:up` e 
   sem token, à API pública do GitHub (`api.github.com/repos/marmottajr/habblaud/releases/latest`). Ela não envia nada
   sobre as suas sessões; o GitHub vê só o seu IP e a versão em uso, que vai no `User-Agent`.
   `HABBLAUD_UPDATE_CHECK=0` desliga a consulta.
-- **Sem credenciais:** o Habblaud não lê senhas nem tokens de acesso. Do `.claude.json` de cada conta aproveita só o
+- **Sem credenciais:** o QODE Office não lê senhas nem tokens de acesso. Do `.claude.json` de cada conta aproveita só o
   e-mail, a organização e o cache do `/usage`; o uso ao vivo vem do mod (ou do tap de statusline).
 - **Segredos mascarados:** tokens e senhas com formato conhecido (`Bearer`, `-u usuário:senha`, `TOKEN=`, chaves
   `sk-…`, `ghp_…`, `AKIA…`, JWTs, senhas em URLs) viram `***` antes de chegar ao navegador.
 - **Protegido contra sites maliciosos:** o servidor recusa endereços que não sejam `localhost`/IP (DNS rebinding) e
   `POST` vindos de outras origens (CSRF), e não deixa a página ser embutida em outros sites.
 - **Terminal só local:** a conversa completa das sessões (e o histórico das sessões encerradas, com os
-  títulos) só sai do servidor com o Habblaud acessível apenas pelo próprio computador (`HABBLAUD_HOST` local no Node;
+  títulos) só sai do servidor com o QODE Office acessível apenas pelo próprio computador (`HABBLAUD_HOST` local no Node;
   `HABBLAUD_BIND` local no Docker) — não há como
   ligá-lo com a porta exposta — e cada pedido precisa vir por `localhost`/`127.0.0.1`: IPs da rede e nomes de
   `HABBLAUD_ALLOWED_HOSTS` (proxies, túneis) são recusados. Segredos são mascarados e textos longos truncados antes
@@ -737,7 +737,7 @@ das contas (letra, e-mail, organização) são lidos no host pelo `docker:up` e 
 - **Responder pelo escritório, só local:** aprovar ou recusar age sobre as sessões, então segue a mesma trava do
   terminal (bind local, `Host` local, nada de proxies ou túneis) e só existe com o hook de permissão (o do plugin
   `habblaud-permissoes` ou o do jeito antigo) instalado por você. As respostas exigem JSON e origem local (um site
-  aberto no navegador não consegue mandá-las), o hook só fala com `127.0.0.1` e, na dúvida — Habblaud fora do ar,
+  aberto no navegador não consegue mandá-las), o hook só fala com `127.0.0.1` e, na dúvida — QODE Office fora do ar,
   erro, tempo esgotado —, sai sem decidir: vale o terminal. O comando completo ou o diff só saem do servidor para
   quem abriu a página pelo próprio computador. "Sempre permitir" só aplica uma regra que o próprio Claude Code sugeriu
   para aquele pedido. Atenção: qualquer programa ou pessoa que consiga abrir `http://localhost:4747` nesta máquina
@@ -755,13 +755,13 @@ das contas (letra, e-mail, organização) são lidos no host pelo `docker:up` e 
   e o servidor responde `403`. As mudanças exigem JSON e origem local. `HABBLAUD_TERMINAL=0` desliga junto.
 - **Estatísticas do Meu dia:** só números agregados (tempo por status, contagens, tokens, custo) com nomes de projeto,
   conta e agente, guardados em `HABBLAUD_DATA_DIR/stats/` por 30 dias — nada da conversa.
-- **Codex:** o Habblaud lê só as conversas (`sessions/`, `archived_sessions/`) e as travas das sessões abertas
+- **Codex:** o QODE Office lê só as conversas (`sessions/`, `archived_sessions/`) e as travas das sessões abertas
   (`thread-writer-locks/`); no Docker, só essas três pastas são montadas, somente leitura. Nunca lê o `auth.json`, o
   `config.toml`, o ambiente do shell (`shell_snapshots/`), o histórico de prompts, os logs nem os bancos do Codex, e não
   mostra os ids da conta ChatGPT. O `npm run codex:install` só acrescenta grupos no `hooks.json` (com backup; os de
   outros apps ficam no mesmo lugar) e grava `~/.habblaud/codex-hook.json`; a aprovação dos hooks é sempre sua, em
   `/hooks`. Os hooks só falam com `127.0.0.1`. As mensagens ao Codex têm o mesmo aviso das do Claude Code: qualquer
-  programa desta máquina que fale com o Habblaud consegue deixar uma mensagem na fila de uma sessão.
+  programa desta máquina que fale com o QODE Office consegue deixar uma mensagem na fila de uma sessão.
 - **O que aparece na tela:** resumos das atividades (ferramenta, arquivo, comando ou consulta), títulos das sessões,
   tarefas e estatísticas (e, no terminal, a conversa). Não exponha a porta em redes em que você não
   confia.
@@ -795,7 +795,7 @@ No console do navegador, `habblaud.world.debug` tem ferramentas para testar cena
 
 **Timelapse só com dados fictícios** (ex.: para gravar um GIF): `npm run demo:timeline` roda o simulador do modo
 demonstração offline e grava um dia inteiro (por padrão, ontem das 9h às 19h, com manhã cheia, almoço mais vazio e
-pico à tarde) em `<tmp>/habblaud-demo/timeline/`. Depois suba um Habblaud que só leia essa pasta e não mostre as suas
+pico à tarde) em `<tmp>/habblaud-demo/timeline/`. Depois suba um QODE Office que só leia essa pasta e não mostre as suas
 sessões, e abra o Timelapse:
 
 ```bash
@@ -815,7 +815,7 @@ trabalho, anote as mudanças em "Não lançado". Para lançar:
    atualize os links do fim. O `npm test` falha se a versão do `package.json` não tiver seção.
 3. Faça o merge na `main` e rode `npm run release` (precisa do [`gh`](https://cli.github.com/) autenticado; `-- --dry-run`
    só mostra as notas). O script cria a tag `v0.3.0` e a release com o texto da seção. A partir daí, quem usa o
-   Habblaud vê o selo **Nova versão**.
+   QODE Office vê o selo **Nova versão**.
 
 ## Solução de problemas
 
@@ -852,7 +852,7 @@ instalação, rode `/reload-plugins`; o `/plugin` mostra, embaixo das abas, os m
 <details>
 <summary><b>"A porta 4747 já está em uso"</b></summary>
 
-Outro Habblaud (Node ou Docker) já está rodando. Pare-o (`npm run docker:down`, ou Ctrl+C no terminal do
+Outro QODE Office (Node ou Docker) já está rodando. Pare-o (`npm run docker:down`, ou Ctrl+C no terminal do
 `npm start`) ou use outra porta: `HABBLAUD_PORT=4848 npm run docker:up` (Docker) ou `HABBLAUD_PORT=4848 npm start`
 (Node).
 
@@ -871,7 +871,7 @@ para abrir por um nome (ex.: `meu-mac.local`), acrescente `HABBLAUD_ALLOWED_HOST
 <details>
 <summary><b>O terminal não abre</b></summary>
 
-O terminal só existe com o Habblaud acessível apenas pelo próprio computador. Confira se o `.env` não tem
+O terminal só existe com o QODE Office acessível apenas pelo próprio computador. Confira se o `.env` não tem
 `HABBLAUD_BIND=0.0.0.0` (ou, no modo Node, se não usou `HABBLAUD_HOST=0.0.0.0`) nem `HABBLAUD_TERMINAL=0`, e abra por
 `http://localhost:4747` (pelo IP da rede ou por um nome de `HABBLAUD_ALLOWED_HOSTS` ele é recusado). No Docker, um container
 criado antes desse recurso precisa ser recriado: `npm run docker:up`. O log de inicialização (`npm run docker:logs`)
@@ -883,10 +883,10 @@ diz se o terminal está ligado e, se não estiver, por quê.
 <summary><b>O pedido de permissão (ou a pergunta) não aparece no escritório</b></summary>
 
 Rode `npm run mod:status`: ele diz, por conta, se o plugin `habblaud-permissoes` está instalado e ligado (e se
-sobrou o hook antigo junto, o que faria dois responderem) e se o Habblaud está respondendo pedidos. No jeito antigo,
+sobrou o hook antigo junto, o que faria dois responderem) e se o QODE Office está respondendo pedidos. No jeito antigo,
 `npm run hooks:status` diz se o hook está instalado e apontando para esta pasta. O pedido só é desviado com alguma
-página do Habblaud aberta por `http://localhost` (ou `127.0.0.1`) e com o terminal ligado (mesma trava). Sessões
-abertas antes da instalação carregam o plugin com `/reload-plugins` (ou ao reabrir). No jeito antigo, se o Habblaud
+página do QODE Office aberta por `http://localhost` (ou `127.0.0.1`) e com o terminal ligado (mesma trava). Sessões
+abertas antes da instalação carregam o plugin com `/reload-plugins` (ou ao reabrir). No jeito antigo, se o QODE Office
 usa outra porta, reinstale com `npm run hooks:install -- --port <porta>`. Para as perguntas do agente, o plugin
 precisa ser o da 0.6.0 ou mais novo: rode `npm run mod:install` depois de atualizar.
 
@@ -895,7 +895,7 @@ precisa ser o da 0.6.0 ou mais novo: rode `npm run mod:install` depois de atuali
 <details>
 <summary><b>O Codex não aparece no escritório (ou aparece com atraso)</b></summary>
 
-O log de inicialização (`npm run docker:logs`) diz quantas contas do Codex o Habblaud achou; se for nenhuma, aponte a
+O log de inicialização (`npm run docker:logs`) diz quantas contas do Codex o QODE Office achou; se for nenhuma, aponte a
 pasta com `HABBLAUD_CODEX_DIRS` (e rode `npm run docker:up` de novo: no Docker, só as pastas que existiam no
 `docker:up` são montadas). Sem os hooks, o Codex aparece pelos arquivos dele, que só são gravados depois de cada passo:
 rode `npm run codex:install`, **aprove os hooks em `/hooks` no Codex** e confira com `npm run codex:status`. O Codex roda
@@ -909,11 +909,11 @@ diz em que pasta ela está (só cria a trava da sessão), e sem a pasta não há
 <summary><b>A caixa de mensagem não aparece (ou fica na fila)</b></summary>
 
 A caixa só aparece para agentes principais cuja sessão tem o plugin `habblaud-mensagens` conectado: rode
-`npm run mod:status` (diz, por conta, se o plugin está instalado e se o Habblaud está com as mensagens ligadas) e, nas
+`npm run mod:status` (diz, por conta, se o plugin está instalado e se o QODE Office está com as mensagens ligadas) e, nas
 sessões abertas antes da instalação, `/reload-plugins`. Sem o plugin, os detalhes do agente mostram a dica de
 instalação. As mensagens seguem a trava do terminal e `HABBLAUD_MENSAGENS=0` as desliga; o log de inicialização
 (`npm run docker:logs`) diz se estão ligadas e, se não estiverem, por quê. Uma mensagem que fica **na fila** e falha
-com "a sessão não buscou a mensagem" quer dizer que a sessão parou de perguntar ao Habblaud (fechou, ou o plugin foi
+com "a sessão não buscou a mensagem" quer dizer que a sessão parou de perguntar ao QODE Office (fechou, ou o plugin foi
 desligado).
 
 </details>
@@ -922,7 +922,7 @@ desligado).
 <summary><b>No Docker, uma sessão fechada continua no escritório</b></summary>
 
 Acontece se o Claude Code foi encerrado à força sem apagar o próprio registro em `sessions/` (no Docker não dá para
-conferir se o processo ainda existe). Rodando com Node (`npm start`), o Habblaud confere os processos e isso não
+conferir se o processo ainda existe). Rodando com Node (`npm start`), o QODE Office confere os processos e isso não
 acontece.
 
 </details>
@@ -945,12 +945,12 @@ O Docker Desktop só compartilha algumas pastas do Mac com os containers (por pa
 
 ## Aviso
 
-O Habblaud é um projeto independente, **não afiliado, patrocinado nem endossado pela Anthropic**. "Claude" e
+O QODE Office é um projeto independente, **não afiliado, patrocinado nem endossado pela Anthropic**. "Claude" e
 "Claude Code" são marcas da Anthropic, usadas aqui só para descrever com o que o projeto funciona.
 
-Para mostrar os agentes, o Habblaud lê apenas arquivos locais que o próprio Claude Code grava na sua máquina
+Para mostrar os agentes, o QODE Office lê apenas arquivos locais que o próprio Claude Code grava na sua máquina
 (registros das sessões abertas, transcripts e configurações das contas). Esse formato não é documentado e pode mudar entre versões do Claude Code:
-depois de uma atualização, o Habblaud pode deixar de funcionar, total ou parcialmente, até ser ajustado.
+depois de uma atualização, o QODE Office pode deixar de funcionar, total ou parcialmente, até ser ajustado.
 
 ## Licença
 
@@ -966,7 +966,7 @@ para uma roda (sozinho, continua na pipoca) e leva a ampulheta junto; quando o c
 um pedido novo para alguém —, ele avisa a turma ("Opa, me chamaram! 🏃") e corre de volta para a mesa.
 
 <p align="center">
-  <img src="docs/screenshots/social-lounge.gif" width="816" alt="Lounge do Habblaud com três rodas ao mesmo tempo: três colegas no sofá vendo futebol na TV (a tela pisca GOL), uma partida de pingue-pongue com torcida e um duelo nos fliperamas com provocações nos balões" />
+  <img src="docs/screenshots/social-lounge.gif" width="816" alt="Lounge do QODE Office com três rodas ao mesmo tempo: três colegas no sofá vendo futebol na TV (a tela pisca GOL), uma partida de pingue-pongue com torcida e um duelo nos fliperamas com provocações nos balões" />
 </p>
 
 ### As rodas
@@ -1028,7 +1028,7 @@ Cada ganho aparece como "+🪙10" sobre a cabeça; as partidas e apostas entram 
 e o extrato ficam salvos no navegador (cada navegador tem a sua economia: as apostas são sorteadas ali) e são
 esquecidos três dias depois de o agente sair.
 
-> Tudo isso é encenação do Habblaud: nada muda nos agentes do Claude Code, que continuam trabalhando normalmente.
+> Tudo isso é encenação do QODE Office: nada muda nos agentes do Claude Code, que continuam trabalhando normalmente.
 
 ---
 

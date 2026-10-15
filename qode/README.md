@@ -1,7 +1,7 @@
 # QODE: uma sala por projeto e Vida OS privado
 
 Personalização do fork QODE (código em `server/qode/`). Ela só liga quando existe o arquivo
-`~/.habblaud/qode.config.json`, ou o arquivo apontado por `HABBLAUD_QODE_CONFIG`. Sem esse arquivo, o Habblaud
+`~/.habblaud/qode.config.json`, ou o arquivo apontado por `HABBLAUD_QODE_CONFIG`. Sem esse arquivo, o QODE Office
 funciona igual ao upstream.
 
 ## O que faz
@@ -88,7 +88,7 @@ ls -d ~/Documents/GitHub/projeto-interiores ~/Documents/GitHub/fantasies-x
 Formato do arquivo:
 
 - `projetos`: lista com `nome` (até 40 caracteres), `caminhos` (absolutos ou começando com `~/`) e, opcionalmente,
-  `privado` (true/false) e `nota` (texto livre, que o Habblaud ignora).
+  `privado` (true/false) e `nota` (texto livre, que o QODE Office ignora).
 - Chaves começando com `_` ou `$` são comentários.
 
 Se um caminho cair em mais de um projeto, o privado ganha.
@@ -122,9 +122,14 @@ Se um caminho cair em mais de um projeto, o privado ganha.
 - O servidor ainda **lê** os transcripts do Vida OS em memória, porque é assim que ele sabe o estado. O que este PR
   garante é que esse conteúdo não **sai**: nem para a tela, nem para a API, nem para o disco, nem para os logs.
 - O agente só vira privado quando o caminho privado aparece no que ele faz. **Não** são detectados:
+  - **Limitação explícita desta POC (follow-up):** caminhos relativos, `cd`/`pushd` seguidos de caminho relativo,
+    `git -C <dir>`/`make -C <dir>` com diretório relativo e variáveis de shell (exceto `HOME`) **não** são resolvidos
+    contra o `cwd` do agente, e por isso não contaminam. Exemplos: `cd ../priv && cat .env`, `git -C ../priv log -p`,
+    `D=~/GitHub; cat $D/priv/.env`, `pushd ../priv`, `~+/../priv`.
   - caminho relativo a partir de outra pasta (ex.: `cat ../../Documents/Vida/x` ou `cd Documents; cat Vida/x`);
   - variáveis que não sejam `HOME` (ex.: `D=~/Documents; cat $D/Vida/x`);
-  - globs genéricos de uma pasta acima (ex.: `ls ~/Documents/*`, `grep -r x ~/Documents`);
+  - busca recursiva a partir de uma pasta acima sem glob (ex.: `grep -r x ~/Documents`); globs como `ls ~/Documents/*`,
+    `{a,b}`, `(a|b)` e extglob `@( )` agora contam como privados quando podem casar com a pasta privada;
   - conteúdo do Vida OS que chega sem caminho (colado no prompt, por exemplo);
   - o que o agente já mostrou antes de citar o caminho: a contaminação vale dali em diante.
 - O histórico de sessões esconde as sessões cujo projeto, título ou agente aberto é privado, e as sessões sem projeto
@@ -139,4 +144,4 @@ Se um caminho cair em mais de um projeto, o privado ganha.
   OpenCode/Cursor como integrados.
 - **Matriz canário (Q4):** `server/qode/canary-matrix.test.ts` usa o sentinela `QODE_CANARY_PRIVATE_48H` em fixtures
   sintéticas. Gaps (relativo, variável ≠ HOME, paste sem path) estão reproduzidos à parte — não estão corrigidos.
-- Fora deste ciclo: adaptador OpenCode/Cursor e Docker. O Habblaud roda direto no Node.
+- Fora deste ciclo: adaptador OpenCode/Cursor e Docker. O QODE Office roda direto no Node.

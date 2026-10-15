@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
-// Cliente do Habblaud. Em `npm run dev` o servidor usa este config em middleware mode;
+// Cliente do QODE Office. Em `npm run dev` o servidor usa este config em middleware mode;
 // `npm run dev:client` sobe só o Vite (use ?mock=1 para dados simulados no navegador).
 export default defineConfig({
   root: r('./client'),

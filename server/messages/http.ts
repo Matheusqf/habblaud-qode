@@ -81,6 +81,6 @@ export function createMessageRoutes(registry: MessageRegistry): (req: IncomingMe
     }
     const msg = registry.get(id);
     if (msg) sendJson(res, 200, msg);
-    else sendJson(res, 404, { error: 'mensagem desconhecida: ela já foi resolvida há mais de 10 min ou o Habblaud reiniciou' });
+    else sendJson(res, 404, { error: 'mensagem desconhecida: ela já foi resolvida há mais de 10 min ou o QODE Office reiniciou' });
   };
 }

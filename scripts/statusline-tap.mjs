@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Tap de statusline do Habblaud: captura o uso do plano (5h e semanal) SEM ler credenciais.
+// Tap de statusline do QODE Office: captura o uso do plano (5h e semanal) SEM ler credenciais.
 //
 // O Claude Code envia ao comando de statusline, pelo stdin, um JSON com `rate_limits`
 // ({five_hour:{used_percentage, resets_at}, seven_day:{...}}, resets_at em segundos). Este script
@@ -15,7 +15,7 @@
 //    Sem comando original, não imprime nada.
 //
 // Regras: Node puro e sem dependências; qualquer falha na captura é ignorada em silêncio — o
-// statusline nunca pode quebrar nem ficar lento por causa do Habblaud. Instalação automática
+// statusline nunca pode quebrar nem ficar lento por causa do QODE Office. Instalação automática
 // (com backup do settings.json): npm run usage:install.
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';

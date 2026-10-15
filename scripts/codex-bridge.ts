@@ -1,12 +1,12 @@
-// Auxiliar do Habblaud para as mensagens ao Codex quando o Habblaud roda no Docker. Roda no HOST (Mac), com tsx:
+// Auxiliar do QODE Office para as mensagens ao Codex quando o QODE Office roda no Docker. Roda no HOST (Mac), com tsx:
 //
 //   npm run codex:bridge     (opções: --port <n>, --once)
 //
 // As mensagens ao Codex entram na sessão por `codex queue --thread <threadId> --message <texto>`, que precisa rodar no
 // Mac (é aqui que estão o Codex e as pastas das contas); no Docker o servidor não alcança o binário. Este processo, a
-// cada 2 s, pergunta ao Habblaud se há mensagens para as sessões do Codex (POST /api/codex/bridge/poll), roda o
+// cada 2 s, pergunta ao QODE Office se há mensagens para as sessões do Codex (POST /api/codex/bridge/poll), roda o
 // comando para cada uma, na ordem, com o CODEX_HOME da conta, e confirma o resultado (POST /api/codex/bridge/ack).
-// Enquanto ele roda, o escritório deixa mandar mensagens aos agentes do Codex (o Habblaud o considera presente por até
+// Enquanto ele roda, o escritório deixa mandar mensagens aos agentes do Codex (o QODE Office o considera presente por até
 // 10 s depois da última rodada). Fora do Docker não precisa dele: o próprio servidor roda o comando.
 //
 // Binário: HABBLAUD_CODEX_BIN ou `codex` do PATH. Nunca roda o Codex com -c, --enable, --disable nem --no-daemon, e
@@ -25,10 +25,10 @@ const REQUEST_TIMEOUT_MS = 5_000;
 
 const USAGE = `Uso: npm run codex:bridge [-- opções]
 
-Entrega as mensagens do escritório às sessões do Codex quando o Habblaud roda no Docker (deixe rodando no Mac).
+Entrega as mensagens do escritório às sessões do Codex quando o QODE Office roda no Docker (deixe rodando no Mac).
 
 Opções:
-  --port <n>   porta do Habblaud (padrão: HABBLAUD_PORT ou ${DEFAULT_PORT})
+  --port <n>   porta do QODE Office (padrão: HABBLAUD_PORT ou ${DEFAULT_PORT})
   --once       faz uma rodada só e sai
   -h, --help   mostra esta ajuda
 
@@ -81,7 +81,7 @@ function isDir(p: string): boolean {
 }
 
 /**
- * Confere uma mensagem vinda do Habblaud antes de rodar o comando: id, texto, id de thread (UUID) e uma pasta do
+ * Confere uma mensagem vinda do QODE Office antes de rodar o comando: id, texto, id de thread (UUID) e uma pasta do
  * Codex que existe neste computador (nunca uma do Claude Code). Devolve a mensagem ou o motivo da recusa.
  */
 export function checkMessage(raw: unknown): BridgeMessage | { id?: string; error: string } {
@@ -95,7 +95,7 @@ export function checkMessage(raw: unknown): BridgeMessage | { id?: string; error
   return { id, account: typeof r.account === 'string' ? r.account : '', codexHome: resolve(home), thread: r.thread, text: r.text };
 }
 
-/** POST JSON ao Habblaud local; null = fora do ar, tempo esgotado ou resposta ilegível. */
+/** POST JSON ao QODE Office local; null = fora do ar, tempo esgotado ou resposta ilegível. */
 export type Post = (path: string, body: unknown) => Promise<{ status: number; json: unknown } | null>;
 
 export function httpPost(port: number): Post {
@@ -103,7 +103,7 @@ export function httpPost(port: number): Post {
     try {
       const res = await fetch(`http://127.0.0.1:${port}${path}`, {
         method: 'POST',
-        // O guard do Habblaud exige JSON em todo POST da API (mesmo o corpo vazio da rodada).
+        // O guard do QODE Office exige JSON em todo POST da API (mesmo o corpo vazio da rodada).
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -168,15 +168,15 @@ async function main(): Promise<void> {
   const run = createCodexQueueRunner(bin);
   const post = httpPost(parsed.port);
   const log = (line: string) => console.log(`[codex-bridge] ${line}`);
-  log(`Entregando as mensagens do Habblaud (http://127.0.0.1:${parsed.port}) às sessões do Codex com ${bin}. Ctrl+C para parar.`);
+  log(`Entregando as mensagens do QODE Office (http://127.0.0.1:${parsed.port}) às sessões do Codex com ${bin}. Ctrl+C para parar.`);
   let last = '';
   for (;;) {
     const r = await round(post, run, log);
     const state =
       r.state === 'down'
-        ? `Habblaud fora do ar em http://127.0.0.1:${parsed.port}; tentando de novo a cada ${POLL_MS / 1_000} s.`
+        ? `QODE Office fora do ar em http://127.0.0.1:${parsed.port}; tentando de novo a cada ${POLL_MS / 1_000} s.`
         : r.state === 'refused'
-          ? `o Habblaud recusou (${r.status}${r.error ? `: ${r.error}` : ''}).`
+          ? `o QODE Office recusou (${r.status}${r.error ? `: ${r.error}` : ''}).`
           : 'conectado: os agentes do Codex já recebem mensagens pelo escritório.';
     if (state !== last) log(state);
     last = state;

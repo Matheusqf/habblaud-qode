@@ -522,7 +522,7 @@ export class CodexSource implements AgentSource, CodexLive {
       const path = t.acc.index.find(t.threadId);
       if (!path) {
         if (t.acc.index.isCompressedOnly(t.threadId)) {
-          log.warnOnce('codex-zst', 'Codex: há conversas compactadas (.jsonl.zst) que o Habblaud ainda não lê; elas ficam sem detalhes.');
+          log.warnOnce('codex-zst', 'Codex: há conversas compactadas (.jsonl.zst) que o QODE Office ainda não lê; elas ficam sem detalhes.');
         }
         return;
       }

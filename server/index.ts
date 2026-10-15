@@ -1,4 +1,4 @@
-// Servidor do Habblaud: observa as sessões abertas do Claude Code (todas as contas),
+// Servidor do QODE Office: observa as sessões abertas do Claude Code (todas as contas),
 // mantém o modelo do escritório e transmite via SSE. Sem dependências de runtime.
 //   npm run dev    -> tsx server/index.ts --dev (Vite em middleware mode, HMR no mesmo servidor)
 //   npm start      -> node dist/server/index.js (serve dist/client)
@@ -36,6 +36,8 @@ import { CodexSource } from './sources/codex/source';
 import { createBuildReader } from './build';
 import { setupQode } from './qode';
 import { qodePreflight, qodeRequired } from './qode/preflight';
+import { setupContinuityFixture } from './qode/continuity-reader';
+import { setupTaskRegistry } from './qode/task-registry-reader';
 import { UpdateChecker } from './updates/checker';
 
 const config = loadConfig();
@@ -206,6 +208,8 @@ const api = createApiHandler({
   version: config.version,
   inDocker: config.inDocker,
   health: () => ({ qode: qode.health() }),
+  continuity: setupContinuityFixture(process.env, config.host, config.dataDir),
+  tasks: setupTaskRegistry(process.env, config.host, config.dataDir),
   terminal: config.terminal,
   terminals,
   sessions: history && qode.history(history),
@@ -268,7 +272,7 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 
 server.listen(config.port, config.host, () => {
   const host = config.host === '0.0.0.0' || config.host === '::' ? 'localhost' : config.host;
-  log.info(`🏢 Habblaud ${config.version}${config.dev ? ' (dev)' : ''}${config.inDocker ? ' (docker)' : ''} em http://${host}:${config.port}`);
+  log.info(`🏢 QODE Office ${config.version}${config.dev ? ' (dev)' : ''}${config.inDocker ? ' (docker)' : ''} em http://${host}:${config.port}`);
   const list = accounts.entries();
   if (!list.length) log.warn('Nenhuma pasta do Claude Code encontrada (defina HABBLAUD_CLAUDE_DIRS).');
   for (const dir of codexDirsRefused(process.env, config.home)) {

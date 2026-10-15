@@ -752,7 +752,7 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     const lines: string[] = [];
     vi.spyOn(console, 'warn').mockImplementation((m: string) => void lines.push(m));
     log.warn(`Falha ao ler ${vida(e, 'diario/senhas.md')}`);
-    log.warn('Habblaud em http://127.0.0.1:4747');
+    log.warn('QODE Office em http://127.0.0.1:4747');
     expect(lines[0]).toBe('[habblaud] Falha ao ler [privado]');
     expect(lines[1]).toContain('127.0.0.1:4747');
   });
@@ -872,6 +872,151 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     e.office.addActivity('d', act('d', { kind: 'read', text: SENT, detail: `open file://localhost${enc}/secret.txt` }), true);
     expect(e.qode.privacy!.isPrivate('d')).toBe(true);
     expect(published(e, ['c', 'd'])).not.toContain(SENT);
+  });
+
+  // P1-a (revisão ZikaBOT, msg 1791926986.663469): %XX multi-byte tem de decodificar como UTF-8.
+  it('P1-a: raiz privada Unicode codificada (Priv%C3%A9) casa com o literal (NFC e NFD), em isPrivatePath e mentionsPrivate', () => {
+    const e = setup();
+    const root = join(e.dataDir, 'Privé');
+    mkdirSync(root, { recursive: true });
+    const enc = root.replace('Privé', 'Priv%C3%A9');
+    for (const raiz of [`file://${enc}`, enc, root.replace('Privé', 'Priv\\u00e9')]) {
+      const cfg = parseConfig({ projetos: [{ nome: 'P', privado: true, caminhos: [raiz] }] }, e.home);
+      expect(cfg.invalid).toBeUndefined();
+      expect(isPrivatePath(cfg, `${root}/canary.txt`)).toBe(true);
+      expect(isPrivatePath(cfg, `${root.normalize('NFD')}/canary.txt`)).toBe(true);
+      expect(mentionsPrivate(cfg, `cat ${root}/canary.txt`)).toBe(true);
+      expect(mentionsPrivate(cfg, `open file://${enc}/canary.txt`)).toBe(true);
+      expect(mentionsPrivate(cfg, `open file://${root.replace('Privé', 'Priv%25C3%25A9')}/canary.txt`)).toBe(true);
+      expect(mentionsPrivate(cfg, `cat ${root.replace('Privé', 'Prive%CC%81')}/canary.txt`)).toBe(true);
+    }
+    const lit = parseConfig({ projetos: [{ nome: 'P', privado: true, caminhos: [root] }] }, e.home);
+    expect(isPrivatePath(lit, `${enc}/canary.txt`)).toBe(true);
+    expect(mentionsPrivate(lit, `open file://${enc}/canary.txt`)).toBe(true);
+    // Sequência inválida não lança nem casa por engano; %20 literal continua.
+    expect(() => mentionsPrivate(lit, `cat ${root.replace('Privé', 'Priv%C3%28')}/x`)).not.toThrow();
+    expect(isPrivatePath(lit, join(e.dataDir, 'Priv%FF', 'x'))).toBe(false);
+  });
+
+  // Regressão P1 (revisão ZikaBOT, msg 1791927326.216989): NFC só como forma extra; o caminho físico usa a grafia recebida.
+  it('P1: aliases NFC e NFD distintos (cada um com caminho físico próprio) são resolvidos sem normalizar antes do realpath', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    const pub = join(e.dataDir, 'publico');
+    mkdirSync(pub, { recursive: true });
+    const nfd = join(e.dataDir, 'cafe\u0301');
+    const nfc = join(e.dataDir, 'caf\u00e9');
+    // Só alias NFD -> privado (não existe NFC).
+    symlinkSync(vida(e), nfd);
+    const cfg = () => loadQodeConfig({ HABBLAUD_QODE_CONFIG: e.qode.config!.file } as NodeJS.ProcessEnv, e.dataDir, e.home)!;
+    for (const c of [e.qode.config!, cfg()]) {
+      expect(isPrivatePath(c, `${nfd}/x`)).toBe(true);
+      expect(isPrivatePath(c, `file://${nfd}/x`)).toBe(true);
+      expect(isPrivatePath(c, `file://${nfd.replace('e\u0301', 'e%CC%81')}/x`)).toBe(true);
+      expect(mentionsPrivate(c, `open file://${nfd}/x`)).toBe(true);
+      expect(mentionsPrivate(c, `cat ${nfd}/x`)).toBe(true);
+      expect(mentionsPrivate(c, `open file://${nfd.replace('e\u0301', 'e%CC%81')}/x`)).toBe(true);
+    }
+    // Agora NFC -> público e NFD -> privado: o NFD continua privado; o NFC público não vira privado.
+    symlinkSync(pub, nfc);
+    for (const c of [e.qode.config!, cfg()]) {
+      expect(isPrivatePath(c, `file://${nfd}/x`)).toBe(true);
+      expect(mentionsPrivate(c, `open file://${nfd}/x`)).toBe(true);
+      expect(mentionsPrivate(c, `cat ${nfd.replace('e\u0301', 'e\\u0301')}/x`)).toBe(true);
+      expect(isPrivatePath(c, `file://${nfc}/x`)).toBe(false);
+    }
+    // Inverso (nomes novos, sem trocar symlinks já resolvidos): NFC -> privado, NFD -> público.
+    const nfc2 = join(e.dataDir, 'th\u00e9');
+    const nfd2 = join(e.dataDir, 'the\u0301');
+    symlinkSync(vida(e), nfc2);
+    symlinkSync(pub, nfd2);
+    for (const c of [e.qode.config!, cfg()]) {
+      expect(isPrivatePath(c, `file://${nfc2}/x`)).toBe(true);
+      expect(mentionsPrivate(c, `open file://${nfc2.replace('\u00e9', '%C3%A9')}/x`)).toBe(true);
+      expect(isPrivatePath(c, `file://${nfd2}/x`)).toBe(false);
+    }
+  });
+
+  it('Opus fim a fim: grupos/extglob na atividade contaminam o agente; canário some de snapshot, feed, detail e disco', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    const dir = vida(e).slice(0, vida(e).lastIndexOf('/'));
+    const name = vida(e).slice(dir.length + 1);
+    const forms = [`(${name}|nada)`, `${name.slice(0, 1)}(${name.slice(1, 2)}|z)${name.slice(2)}`, `@(${name})`, `!(nada)`, `+(${name})`, `?(${name})`, `*(${name})`];
+    const ids = forms.map((_, i) => `g${i}`);
+    forms.forEach((f, i) => {
+      main(e, ids[i]!, clinicas(e));
+      e.office.addActivity(ids[i]!, act(ids[i]!, { kind: 'read', text: SENT, detail: `cat ${dir}/${f}/.env` }), true);
+      expect(e.qode.privacy!.isPrivate(ids[i]!)).toBe(true);
+    });
+    // Controle público: grupo dentro de pasta pública não contamina.
+    const pubDir = join(e.home, 'Documents', 'GitHub', 'outro-publico');
+    mkdirSync(pubDir, { recursive: true });
+    main(e, 'pub', pubDir);
+    e.office.addActivity('pub', act('pub', { kind: 'read', text: 'PUBLICO-OK', detail: `cat ${pubDir}/(a|b).txt` }), true);
+    expect(e.qode.privacy!.isPrivate('pub')).toBe(false);
+    const out = published(e, [...ids, 'pub']);
+    expect(out).not.toContain(SENT);
+    expect(out).toContain('PUBLICO-OK');
+  });
+
+  it('aspas + grupos fim a fim: canário some de snapshot, feed, detail e disco; controle público com aspas visível', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    const rel = vida(e).slice(e.home.length + 1);
+    const dir = rel.slice(0, rel.lastIndexOf('/'));
+    const name = rel.slice(dir.length + 1);
+    const forms = [`cat "$HOME"/${dir}/(${name}|nada)/x`, `cat "${e.home}"/${dir}/@(${name})/x`, `cat '${e.home}/${dir}'/!(nada)/x`, `cat ${e.home}/${dir}${'/'.repeat(5000)}(${name}|z)/x`, `cat <$HOME/${dir}/(${name}|nada)/x`, `P=$HOME/${dir}/@(${name})/x`, `true;$HOME/${dir}/(${name}|q)/x`, `cat <"$HOME"/${dir}/(${name}|w)/x`, `cat <${e.home}/${dir}/(${name}|k)/x`];
+    const ids = forms.map((_, i) => `q${i}`);
+    forms.forEach((f, i) => {
+      main(e, ids[i]!, clinicas(e));
+      e.office.addActivity(ids[i]!, act(ids[i]!, { kind: 'read', text: SENT, detail: f }), true);
+      expect(e.qode.privacy!.isPrivate(ids[i]!)).toBe(true);
+    });
+    const pubDir = join(e.home, 'Documents', 'GitHub', 'outro-publico');
+    mkdirSync(pubDir, { recursive: true });
+    main(e, 'pubq', pubDir);
+    e.office.addActivity('pubq', act('pubq', { kind: 'read', text: 'PUBLICO-OK', detail: `cat "${pubDir}"/(a|b).txt` }), true);
+    expect(e.qode.privacy!.isPrivate('pubq')).toBe(false);
+    const out = published(e, [...ids, 'pubq']);
+    expect(out).not.toContain(SENT);
+    expect(out).toContain('PUBLICO-OK');
+  });
+
+  it('P1-a: alias Unicode (symlink %C3%A1lias) para raiz privada é reconhecido codificado; canário some de atividade e transcrição', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    const alias = join(e.dataDir, 'álias');
+    symlinkSync(vida(e), alias);
+    const enc = alias.replace('álias', '%C3%A1lias');
+    expect(isPrivatePath(e.qode.config!, `${enc}/x`)).toBe(true);
+    expect(isPrivatePath(e.qode.config!, `file://${enc}/x`)).toBe(true);
+    expect(mentionsPrivate(e.qode.config!, `open file://${enc}/x`)).toBe(true);
+    main(e, 'c', clinicas(e));
+    e.office.addActivity('c', act('c', { kind: 'read', text: SENT, detail: `open file://${enc}/canary.txt` }), true);
+    expect(e.qode.privacy!.isPrivate('c')).toBe(true);
+    expect(published(e, ['c'])).not.toContain(SENT);
+    const file = join(e.dataDir, 't.jsonl');
+    writeFileSync(file, `${JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: `file://${enc}/canary.txt` } }] } })}\n`);
+    expect(new TranscriptScanner((t) => mentionsPrivate(e.qode.config!, t)).scan(file)).toBe('hit');
+  });
+
+  // P1-b (msg 1791927055.972339): a marca privada fica presa à sessão durante a vida do servidor.
+  it('P1-b: remover o agente A e recriar B com a mesma sessão mantém a sessão privada (snapshot e detalhe sem canário)', () => {
+    const e = setup();
+    mkdirSync(vida(e), { recursive: true });
+    main(e, 'a', clinicas(e), 'S');
+    expect(e.qode.privacy!.sessionPrivate('S')).toBe(false);
+    e.office.addActivity('a', act('a', { kind: 'read', text: 'x', detail: `cat ${vida(e, 'a.md')}` }), true);
+    expect(e.qode.privacy!.isPrivate('a')).toBe(true);
+    expect(e.qode.privacy!.sessionPrivate('S')).toBe(true);
+    e.office.closeMain('a');
+    expect(e.qode.privacy!.sessionPrivate('S')).toBe(true);
+    main(e, 'b', clinicas(e), 'S');
+    expect(e.qode.privacy!.isPrivate('b')).toBe(true);
+    fill(e, 'b');
+    expect(published(e, ['b'])).not.toContain(SENT);
+    expect(JSON.stringify(e.office.detail('b'))).not.toContain(SENT);
   });
 
   it('cwd e config com %20 no alias caem na allowlist (formas crua e decodificada)', () => {
@@ -1056,5 +1201,250 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     const body = JSON.stringify(e.qode.health());
     expect(e.qode.health()).toMatchObject({ config: 'invalida' });
     expect(body.toLowerCase()).not.toMatch(/vida|documents|secret|~\//);
+  });
+});
+
+// Consulta adversarial (DeepSeek v4.1 Flash, 13/10/2026) verificada: F3, F4, F5, F6, F8, F9. Só caminhos sintéticos.
+// Revisão Claude Opus 5.5 (13/10): grupos zsh e extglob do bash; TOKEN_MAX fail-closed. Só caminhos sintéticos.
+describe('revisão Opus 13/10: grupos (a|b), extglob e TOKEN_MAX', () => {
+  function oenv() {
+    const home = join(tempDir().dir, 'u');
+    mkdirSync(join(home, 'GitHub', 'priv'), { recursive: true });
+    mkdirSync(join(home, 'GitHub', 'pub'), { recursive: true });
+    const cfg = parseConfig({ projetos: [{ nome: 'P', privado: true, caminhos: ['~/GitHub/priv'] }] }, home);
+    return { home, g: `${home}/GitHub`, cfg };
+  }
+  it('grupo zsh (priv|nada)', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/(priv|nada)/.env`)).toBe(true);
+  });
+  it('grupo zsh no meio do nome pr(i|x)v', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/pr(i|x)v/.env`)).toBe(true);
+  });
+  it('grupo zsh com ~: ls ~/GitHub/(priv|x)', () => {
+    const { cfg } = oenv();
+    expect(mentionsPrivate(cfg, 'ls ~/GitHub/(priv|x)')).toBe(true);
+  });
+  it('extglob @(priv)', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/@(priv)/.env`)).toBe(true);
+  });
+  it('extglob !(pub)', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/!(pub)/.env`)).toBe(true);
+  });
+  it('extglob +(priv)', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/+(priv)/.env`)).toBe(true);
+  });
+  it('extglob ?(priv)', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/?(priv)/.env`)).toBe(true);
+  });
+  it('extglob *(priv) e grupos aninhados', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/*(priv)/.env`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${g}/((p|q)riv|x)/.env`)).toBe(true);
+  });
+  it('controles públicos: grupo fora da pasta privada e pipe comum continuam públicos', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/pub/(a|b).txt`)).toBe(false);
+    expect(mentionsPrivate(cfg, `cat ${g}/pub/x.txt|grep y`)).toBe(false);
+    expect(mentionsPrivate(cfg, 'echo (nada aqui)')).toBe(false);
+  });
+  // ZikaBOT 1791932644.248449: aspas no meio do fragmento + grupos.
+  it('aspas: "$HOME"/…, "${HOME}"/…, "/abs"/… e \'/abs/x\'/… concatenados com grupo/extglob são privados', () => {
+    const { home, g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, 'cat "$HOME"/GitHub/(priv|x)/x')).toBe(true);
+    expect(mentionsPrivate(cfg, 'cat "${HOME}"/GitHub/!(pub)/x')).toBe(true);
+    expect(mentionsPrivate(cfg, `cat "${home}"/GitHub/(priv|x)/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat '${g}'/@(priv)/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat "${g}/"pr(i|x)v/x`)).toBe(true);
+    // Controles públicos com aspas.
+    expect(mentionsPrivate(cfg, 'cat "$HOME"/GitHub/pub/(a|b).txt')).toBe(false);
+    expect(mentionsPrivate(cfg, `cat "${g}"/pub/@(a).txt`)).toBe(false);
+  });
+  // ZikaBOT 1791932703.393139: padding de barras não pode tirar o grupo da análise.
+  it('padding de "/" acima de TOKEN_MAX com grupo privado é privado; equivalente público continua público', () => {
+    const { g, cfg } = oenv();
+    const pad = '/'.repeat(5000);
+    expect(mentionsPrivate(cfg, `cat ${g}${pad}(priv|x)/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${g}${pad}pr(i|x)v/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${g}/pub${pad}(a|b).txt`)).toBe(false);
+    // Grupo num fragmento que continua longo mesmo colapsado = privado.
+    expect(mentionsPrivate(cfg, `cat ${g}/pub/${'x'.repeat(5000)}(a|b)`)).toBe(true);
+  });
+  // Grok 4.6 (outra família) sobre 5bb3157: grupos colados a operadores; padding; grupo dentro de alias.
+  it('grupo colado a <, >, ;, ~ e VAR= é privado; controles públicos não', () => {
+    const { cfg } = oenv();
+    for (const t of ['cat <$HOME/GitHub/(priv|x)/.env', 'echo x >$HOME/GitHub/(priv|x)/out', 'true;$HOME/GitHub/(priv|x)/.env', 'cat <~/GitHub/(priv|x)/.env', 'P=$HOME/GitHub/(priv|x)/.env', 'a&&cat $HOME/GitHub/@(priv)/x'])
+      expect(mentionsPrivate(cfg, t), t).toBe(true);
+    for (const t of ['cat <$HOME/GitHub/pub/(a|b).txt', 'P=$HOME/GitHub/pub/(a|b)', 'echo x >$HOME/GitHub/pub/@(a)'])
+      expect(mentionsPrivate(cfg, t), t).toBe(false);
+  });
+  it('grupo colado: <"$HOME", </abs, <~, >>, 2>, --opt=, com e sem aspas; controles públicos', () => {
+    const { home, cfg } = oenv();
+    const bases = ['$HOME/GitHub', '"$HOME"/GitHub', '"${HOME}"/GitHub', '~/GitHub', `${home}/GitHub`, `"${home}"/GitHub`, `'${home}/GitHub'`];
+    for (const op of ['cat <', 'echo x >', 'echo x >>', 'cmd 2>', 'P=', 'grep --file=', 'true;'])
+      for (const b of bases) {
+        expect(mentionsPrivate(cfg, `${op}${b}/(priv|x)/.env`), `${op}${b}`).toBe(true);
+        expect(mentionsPrivate(cfg, `${op}${b}/@(priv)/.env`), `${op}${b} @`).toBe(true);
+        expect(mentionsPrivate(cfg, `${op}${b}/pub/(a|b).txt`), `${op}${b} pub`).toBe(false);
+      }
+    // Pipe real continua pipe.
+    expect(mentionsPrivate(cfg, `cat ${home}/GitHub/pub/x.txt|grep y`)).toBe(false);
+  });
+  it('P2 alias: caf* e caf(é|x) casam com o symlink NFD privado; NFC público e nomes Unicode distintos', () => {
+    const home = join(tempDir().dir, 'U');
+    const g = `${home}/GitHub`;
+    mkdirSync(`${g}/priv`, { recursive: true });
+    mkdirSync(`${g}/pub`, { recursive: true });
+    symlinkSync(`${g}/priv`, `${g}/cafe\u0301`);
+    symlinkSync(`${g}/pub`, `${g}/caf\u00e9`);
+    const cfg = parseConfig({ projetos: [{ nome: 'P', privado: true, caminhos: ['~/GitHub/priv'] }] }, home);
+    expect(mentionsPrivate(cfg, `cat ${g}/caf*/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${g}/caf(e\u0301|x)/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${g}/cafe\u0301/x`)).toBe(true);
+    // NFC "café" é outro nome físico (público): a classificação física (isPrivatePath, cwd/sala) distingue.
+    expect(isPrivatePath(cfg, `${g}/caf\u00e9/x`)).toBe(false);
+    // No texto livre, NFC/NFD é forma extra de comparação (eaf2e0c): citar o nome NFC mascara por precaução (fail closed).
+    expect(mentionsPrivate(cfg, `cat ${g}/caf\u00e9/x`)).toBe(true);
+    // Alias público sem homônimo Unicode privado continua público, com glob e grupo.
+    mkdirSync(`${g}/outro`, { recursive: true });
+    symlinkSync(`${g}/pub`, `${g}/bar\u00e9`);
+    const cfg2 = parseConfig({ projetos: [{ nome: 'P', privado: true, caminhos: ['~/GitHub/priv'] }] }, home);
+    expect(mentionsPrivate(cfg2, `cat ${g}/bar(\u00e9|x)/x`)).toBe(false);
+    expect(mentionsPrivate(cfg2, `cat ${g}/bar*/x`)).toBe(false);
+    expect(isPrivatePath(cfg, `${g}/cafe\u0301/x`)).toBe(true);
+  });
+  it('matriz ZikaBOT 1791933110.238959: operadores/atribuições colados, $( ), crase e bash -c', () => {
+    const { home, g: P, cfg } = oenv();
+    const priv = [`cat<${P}/(priv|x)/x`, `cat <${P}/(priv|x)/x`, 'cat<~/GitHub/(priv|x)/x', 'wc -l <$HOME/GitHub/(priv|x)/x', `true&&cat<${P}/@(priv)/x`,
+      `cp x 2>${P}/(priv|x)/y`, `echo $(<${P}/(priv|x)/x)`, `echo \`cat<${P}/(priv|x)/x\``, `bash -c 'cat<${P}/(priv|x)/x'`, `cat<${P}/priv/x`,
+      'cat <$HOME/GitHub/(priv|x)/x', `echo >${P}/(priv|x)/y`, 'P=$HOME/GitHub/(priv|x)/x', 'cat <"$HOME"/GitHub/(priv|x)/x', `cat </${P.slice(1)}/(priv|x)/x`, 'cat <~/GitHub/(priv|x)/x'];
+    const pub = [`cat<${P}/pub/(a|b).txt`, `echo $(<${P}/pub/(a|b).txt)`, `bash -c 'cat<${P}/pub/(a|b).txt'`, `echo \`cat<${P}/pub/(a|b).txt\``];
+    for (const t of priv) expect(mentionsPrivate(cfg, t), t.replace(home, '<h>')).toBe(true);
+    for (const t of pub) expect(mentionsPrivate(cfg, t), t.replace(home, '<h>')).toBe(false);
+  });
+  it('padding de "/" à frente e atrás do caminho com grupo privado é privado', () => {
+    const { home, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${'/'.repeat(5000)}${home.slice(1)}/GitHub/(priv|x)/.env`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/GitHub/(priv|x)/.env${'/'.repeat(5000)}`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${'/'.repeat(5000)}${home.slice(1)}/GitHub/pub/(a|b).txt`)).toBe(false);
+  });
+  it('TOKEN_MAX: token maior que o limite é privado (fail closed)', () => {
+    const { g, cfg } = oenv();
+    expect(mentionsPrivate(cfg, `cat ${g}/pub/${'x/../'.repeat(700)}../priv/.env`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${g}/pub/${'x/../'.repeat(900)}../priv/.env`)).toBe(true);
+  });
+});
+
+describe('consulta adversarial 13/10: bypasses confirmados', () => {
+  function qenv() {
+    const d = tempDir().dir;
+    const home = join(d, 'home', 'u');
+    const priv = join(home, 'priv');
+    const pub = join(home, 'public');
+    mkdirSync(join(priv, 'sub'), { recursive: true });
+    mkdirSync(pub, { recursive: true });
+    mkdirSync(join(home, 'repo-secret'), { recursive: true });
+    const cfg = parseConfig({ projetos: [{ nome: 'P', privado: true, caminhos: [priv] }, { nome: 'Q', caminhos: [pub] }] }, home);
+    const pre = parseConfig({ projetos: [{ nome: 'R', privado: true, caminhos: [`${home}/repo-*`] }] }, home);
+    return { d, home, priv, pub, cfg, pre };
+  }
+
+  // Revisão ZikaBOT (msg 1791928616.227989): ReDoS no glob e intervalos {p..r}.
+  it('glob sem backtracking: padrão "*a"×20+"b" contra raiz aaa…c termina rápido e sem falso positivo', () => {
+    const d = tempDir().dir;
+    const root = join(d, `${'a'.repeat(45)}c`);
+    mkdirSync(root, { recursive: true });
+    const cfg = parseConfig({ projetos: [{ nome: 'P', privado: true, caminhos: [root] }] }, d);
+    const t0 = Date.now();
+    expect(mentionsPrivate(cfg, `cat ${d}/${'*a'.repeat(20)}b/x`)).toBe(false);
+    expect(mentionsPrivate(cfg, `cat ${d}/${'*a'.repeat(200)}*/x`)).toBe(false);
+    expect(Date.now() - t0).toBeLessThan(500);
+    expect(mentionsPrivate(cfg, `cat ${d}/${'*a'.repeat(20)}*c/x`)).toBe(true);
+  });
+
+  it('F3: intervalos {p..r} e expansões não suportadas contam como privadas', () => {
+    const { home, cfg } = qenv();
+    expect(mentionsPrivate(cfg, `cat ${home}/{p..r}riv/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/{a,b}{p..r}riv/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/{1..3}/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/{p,{q,r}}riv/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/{{p,q},r}riv/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/pub{,lic}/x`)).toBe(false);
+  });
+
+  it('F3: brace expansion que chega à raiz privada é privada', () => {
+    const { home, cfg } = qenv();
+    expect(mentionsPrivate(cfg, `cat ${home}/{priv,public}/secret`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/pr{i,x}v/secret`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat "${home}/{public,priv}"/secret`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/{pub,public}/secret`)).toBe(false);
+  });
+
+  it('F4: glob no diretório pai que pode casar com a raiz privada é privado; glob só em pasta pública não', () => {
+    const { d, home, priv, cfg } = qenv();
+    expect(mentionsPrivate(cfg, `cat ${home}/*/secret`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/p*/secret`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/?riv/secret`)).toBe(true);
+    expect(mentionsPrivate(cfg, `cat ${home}/[pq]riv/x`)).toBe(true);
+    expect(mentionsPrivate(cfg, `grep -r x ${home}/**`)).toBe(true);
+    expect(mentionsPrivate(cfg, `ls ${home}/*`)).toBe(true);
+    // Via symlink no pai.
+    const link = join(d, 'homelink');
+    symlinkSync(home, link);
+    expect(mentionsPrivate(cfg, `cat ${link}/*/secret`)).toBe(true);
+    // Públicos continuam públicos.
+    expect(mentionsPrivate(cfg, `cat ${home}/public/*`)).toBe(false);
+    expect(mentionsPrivate(cfg, `cat ${home}/x*/secret`)).toBe(false);
+    expect(mentionsPrivate(cfg, `cat ${priv.replace('priv', 'pub')}*/x`)).toBe(false);
+  });
+
+  it('F5: raiz "repo-*" citada em texto livre (fora de JSON puro) é privada', () => {
+    const { home, pre } = qenv();
+    expect(mentionsPrivate(pre, `result: {"file":"${home}/repo-secret/x"}`)).toBe(true);
+    expect(mentionsPrivate(pre, `{"file":"${home}/repo-secret/x"}`)).toBe(true);
+    expect(mentionsPrivate(pre, `veja ${home}/repo-outra`)).toBe(true);
+    expect(mentionsPrivate(pre, `veja ${home}/public/x`)).toBe(false);
+  });
+
+  it('F9: JSON aninhado fundo (raiz exata e "repo-*") não escapa', () => {
+    const { home, priv, cfg, pre } = qenv();
+    const deep = (p: string) => '['.repeat(20000) + `"${p}/x"` + ']'.repeat(20000);
+    expect(mentionsPrivate(pre, deep(`${home}/repo-secret`))).toBe(true);
+    expect(mentionsPrivate(cfg, deep(priv))).toBe(true);
+  });
+
+  it('F6: feed/aviso de agente ausente nunca classificado como público fica privado; sessão contaminada depois também', () => {
+    const { cfg } = qenv();
+    const ag: Record<string, AgentInfo> = {};
+    const p = new Privacy(cfg, { agent: (id) => ag[id], agents: () => Object.values(ag), changed: () => {} });
+    const item = (agentId: string) => ({ id: 'f', agentId, roomId: 'publico', agentName: 'n', roomName: 'r', activity: { kind: 'read', text: 'X-SENT', detail: 'X-SENT' } }) as never;
+    p.taintSession('S');
+    expect(JSON.stringify(p.feed([item('A')]))).not.toContain('X-SENT');
+    // Público visto enquanto presente continua público depois de sair.
+    ag.M = { id: 'M', kind: 'main', roomId: 'publico', sessionId: 'SM' } as AgentInfo;
+    expect(p.isPrivate('M')).toBe(false);
+    delete ag.M;
+    expect(JSON.stringify(p.feed([item('M')]))).toContain('X-SENT');
+    // ...a não ser que a sessão dele seja contaminada depois.
+    p.taintSession('SM');
+    expect(JSON.stringify(p.feed([item('M')]))).not.toContain('X-SENT');
+  });
+
+  it('F8: subagente privado (órfão) que ganha pai público continua a contaminar os filhos', () => {
+    const { cfg } = qenv();
+    const ag: Record<string, AgentInfo> = {};
+    const p = new Privacy(cfg, { agent: (id) => ag[id], agents: () => Object.values(ag), changed: () => {} });
+    ag.A = { id: 'A', kind: 'sub', roomId: 'publico', sessionId: 'SA' } as AgentInfo;
+    expect(p.isPrivate('A')).toBe(true);
+    ag.M = { id: 'M', kind: 'main', roomId: 'publico', sessionId: 'SM' } as AgentInfo;
+    ag.A = { ...ag.A, parentId: 'M' } as AgentInfo;
+    ag.B = { id: 'B', kind: 'sub', parentId: 'A', roomId: 'publico', sessionId: 'SB' } as AgentInfo;
+    expect(p.isPrivate('B')).toBe(true);
+    expect(p.isPrivate('M')).toBe(false);
   });
 });
