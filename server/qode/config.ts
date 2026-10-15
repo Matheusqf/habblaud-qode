@@ -1411,6 +1411,7 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
   if (text.length > MENTIONS_BYTES_MAX) return true;
   const lower = text.toLowerCase();
   if (cfg.needles.some((n) => lower.includes(n))) return true;
+  if (mentionsPrivateTail(cfg, lower)) return true;
   const shell = shellPathAnalysis(text, cfg.home);
   if (shell.unsafe) return true;
   const tokens = shell.tokens;
@@ -1488,4 +1489,22 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
     }
   }
   return false;
+}
+
+const tailCache = new WeakMap<QodeConfig, RegExp | null>();
+
+/**
+ * B3 (pesquisa sintética): caminho relativo (`../../Documents/Privado/x`) ou via variável (`$D/Privado/x`) não
+ * passa pela resolução absoluta. Fail closed: o nome da pasta privada como segmento de caminho (precedido de `/`
+ * e seguido de `/`, fim, espaço ou pontuação) já contamina. Só nomes com 4+ caracteres, para limitar falsos positivos.
+ */
+export function mentionsPrivateTail(cfg: QodeConfig, lower: string): boolean {
+  let re = tailCache.get(cfg);
+  if (re === undefined) {
+    const bases = [...new Set(cfg.privateRoots.map((r) => posix.basename(r.path).toLowerCase()).filter((b) => b.length >= 4))];
+    const esc = (b: string) => b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    re = bases.length ? new RegExp(`/(?:${bases.map(esc).join('|')})(?=$|[/\\s'"\`;:,)])`) : null;
+    tailCache.set(cfg, re);
+  }
+  return !!re && re.test(lower);
 }
