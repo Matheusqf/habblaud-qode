@@ -63,6 +63,7 @@ const CODEX_HELP: string[] = [
   'Aprovar pelo escritório: no Codex, a aprovação só aparece no terminal depois que você responder aqui ou o prazo acabar (alguns segundos). Não há “não perguntar de novo” nem “interromper”, e recusar pede um motivo.',
   'Mensagens: entram na fila da sessão e viram o próximo prompt quando o Codex terminar o que está fazendo (até ~10 s). Com o QODE Office no Docker, deixe `npm run codex:bridge` rodando; no modo Node funciona sozinho.',
   'Perguntas do Codex são respondidas no próprio Codex.',
+  'OpenCode e Cursor ainda não estão integrados neste fork: não aparecem como fontes live (ver /api/health → qode.capabilities).',
   'Uso: vem dos arquivos de sessão do Codex, sem instalar nada, e só se renova enquanto alguma sessão roda (por isso o cartão mostra a idade, ex.: “há 12 min”). “sem cota” quer dizer sem cota nem créditos para usar agora.',
   'Meu dia: o Codex conta tokens, mas não grava custo.',
 ];

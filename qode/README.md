@@ -107,20 +107,12 @@ Se um caminho cair em mais de um projeto, o privado ganha.
 2. Abra http://localhost:4747 e, num terminal, abra o Claude Code (ou o Codex) em
    `~/Documents/GitHub/singolo` e em uma worktree `~/Documents/GitHub/singolo-<algo>`. Os dois agentes precisam
    aparecer na **mesma sala**, "Singolo".
-3. Abra o Claude Code em `~/Documents/Vida`. A sala aparece como **"Vida OS"**. O agente mostra só o estado (ex.:
-   "Lendo", "Pensando") e nenhum título, tarefa ou caminho. O botão do terminal responde "transcript do agente não
-   encontrado".
-4. Confira o que sai pela API:
-
-   ```bash
-   curl -s localhost:4747/api/snapshot | grep -ci 'documents/vida'     # tem que dar 0
-   curl -s localhost:4747/api/sessions/recent | grep -ci 'vida'        # tem que dar 0
-   grep -ril 'documents/vida' ~/.habblaud/timeline ~/.habblaud/stats   # não pode listar nada
-   ```
-
-5. Num projeto público (ex.: Clínicas), peça ao agente para ler um arquivo **sem importância** de
-   `~/Documents/Vida` pelo caminho absoluto. Na hora, o agente de Clínicas passa a mostrar só o estado, e o terminal
-   dele para de abrir.
+3. **Não** use o Vida OS real nem outro projeto proibido para validar. Siga o ensaio com pasta sintética em
+   [`RUNBOOK.md`](RUNBOOK.md): declare `/tmp/qode-ensaio/privado-sintetico` como privado num config de ensaio e
+   confira que o snapshot e as sessões recentes não citam esse caminho.
+4. (Opcional) Num projeto público, peça ao agente para ler `/tmp/qode-ensaio/privado-sintetico/nota.md`: ele passa a
+   mostrar só o estado e o terminal dele para de abrir.
+5. Para ensaios, prefira `HABBLAUD_QODE_REQUIRED=1` (preflight no servidor; ver `RUNBOOK.md`).
 6. Teste do fail closed: troque `"privado"` por `"privada"` no arquivo e reinicie. O log mostra `inválido … TODOS os
    agentes ficam privados`, as salas viram "Privado xxxx", nenhum agente mostra título e
    `curl -s localhost:4747/api/snapshot | grep -c "$HOME/Documents"` dá 0. Desfaça a troca e reinicie.
@@ -147,4 +139,9 @@ Se um caminho cair em mais de um projeto, o privado ganha.
   comparado por hashes antes de inspecionar os bytes novos. Uma reescrita exige nova varredura; o custo de validar
   cada mudança é proporcional ao tamanho do prefixo. Bytes UTF-8 incompletos bloqueiam até a próxima escrita.
 - Para agentes privados, as estatísticas do "Meu dia" contam a presença, mas não os tokens nem o custo.
-- Fora deste PR: OpenCode (o PR 2 mira a linha 1.x) e Docker. O QODE Office roda direto no Node.
+- **Origem/capacidade (Q3):** `/api/health` → `qode.capabilities` declara Claude/Codex (live|unknown), OpenCode e Cursor
+  como `unavailable` (ainda sem adaptador) e o registro manual como `manual`. Não trate Manual como trabalho live, nem
+  OpenCode/Cursor como integrados.
+- **Matriz canário (Q4):** `server/qode/canary-matrix.test.ts` usa o sentinela `QODE_CANARY_PRIVATE_48H` em fixtures
+  sintéticas. Gaps (relativo, variável ≠ HOME, paste sem path) estão reproduzidos à parte — não estão corrigidos.
+- Fora deste ciclo: adaptador OpenCode/Cursor e Docker. O QODE Office roda direto no Node.

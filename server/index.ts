@@ -35,6 +35,7 @@ import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
 import { createBuildReader } from './build';
 import { setupQode } from './qode';
+import { qodePreflight, qodeRequired } from './qode/preflight';
 import { setupContinuityFixture } from './qode/continuity-reader';
 import { setupTaskRegistry } from './qode/task-registry-reader';
 import { UpdateChecker } from './updates/checker';
@@ -57,6 +58,15 @@ names.load();
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
+// Fork QODE: com HABBLAUD_QODE_REQUIRED=1, recusa iniciar a ingestão se a config/bind não forem seguros.
+if (qodeRequired(process.env)) {
+  const problems = qodePreflight({ env: process.env, dataDir: config.dataDir, home: config.home, host: config.host, inDocker: config.inDocker, allowedHosts: config.allowedHosts });
+  if (problems.length) {
+    log.error(`QODE preflight (HABBLAUD_QODE_REQUIRED=1) recusou iniciar:\n  - ${problems.join('\n  - ')}`);
+    process.exit(1);
+  }
+  log.info('QODE preflight: ok.');
+}
 // Fork QODE (server/qode): uma sala por projeto e privacidade por allowlist, pelo qode.config.json. Sem ele, nada muda.
 const qode = setupQode({ env: process.env, dataDir: config.dataDir, home: config.home, inDocker: config.inDocker, roomAliases, office: () => office });
 

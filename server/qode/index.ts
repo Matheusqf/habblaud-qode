@@ -14,6 +14,7 @@ import type { SessionLookup } from '../sources/source';
 import { createTerminalParser, type TerminalParser } from '../sources/terminal';
 import { isPrivatePath, loadQodeConfig, MENTIONS_BYTES_MAX, opaqueRoomKey, PRIVATE_ROOM_PREFIX, projectOf, type QodeConfig } from './config';
 import { Privacy } from './privacy';
+import { qodeCapabilities, type SourceCapability } from './capabilities';
 
 const SCAN_CHUNK = 1 << 20;
 const SCAN_LINE_MAX = 1 << 20;
@@ -276,6 +277,8 @@ export interface QodeHealth {
   projetos: number;
   privados: number;
   erro?: string;
+  /** Q3: origem/capacidade explícitas (Manual≠live; OpenCode/Cursor=unavailable). */
+  capabilities: SourceCapability[];
 }
 
 export interface QodeSetup {
@@ -329,7 +332,7 @@ export function setupQode(o: QodeOptions): QodeSetup {
     if (o.inDocker) log.warn(`${msg} No Docker, o arquivo precisa estar no volume /data.`);
     else log.info(msg);
     return {
-      health: () => ({ config: 'ausente', projetos: 0, privados: 0 }),
+      health: () => ({ config: 'ausente', projetos: 0, privados: 0, capabilities: qodeCapabilities() }),
       transcriptPathOf: (inner) => inner,
       parserFor: (inner) => inner,
       history: (inner) => inner,
@@ -381,8 +384,8 @@ export function setupQode(o: QodeOptions): QodeSetup {
     privacy,
     health: () =>
       cfg.invalid
-        ? { config: 'invalida', projetos: 0, privados: 0, erro: privacy.redact(cfg.invalid) }
-        : { config: 'ok', projetos: cfg.projects.length, privados },
+        ? { config: 'invalida', projetos: 0, privados: 0, erro: privacy.redact(cfg.invalid), capabilities: qodeCapabilities() }
+        : { config: 'ok', projetos: cfg.projects.length, privados, capabilities: qodeCapabilities() },
     roomOf: (cwd) => {
       if (!cfg.invalid) return projectOf(cfg, cwd)?.roomKey;
       const key = opaqueRoomKey(cfg, cwd);

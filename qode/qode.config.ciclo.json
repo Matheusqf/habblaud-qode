@@ -1,0 +1,17 @@
+{
+  "_leia": "Manifesto de escopo do ciclo QODE Office (Q1). Só os 8 projetos operados viram sala. Todos com \"privado\" explícito (exigido por HABBLAUD_QODE_REQUIRED=1). Critério do ciclo: zero EXPOSIÇÃO na UI/API de projetos proibidos — o servidor ainda lê transcripts em memória para saber o estado; não alegamos zero leitura interna. Projetos fora da lista ainda aparecem como no upstream até o Q0 (decisão do Matheus: fora desta fatia).",
+  "_dependencias": {
+    "dev-flow": "Dependência de ORQUESTRAÇÃO (skills/agentes cross-team), não projeto operado: não vira sala neste manifesto. Snapshot só-leitura; fixar SHA no runbook."
+  },
+  "_proibidos": "UBOTS, Wellhub e Vida OS não entram neste ciclo e não devem ser usados em ensaios (usar fixtures sintéticas).",
+  "projetos": [
+    { "nome": "Atelier Lisboa", "privado": false, "caminhos": ["~/Documents/GitHub/projeto-interiores", "~/Documents/GitHub/projeto-interiores-*"] },
+    { "nome": "fantasies-x", "privado": false, "caminhos": ["~/Documents/GitHub/fantasies-x", "~/Documents/GitHub/fantasies-x-*"] },
+    { "nome": "monitor-imobiliario", "privado": false, "caminhos": ["~/Documents/GitHub/monitor-imobiliario", "~/Documents/GitHub/monitor-imobiliario-*"] },
+    { "nome": "Singolo", "privado": false, "caminhos": ["~/Documents/GitHub/singolo", "~/Documents/GitHub/singolo-*"] },
+    { "nome": "WorkToDo", "privado": false, "caminhos": ["~/worktodo"] },
+    { "nome": "Clínicas", "privado": false, "caminhos": ["~/Documents/GitHub/clinicas"] },
+    { "nome": "portfolio", "privado": false, "caminhos": ["~/Documents/GitHub/portfolio"], "nota": "caminho a confirmar (não encontrado no Mac em 2026-10-16)" },
+    { "nome": "CoRaSy", "privado": false, "caminhos": ["~/Documents/GitHub/CoRaSy", "~/Documents/GitHub/CoRaSy-*"], "nota": "baixa prioridade neste ciclo" }
+  ]
+}
