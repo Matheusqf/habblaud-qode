@@ -27,3 +27,8 @@ Sem interface pública oficial de listagem/status: **observação automática in
 
 ## Codex cloud (fatia 3)
 `codex cloud list --json --limit 20` via execFile (sem shell), timeout 15 s, saída ≤ 512 KB, stderr não ecoado. Usa a sessão já existente do CLI; o Office nunca lê `~/.codex/auth.json`. Projeto = mapeamento explícito `HABBLAUD_CLOUD_CODEX_ENVS=env_id=dono/repo,...` (environment_label NÃO é usado; sem mapa → nada passa), depois allowlist. Pagina com `--cursor` (teto 10 → inventário parcial, ausência ≠ encerramento). `HABBLAUD_CLOUD_CODEX_VERSION` = saída exata de `codex --version`. PENDING/QUEUED = unknown (não trabalha). Cobertura cloud novo vs Legacy por validar.
+
+### Formato real validado (codex-cli 0.162.0-alpha.17.2, 16/10/2026)
+`codex cloud list --json --limit 20` nesta VM devolve `{"tasks": [], "cursor": null}` (conta sem tarefas cloud): o envelope `tasks`/`cursor` está confirmado; os campos de cada tarefa (`id`, `url`, `status`, `updated_at`, `environment_id`, …) seguem os nomes presentes no binário mas **não foram observados com dados reais**. Os fixtures são sintéticos e marcados como tal.
+- `environment_id` null/ausente/não mapeado → tarefa descartada (falha fechada), mesmo que o label coincida.
+- Alternativa se `environment_id` vier sempre null: uma chamada `codex cloud list --json --env <ENV_ID>` por ambiente permitido (ids obtidos no painel Codex), atribuindo o projeto pelo ambiente consultado — não implementado até haver dados reais.
