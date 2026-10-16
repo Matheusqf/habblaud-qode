@@ -11,6 +11,11 @@ export interface CloudCollector {
   poll(now: number): Promise<CloudObservation[]>;
   /** true = a última consulta foi parcial (teto de páginas/limite): ausência NÃO significa encerramento. */
   readonly lastPartial?: boolean;
+  /**
+   * Ids nativos que vieram na listagem mas foram excluídos por JANELA (ex. IDLE > 24 h): filtro visual, não término.
+   * Não contam como ausência num inventário completo.
+   */
+  readonly lastWindowExcluded?: ReadonlySet<string>;
 }
 
 /** O pedaço do Office que a fonte usa (facilita testes). */
@@ -103,28 +108,34 @@ export class CloudSource {
       this.busy.add(s);
       try {
         const list = await s.c.poll(now);
+        // Relógio PÓS-await: a consulta pode demorar minutos; TTL, nextAt e backoff contam a partir do fim.
+        const done = this.now();
+        for (const o of list) o.expiresAt = done + Math.max(0, o.expiresAt - now);
         // Inventário completo SEM corte (o teto MAX_AGENTS é só visual, aplicado no reconcile).
         const next = new Map(list.map((o) => [o.id, o]));
         s.complete = !s.c.lastPartial;
         // Parcial: quem não veio continua com a observação anterior (vence pelo TTL → stale), nunca fecha.
         if (!s.complete) for (const [id, o] of s.seen) if (!next.has(id)) next.set(id, o);
+        // Excluído por janela: mantém a última observação (envelhece para stale), nunca fecha por isso.
+        const win = s.c.lastWindowExcluded;
+        if (win) for (const id of win) if (!next.has(id) && s.seen.has(id)) next.set(id, s.seen.get(id)!);
         s.seen = next;
         s.failures = 0;
         s.lastOk = now;
         delete s.error;
-        s.nextAt = now + (this.deps.pollMs ?? POLL_MS);
+        s.nextAt = done + (this.deps.pollMs ?? POLL_MS);
       } catch {
         s.failures++;
         // Mensagem genérica: nunca ecoar corpo/headers de resposta (podem conter dados ou tokens).
         s.error = `coletor indisponível (${s.failures}x)`;
-        s.nextAt = now + Math.min(MAX_BACKOFF_MS, POLL_MS * 2 ** Math.min(s.failures, 6));
+        s.nextAt = this.now() + Math.min(MAX_BACKOFF_MS, POLL_MS * 2 ** Math.min(s.failures, 6));
         // Só provedor + categoria controlada: nunca o texto do erro (pode trazer corpo, headers ou tokens).
         log.warnOnce(`cloud:${s.c.provider}:${s.failures > 1}`, `Cloud ${s.c.provider}: coletor indisponível (categoria=poll_failed, falhas=${s.failures}).`);
       } finally {
         this.busy.delete(s);
       }
     }
-    this.reconcile(now);
+    this.reconcile(this.now());
   }
 
   private reconcile(now: number): void {

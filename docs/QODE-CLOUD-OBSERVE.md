@@ -32,3 +32,13 @@ Sem interface pública oficial de listagem/status: **observação automática in
 `codex cloud list --json --limit 20` nesta VM devolve `{"tasks": [], "cursor": null}` (conta sem tarefas cloud): o envelope `tasks`/`cursor` está confirmado; os campos de cada tarefa (`id`, `url`, `status`, `updated_at`, `environment_id`, …) seguem os nomes presentes no binário mas **não foram observados com dados reais**. Os fixtures são sintéticos e marcados como tal.
 - `environment_id` null/ausente/não mapeado → tarefa descartada (falha fechada), mesmo que o label coincida.
 - Alternativa se `environment_id` vier sempre null: uma chamada `codex cloud list --json --env <ENV_ID>` por ambiente permitido (ids obtidos no painel Codex), atribuindo o projeto pelo ambiente consultado — não implementado até haver dados reais.
+## Cursor — estados e janela (review ZikaBOT 16/10)
+- Agente `ACTIVE` não é execução: o coletor lê só o `status` do run `latestRunId` (`GET /v1/agents/{id}/runs/{runId}`); `RUNNING` → running; `CREATING`/outros → unknown; run terminal → IDLE (o agente continua).
+- Multirepo: o agente só passa se **todos** os `repos` estiverem na allowlist.
+- IDLE > 24 h sai do inventário por janela (`lastWindowExcluded`): filtro visual, **não** término — não fecha agentes já na sala.
+- TTL/nextAt/backoff contam a partir do fim da consulta (relógio pós-await).
+
+## Codex — pin e paginação (review ZikaBOT 16/10)
+- `HABBLAUD_CLOUD_CODEX_VERSION` é **obrigatório**: sem ele o coletor não liga; `codex --version` é verificado em **cada** execução e qualquer divergência falha fechada.
+- `cursor: null` = fim (inventário completo). Cursor ausente (campo em falta) ou com formato inválido = inventário **parcial** (não fecha ninguém).
+- Uma saída vazia (`{"tasks":[],"cursor":null}`) confirma só o envelope; **não** comprova a forma das tarefas reais.
