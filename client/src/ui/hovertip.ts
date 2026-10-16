@@ -1,6 +1,6 @@
 // Dica flutuante do personagem sob o cursor: acompanha o personagem quadro a quadro.
 import type { UiComponent, UiContext } from './context';
-import { h, setHidden, setText, setVariant } from './dom';
+import { h, setHidden, setText, setTitle, setVariant } from './dom';
 import { formatDuration } from './format';
 import { shellStage, shellWaitIn, statusLabel } from './model';
 import { providerOf } from './provider';
@@ -89,6 +89,7 @@ export class HoverTip implements UiComponent {
       return;
     }
     setText(this.name, a.name);
+    setTitle(this.name, (a as { realName?: string }).realName ? `${(a as { realName?: string }).realName} · ${a.id}` : a.id);
     updateAccountChip(this.chip, this.ctx.account(a.account), a.account, a.provider);
     updateProviderTag(this.prov, providerOf(a));
     // Esperando um shell: o que ele espera (com o tempo correndo) e o que anda fazendo enquanto isso.
