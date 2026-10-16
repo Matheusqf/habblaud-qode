@@ -1,8 +1,10 @@
 // Fork QODE (Q3): origem e capacidade explícitas das fontes.
 // Manual continua Manual; OpenCode/Cursor ficam "unavailable" até existir adaptador;
 // fonte ligada com erro fica "unknown" (não aparenta live).
+// B1: floating-flow = coordenador único (observe); QODE não despacha.
 // B2: ops-room = 1 bot OpenCode proposto; sempre unavailable neste stub (sem API live).
 import type { SourceInfo } from '../../shared/types';
+import { qodeOrchestrateStatus, type OrchestrateStatus } from './orchestrate-status';
 import { qodeOpsRoomStatus, type OpsRoomStatus } from './ops-room-status';
 
 /** Origem declarada: o que a UI/health pode alegar sem mentir. */
@@ -17,6 +19,7 @@ export type CapabilitySourceId =
   | 'opencode'
   | 'cursor'
   | 'manual-registry'
+  | 'floating-flow'
   | 'ops-room';
 
 export interface SourceCapability {
@@ -29,6 +32,7 @@ export interface SourceCapability {
 
 const CLAUDE_CAPS: readonly CapabilityKind[] = ['observe', 'message', 'approve', 'history'];
 const CODEX_CAPS: readonly CapabilityKind[] = ['observe', 'message', 'approve', 'history'];
+const FLOW_OBSERVE: readonly CapabilityKind[] = ['observe'];
 
 function connectedOrigin(sources: readonly SourceInfo[] | undefined, provider: 'claude' | 'codex'): CapabilityOrigin {
   if (!sources || sources.length === 0) return 'unknown';
@@ -37,6 +41,27 @@ function connectedOrigin(sources: readonly SourceInfo[] | undefined, provider: '
   // Qualquer conta ok = live; só erros = unknown (não vender como live).
   if (mine.some((s) => s.ok)) return 'live';
   return 'unknown';
+}
+
+/** Capability do coordenador: never live (sem adapter de sessão no QODE). */
+export function floatingFlowCapability(status: OrchestrateStatus): SourceCapability {
+  // observe só com ready (configured && artifactsPresent). Sem root no DTO.
+  if (!status.ready) {
+    return {
+      id: 'floating-flow',
+      label: 'floating-flow (dev-flow)',
+      origin: status.configured ? 'unknown' : 'unavailable',
+      capabilities: [],
+      note: status.note,
+    };
+  }
+  return {
+    id: 'floating-flow',
+    label: 'floating-flow (dev-flow)',
+    origin: 'manual',
+    capabilities: FLOW_OBSERVE,
+    note: status.note,
+  };
 }
 
 /** Capability da ops room: never live neste stub. */
@@ -50,12 +75,31 @@ export function opsRoomCapability(status: OpsRoomStatus = qodeOpsRoomStatus()): 
   };
 }
 
+export interface QodeCapabilitiesOptions {
+  connected?: readonly SourceInfo[];
+  /** Quando omitido, floating-flow fica unavailable (sem fingir ready). */
+  orchestrate?: OrchestrateStatus;
+}
+
 /**
  * Catálogo estático + estado das fontes ligadas.
  * OpenCode e Cursor NÃO entram como live enquanto não houver adaptador em server/sources/.
+ * floating-flow NUNCA é live neste ciclo (só observe via artefactos em disco).
  * ops-room NUNCA é live neste ciclo (API unavailable; ver docs/qode-b2-ops-room.md).
  */
-export function qodeCapabilities(connected?: readonly SourceInfo[]): SourceCapability[] {
+export function qodeCapabilities(opts: QodeCapabilitiesOptions = {}): SourceCapability[] {
+  const connected = opts.connected;
+  const flow =
+    opts.orchestrate ??
+    ({
+      coordinator: 'floating-flow',
+      role: 'observe-only',
+      ready: false,
+      configured: false,
+      artifactsPresent: false,
+      note: 'status não passado; trate como unavailable',
+    } satisfies OrchestrateStatus);
+
   return [
     {
       id: 'claude',
@@ -91,15 +135,30 @@ export function qodeCapabilities(connected?: readonly SourceInfo[]): SourceCapab
       capabilities: [],
       note: 'tarefas/entradas manuais não são trabalho live',
     },
+    floatingFlowCapability(flow),
     opsRoomCapability(),
   ];
+}
+
+/** Helper de teste/produção: capabilities + status a partir de env/home. */
+export function qodeCapabilitiesWithEnv(
+  env: NodeJS.ProcessEnv,
+  home: string,
+  connected?: readonly SourceInfo[],
+): { capabilities: SourceCapability[]; orchestrate: OrchestrateStatus } {
+  const orchestrate = qodeOrchestrateStatus(env, home);
+  return { capabilities: qodeCapabilities({ connected, orchestrate }), orchestrate };
 }
 
 /** True se alguma entrada alega live sem estar no catálogo de fontes ligadas comprovadas. */
 export function hasMisleadingLive(caps: readonly SourceCapability[]): boolean {
   return caps.some(
     (c) =>
-      (c.id === 'opencode' || c.id === 'cursor' || c.id === 'manual-registry' || c.id === 'ops-room') &&
+      (c.id === 'opencode' ||
+        c.id === 'cursor' ||
+        c.id === 'manual-registry' ||
+        c.id === 'floating-flow' ||
+        c.id === 'ops-room') &&
       c.origin === 'live',
   );
 }
