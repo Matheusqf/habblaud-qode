@@ -218,6 +218,9 @@ export class OpenCodeSource implements AgentSource {
           privacyTexts: [canonical(session.directory) ?? session.directory],
         });
       }
+      // A CADA leitura (não só na criação): filha que muda de pasta com o mesmo id é reclassificada antes de publicar.
+      // Contaminação é pegajosa: privado → público continua privado (lado seguro).
+      office.observePrivacy(key, [canonical(session.directory) ?? session.directory]);
       const summary: TranscriptSummary = {
         tasks: [],
         stats: { toolCalls: 0, tokensIn: session.tokensIn, tokensOut: session.tokensOut, costUSD: session.costUSD, subagents: 0 },
