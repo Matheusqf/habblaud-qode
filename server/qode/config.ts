@@ -1484,8 +1484,28 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
         bytes += s.length;
         if (bytes > MENTIONS_BYTES_MAX) return true;
       }
-      return inner.some((s) => mentionsPrivate(cfg, s, depth + 1));
+      if (inner.some((s) => mentionsPrivate(cfg, s, depth + 1))) return true;
     }
   }
-  return false;
+  // B3/Zika: tail (segmento de nome) só DEPOIS de todos os caminhos de aprendizado (tokens, prosa multi-palavra,
+  // JSON), para isPrivateToken continuar a aprender privateAliases mesmo quando o tail também casaria.
+  return mentionsPrivateTail(cfg, lower);
+}
+
+const tailCache = new WeakMap<QodeConfig, RegExp | null>();
+
+/**
+ * B3 (pesquisa sintética): caminho relativo (`../../Documents/Privado/x`) ou via variável (`$D/Privado/x`) não
+ * passa pela resolução absoluta. Fail closed: o nome da pasta privada como segmento de caminho (precedido de `/`
+ * e seguido de `/`, fim, espaço ou pontuação) já contamina. Só nomes com 4+ caracteres, para limitar falsos positivos.
+ */
+export function mentionsPrivateTail(cfg: QodeConfig, lower: string): boolean {
+  let re = tailCache.get(cfg);
+  if (re === undefined) {
+    const bases = [...new Set(cfg.privateRoots.map((r) => posix.basename(r.path).toLowerCase()).filter((b) => b.length >= 4))];
+    const esc = (b: string) => b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    re = bases.length ? new RegExp(`/(?:${bases.map(esc).join('|')})(?=$|[/\\s'"\`;:,)])`) : null;
+    tailCache.set(cfg, re);
+  }
+  return !!re && re.test(lower);
 }
