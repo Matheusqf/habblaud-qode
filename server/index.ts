@@ -11,6 +11,7 @@ import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard } from './http/guard';
 import { authEnabled, createAuth, loadAuthFile, remoteEnabled } from './http/auth';
 import { securityPreflight } from './http/security-preflight';
+import { createReadOnlyRouter, loadRemoteRoConfig, remoteRoPreflight, RO_HOST } from './http/remote-ro';
 import { Hub } from './http/sse';
 import { createStaticHandler } from './http/static';
 import { TerminalStreams } from './http/terminal';
@@ -41,6 +42,9 @@ import { qodePreflight, qodeRequired } from './qode/preflight';
 import { setupContinuityFixture } from './qode/continuity-reader';
 import { setupTaskRegistry } from './qode/task-registry-reader';
 import { UpdateChecker } from './updates/checker';
+import { loadCloudConfig } from './cloud/contract';
+import { buildCloudCollectors } from './cloud/collectors';
+import { CloudSource } from './cloud/source';
 
 const config = loadConfig();
 const startedAt = Date.now();
@@ -130,6 +134,13 @@ const agents = new SourceSet([claude]);
 const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
 const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;
 if (codex) agents.add(codex);
+// Agentes cloud (server/cloud): observe-only, desligado por padrão (HABBLAUD_CLOUD=1 + allowlist HABBLAUD_CLOUD_PROJECTS).
+const cloudConfig = loadCloudConfig(process.env);
+if (cloudConfig.enabled) {
+  const collectors = buildCloudCollectors(cloudConfig, process.env);
+  if (!cloudConfig.projects.size) log.warn('Cloud: HABBLAUD_CLOUD=1 sem HABBLAUD_CLOUD_PROJECTS: nada será mostrado.');
+  agents.add(new CloudSource({ office, collectors }));
+}
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.
 const codexLive: CodexLive | undefined = codex;
@@ -293,6 +304,47 @@ server.on('request', (req, res) => {
     else res.destroy();
   }
 });
+
+// Entrada remota só-leitura (fatia 4): desligada por padrão; porta própria SEMPRE em 127.0.0.1 (para um proxy
+// privado como Tailscale Serve à frente — nunca Funnel/0.0.0.0). Ver docs/QODE-REMOTE-RO.md.
+const roConfig = loadRemoteRoConfig(process.env);
+{
+  const problems = remoteRoPreflight({ env: process.env, dev: config.dev, demo: config.demo, host: config.host });
+  if (problems.length) {
+    log.error(`Preflight da entrada só-leitura recusou iniciar:\n  - ${problems.join('\n  - ')}`);
+    process.exit(1);
+  }
+}
+if (roConfig.enabled && roConfig.port) {
+  let roGeneration = loadAuthFile(config.dataDir)?.generation;
+  const ro = createReadOnlyRouter({
+    password: () => loadAuthFile(config.dataDir)?.password,
+    inner: (req, res, url) => {
+      if (!api(req, res, url)) fallback(req, res, url);
+    },
+    expectedOrigin: process.env.HABBLAUD_REMOTE_RO_ORIGIN?.trim() || undefined,
+    secureCookie: true,
+  });
+  // Senha trocada (auth:set-password) = revoga sessões e fecha streams abertos.
+  setInterval(() => {
+    const g = loadAuthFile(config.dataDir)?.generation;
+    if (g !== roGeneration) {
+      roGeneration = g;
+      ro.revokeAll();
+    }
+  }, 5_000).unref();
+  process.on('SIGUSR2', () => ro.revokeAll());
+  const roServer = http.createServer((req, res) => {
+    try {
+      ro.handle(req, res);
+    } catch (err) {
+      log.warn(`Entrada só-leitura: erro (${errMsg(err)}).`);
+      if (!res.headersSent) sendJson(res, 500, { error: 'erro interno' });
+      else res.destroy();
+    }
+  });
+  roServer.listen(roConfig.port, RO_HOST, () => log.info(`   Entrada só-leitura: http://${RO_HOST}:${roConfig.port} (atrás de proxy privado; sem Funnel).`));
+}
 
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') log.error(`A porta ${config.port} já está em uso (defina HABBLAUD_PORT para usar outra).`);

@@ -364,6 +364,17 @@ export class Office {
     this.markDirty();
   }
 
+  /** Metadados de agente cloud (contrato server/cloud): estado preservado (stale/unknown) e papel legível. */
+  setCloudMeta(id: string, meta: NonNullable<AgentInfo['cloud']>, role: string): void {
+    const rec = this.agents.get(id);
+    if (!rec) return;
+    const cur = rec.info.cloud;
+    if (cur && cur.state === meta.state && cur.nativeState === meta.nativeState && cur.updatedAt === meta.updatedAt && cur.link === meta.link && rec.info.role === role) return;
+    rec.info.cloud = { ...meta };
+    rec.info.role = role;
+    this.markDirty();
+  }
+
   /** Mesmo processo, sessão nova (/clear, /resume): o personagem continua, tarefas e números zeram. */
   switchSession(id: string, sessionId: string): void {
     const rec = this.agents.get(id);
