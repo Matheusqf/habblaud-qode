@@ -6,12 +6,13 @@ import { FIX_NOW } from './fixtures';
 import { CloudSource, officeId, type CloudOffice } from './source';
 
 function fakeOffice() {
-  const agents = new Map<string, MainInput & { status: string }>();
+  const agents = new Map<string, MainInput & { status: string; cloud?: { state: string } }>();
   const office: CloudOffice = {
     addMain: (p) => void agents.set(p.id, { ...p }),
     setStatus: (id, s) => void (agents.get(id) && (agents.get(id)!.status = s)),
     closeMain: (id) => void agents.delete(id),
     has: (id) => agents.has(id),
+    setCloudMeta: (id, meta, role) => void (agents.get(id) && Object.assign(agents.get(id)!, { cloud: meta, role })),
   };
   return { office, agents };
 }
@@ -69,5 +70,50 @@ describe('CloudSource', () => {
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.join('\n')).not.toMatch(/SECRET|token=|HTTP 500/);
     expect(lines.join('\n')).toMatch(/categoria=poll_failed/);
+  });
+  it('stale/unknown chegam à UI como estado próprio (não viram idle no cloud.state)', async () => {
+    const { office, agents } = fakeOffice();
+    const unk = sanitize('cursor', { id: 'bc-aaaaaa09', project: 'matheusqf/habblaud-qode', nativeState: 'NOVO_ESTADO', updatedAt: FIX_NOW }, cfg, FIX_NOW)!;
+    let now = FIX_NOW;
+    let fail = false;
+    const s = new CloudSource({ office, collectors: [{ provider: 'cursor', poll: async () => { if (fail) throw new Error('x'); return [obs('bc-aaaaaa01', 'ACTIVE'), unk]; } }], now: () => now });
+    await s.tick();
+    expect(agents.get('cloud:cursor:bc-aaaaaa09')?.cloud?.state).toBe('unknown');
+    expect(agents.get('cloud:cursor:bc-aaaaaa01')?.cloud?.state).toBe('running');
+    fail = true;
+    now += 200_000;
+    await s.tick();
+    expect(agents.get('cloud:cursor:bc-aaaaaa01')?.cloud?.state).toBe('stale');
+    expect(agents.get('cloud:cursor:bc-aaaaaa01')?.role).toMatch(/sem confirmação/);
+  });
+  it('poll lento: ticks concorrentes não sobrepõem chamadas ao coletor', async () => {
+    const { office } = fakeOffice();
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const s = new CloudSource({ office, collectors: [{ provider: 'cursor', poll: async () => { calls++; await gate; return []; } }], now: () => FIX_NOW + 10 ** 9 * calls });
+    const t1 = s.tick();
+    const t2 = s.tick();
+    const t3 = s.tick();
+    release();
+    await Promise.all([t1, t2, t3]);
+    expect(calls).toBe(1);
+  });
+  it('inventário parcial: ausência não encerra o agente', async () => {
+    const { office, agents } = fakeOffice();
+    let list = [obs('bc-aaaaaa01', 'ACTIVE'), obs('bc-aaaaaa02', 'ACTIVE')];
+    const col = { provider: 'cursor' as const, lastPartial: false, poll: async () => list };
+    let now = FIX_NOW;
+    const s = new CloudSource({ office, collectors: [col], now: () => now });
+    await s.tick();
+    col.lastPartial = true;
+    list = [obs('bc-aaaaaa01', 'ACTIVE', FIX_NOW + 31_000)];
+    now += 31_000;
+    await s.tick();
+    expect(agents.has('cloud:cursor:bc-aaaaaa02')).toBe(true);
+    col.lastPartial = false;
+    now += 31_000;
+    await s.tick();
+    expect(agents.has('cloud:cursor:bc-aaaaaa02')).toBe(false);
   });
 });

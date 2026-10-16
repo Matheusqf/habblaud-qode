@@ -105,7 +105,9 @@ export function normalizeState(provider: CloudProvider, native: string): CloudSt
     return 'unknown';
   }
   if (provider === 'codex-cloud') {
-    if (n === 'PENDING' || n === 'RUNNING' || n === 'IN_PROGRESS' || n === 'QUEUED') return 'running';
+    if (n === 'RUNNING' || n === 'IN_PROGRESS') return 'running';
+    // PENDING/QUEUED: ainda não está a trabalhar — conservador, não vira "working".
+    if (n === 'PENDING' || n === 'QUEUED') return 'unknown';
     if (n === 'READY' || n === 'COMPLETED' || n === 'APPLIED' || n === 'ERROR' || n === 'FAILED' || n === 'CANCELLED')
       return 'ended';
     return 'unknown';
