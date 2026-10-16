@@ -11,7 +11,7 @@ import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard } from './http/guard';
 import { authEnabled, createAuth, loadAuthFile, remoteEnabled } from './http/auth';
 import { securityPreflight } from './http/security-preflight';
-import { createReadOnlyRouter, loadRemoteRoConfig, RO_HOST } from './http/remote-ro';
+import { createReadOnlyRouter, loadRemoteRoConfig, remoteRoPreflight, RO_HOST } from './http/remote-ro';
 import { Hub } from './http/sse';
 import { createStaticHandler } from './http/static';
 import { TerminalStreams } from './http/terminal';
@@ -308,6 +308,13 @@ server.on('request', (req, res) => {
 // Entrada remota só-leitura (fatia 4): desligada por padrão; porta própria SEMPRE em 127.0.0.1 (para um proxy
 // privado como Tailscale Serve à frente — nunca Funnel/0.0.0.0). Ver docs/QODE-REMOTE-RO.md.
 const roConfig = loadRemoteRoConfig(process.env);
+{
+  const problems = remoteRoPreflight({ env: process.env, dev: config.dev, demo: config.demo, host: config.host });
+  if (problems.length) {
+    log.error(`Preflight da entrada só-leitura recusou iniciar:\n  - ${problems.join('\n  - ')}`);
+    process.exit(1);
+  }
+}
 if (roConfig.enabled && roConfig.port) {
   let roGeneration = loadAuthFile(config.dataDir)?.generation;
   const ro = createReadOnlyRouter({

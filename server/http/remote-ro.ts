@@ -35,6 +35,23 @@ export function loadRemoteRoConfig(env: NodeJS.ProcessEnv): RemoteRoConfig {
 }
 export const RO_HOST = '127.0.0.1';
 
+/**
+ * Preflight real com HABBLAUD_REMOTE_RO ligado (fail-closed): produção (não --dev/demo), origem HTTPS canónica
+ * (HABBLAUD_REMOTE_RO_ORIGIN = só hostname, sem esquema/porta/caminho) e bind do operador em loopback.
+ */
+export function remoteRoPreflight(o: { env: NodeJS.ProcessEnv; dev: boolean; demo?: boolean; host: string }): string[] {
+  if (!isTruthy(o.env.HABBLAUD_REMOTE_RO)) return [];
+  const p: string[] = [];
+  if (!loadRemoteRoConfig(o.env).enabled) p.push('HABBLAUD_REMOTE_RO=1 exige HABBLAUD_REMOTE_RO_PORT válida (1025-65535).');
+  if (o.dev || o.demo) p.push('HABBLAUD_REMOTE_RO só em produção (sem --dev/demo).');
+  const origin = o.env.HABBLAUD_REMOTE_RO_ORIGIN?.trim() ?? '';
+  if (!/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(origin))
+    p.push('HABBLAUD_REMOTE_RO_ORIGIN tem de ser o hostname HTTPS canónico (ex. office.<tailnet>.ts.net), sem esquema/porta.');
+  if (o.host !== '127.0.0.1' && o.host !== '::1' && o.host !== 'localhost') p.push('Com HABBLAUD_REMOTE_RO o bind do operador tem de ser loopback (HABBLAUD_HOST=127.0.0.1).');
+  if (o.env.HABBLAUD_REMOTE_RO_PORT && o.env.HABBLAUD_REMOTE_RO_PORT === o.env.HABBLAUD_PORT) p.push('A porta só-leitura não pode ser a do operador.');
+  return p;
+}
+
 /** Caminho que a entrada só-leitura aceita (GET/HEAD). Tudo o que não é /api é o cliente estático. */
 export function roPathAllowed(path: string): boolean {
   if (path === '/api' || path.startsWith('/api/')) return READ_API.some((re) => re.test(path));
