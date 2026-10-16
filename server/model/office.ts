@@ -17,6 +17,7 @@ import type {
   Provider,
   RoomInfo,
   ShellJob,
+  ObservedActivity,
   SourceInfo,
   TaskItem,
   UpdateStatus,
@@ -654,6 +655,15 @@ export class Office {
     rec.info.status = 'working';
     rec.info.statusSince = this.now();
     delete rec.removeAt;
+    this.markDirty();
+  }
+
+  /** Atividade inferida de uma fonte sem estado ao vivo (AgentInfo.observed); undefined limpa. */
+  setObserved(id: string, observed: ObservedActivity | undefined): void {
+    const rec = this.agents.get(id);
+    if (!rec || JSON.stringify(rec.info.observed) === JSON.stringify(observed)) return;
+    if (observed) rec.info.observed = { ...observed };
+    else delete rec.info.observed;
     this.markDirty();
   }
 

@@ -1,4 +1,5 @@
 // Linha de agente (avatar, nome, conta, papel, status e atividade), usada na barra lateral e na gaveta.
+import { observedLabel } from '../../../shared/observed';
 import type { AccountInfo, AgentInfo } from '../../../shared/types';
 import { createAvatar, updateAvatar, type AvatarSize } from './avatar';
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
@@ -102,10 +103,10 @@ export function updateAgentRow(
   row.classList.toggle('is-selected', selected);
   setAttr(row, 'aria-current', selected ? 'true' : null);
   // Para leitores de tela, o tempo em minutos (o cronômetro mudaria o rótulo a cada segundo).
-  const doing = wait ? `${shellLine(wait, now).label}, há ${formatDuration(now - wait.since)}` : agent.activity?.text;
+  const doing = wait ? `${shellLine(wait, now).label}, há ${formatDuration(now - wait.since)}` : (agent.activity?.text ?? observedLabel(agent.observed));
   setAttr(
     row,
     'aria-label',
-    `${agent.name}, ${agent.kind === 'main' ? 'agente principal' : `subagente ${agent.role}`}, ${account?.name ?? agent.account}${agent.provider === 'codex' ? ' (Codex)' : ''}, ${statusLabel(status)} (${UNIFIED_LABEL[unifiedState(agent)]})${doing ? `: ${doing}` : ''}`,
+    `${agent.name}, ${agent.kind === 'main' ? 'agente principal' : `subagente ${agent.role}`}, ${account?.name ?? agent.account}${agent.provider === 'codex' ? ' (Codex)' : agent.provider === 'opencode' ? ' (OpenCode)' : ''}, ${statusLabel(status)} (${UNIFIED_LABEL[unifiedState(agent)]})${doing ? `: ${doing}` : ''}`,
   );
 }

@@ -126,6 +126,19 @@ export interface AgentStats {
   subagents: number;
 }
 
+/**
+ * Atividade observada SEM prova de processo vivo (ex.: OpenCode lido do banco): o que os dados gravados sugerem, de
+ * quando, e se a última leitura falhou (stale). Live só com estado do processo dono da sessão.
+ */
+export interface ObservedActivity {
+  basis: 'inferred';
+  activity: 'active' | 'idle' | 'unknown';
+  /** Momento (ms) do dado que embasou a inferência. */
+  at: number;
+  /** A última leitura da fonte falhou: o valor é o da leitura anterior. */
+  stale: boolean;
+}
+
 export interface AgentInfo {
   /**
    * Estável enquanto o agente existir. Claude Code: principal "<conta>:<pid>", sub "<sessionId>:<agentId>".
@@ -185,6 +198,8 @@ export interface AgentInfo {
    * e perguntou pela caixa de entrada há pouco. Ver POST /api/messages.
    */
   canMessage?: boolean;
+  /** Atividade inferida (fontes sem estado ao vivo, ex.: OpenCode). */
+  observed?: ObservedActivity;
 }
 
 export interface RoomInfo {

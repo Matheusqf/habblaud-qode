@@ -2,6 +2,7 @@
 import type { OfficeStore } from '../net/store';
 import type { WorldApi } from '../world/api';
 import { UNIFIED_ICON, UNIFIED_LABEL } from '../../../shared/unified-state';
+import { observedLabel } from '../../../shared/observed';
 import { buildCards, costLabel, type AgentCard } from './cards-model';
 import { formatTokens, formatUSD } from './format';
 
@@ -18,10 +19,10 @@ function cardEl(c: AgentCard, world: WorldApi, depth: number): HTMLElement {
   b.type = 'button';
   b.dataset.id = a.id;
   b.append(
-    el('div', 'qode-card__top', `${a.name}${a.provider === 'codex' ? ' · Codex' : ''}${depth ? ` · ${a.role}` : ''}`),
+    el('div', 'qode-card__top', `${a.name}${a.provider === 'codex' ? ' · Codex' : a.provider === 'opencode' ? ' · OpenCode' : ''}${depth ? ` · ${a.role}` : ''}`),
     el('div', 'qode-card__state', `${UNIFIED_ICON[c.state]} ${UNIFIED_LABEL[c.state]}${a.status === 'waiting' && a.waitingFor ? `: ${a.waitingFor}` : ''}`),
-    el('div', 'qode-card__act', a.activity?.text ?? ''),
-    el('div', 'qode-card__usage', `${formatTokens(c.usage.tokens)} tokens · custo ${costLabel(c.usage.costUSD, formatUSD)}`),
+    el('div', 'qode-card__act', a.activity?.text ?? observedLabel(a.observed) ?? ''),
+    el('div', 'qode-card__usage', `${formatTokens(c.usage.tokens)} tokens · custo ${costLabel(c.usage, formatUSD)}`),
   );
   b.setAttribute('aria-label', `${a.name}: ${UNIFIED_LABEL[c.state]}`);
   b.addEventListener('click', () => world.select({ type: 'agent', id: a.id }, { focus: true }));
@@ -47,7 +48,7 @@ export function mountCards(root: HTMLElement, store: OfficeStore, world: WorldAp
       ...(rooms.length
         ? rooms.map((r) => {
             const sec = el('div', 'qode-cards__room');
-            sec.append(el('h3', 'qode-cards__title', `${r.name} — ${formatTokens(r.usage.tokens)} tokens · custo ${costLabel(r.usage.costUSD, formatUSD)}`));
+            sec.append(el('h3', 'qode-cards__title', `${r.name} — ${formatTokens(r.usage.tokens)} tokens · custo ${costLabel(r.usage, formatUSD)}`));
             const grid = el('div', 'qode-cards__grid');
             r.cards.forEach((c) => grid.append(cardEl(c, world, 0)));
             sec.append(grid);

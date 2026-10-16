@@ -7808,8 +7808,10 @@ html.is-replay #world {
 
 /* Vista em cartões (?view=cards) */
 .qode-cards { display: none; }
-.qode-cards-on .qode-cards { display: block; position: fixed; top: 64px; left: 0; right: 0; bottom: 0; overflow: auto; padding: 16px 24px; background: #12151f; z-index: 1; pointer-events: auto; }
+.qode-cards-on .qode-cards { display: block; position: fixed; top: var(--top-h, 64px); left: 0; right: 0; bottom: 0; overflow: auto; padding: 16px 24px; background: #12151f; z-index: 1; pointer-events: auto; }
 .qode-cards-on .ui-sidebar, .qode-cards-on .ui-feed { display: none !important; }
+/* Topbar fixa sobe para 108px (quebra em 2 linhas) em telas ≤600px: o painel começa abaixo dela. */
+@media (max-width: 600px) { .qode-cards-on .qode-cards { top: 108px; padding: 12px; } }
 .qode-cards__room { margin-bottom: 20px; }
 .qode-cards__title { color: #e6e9f2; font-size: 15px; margin: 0 0 8px; }
 .qode-cards__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; align-items: start; }

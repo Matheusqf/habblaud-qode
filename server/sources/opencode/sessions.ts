@@ -40,7 +40,11 @@ export interface OpenCodeSession {
   /** 'provedor/modelo' (da última mensagem ou da própria sessão). */
   model?: string;
   agent?: string;
-  status: 'working' | 'idle';
+  /**
+   * Atividade INFERIDA do que está gravado (última mensagem do usuário ou resposta sem fim = 'active'). O banco não
+   * prova que o processo dono está vivo: nunca vira 'working' no Office (revisão ZikaBOT #24, P2).
+   */
+  inferred: 'active' | 'idle';
   /** A última mensagem terminou em erro? */
   error: boolean;
   startedAt: number;
@@ -85,12 +89,12 @@ export function parseSessions(json: string): OpenCodeSession[] {
     const r = item as Record<string, unknown>;
     if (typeof r.id !== 'string' || typeof r.directory !== 'string') continue;
     if (typeof r.time_created !== 'number' || typeof r.time_updated !== 'number') continue;
-    // working: a última mensagem é do usuário, ou a resposta do assistente ainda não acabou.
-    const working = r.last_role === 'user' || (r.last_role === 'assistant' && (r.last_completed === null || r.last_completed === undefined));
+    // active (inferido): a última mensagem é do usuário, ou a resposta do assistente ainda não acabou.
+    const active = r.last_role === 'user' || (r.last_role === 'assistant' && (r.last_completed === null || r.last_completed === undefined));
     const s: OpenCodeSession = {
       id: r.id,
       directory: r.directory,
-      status: working ? 'working' : 'idle',
+      inferred: active ? 'active' : 'idle',
       error: !!r.last_error,
       startedAt: r.time_created,
       updatedAt: r.time_updated,
