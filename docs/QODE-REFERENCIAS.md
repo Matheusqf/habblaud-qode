@@ -30,3 +30,8 @@ com atribuição; arte de terceiros com licença incerta nunca é copiada.** Nad
 ## Estado das fatias do mapa estilo Gather
 
 - G1 zonas (`layout/zones.ts`), G2 open-space com nome no chão, G3 alcançabilidade do prédio inteiro, G4 mesa de reunião grande rotulada, G5 rio/pontes decorativos, G6 arte só em código + `NOTICE.md`, G7 preset por config (`VITE_HABBLAUD_OFFICE=gather`, `?office=gather`, `?rooms=openspace`, `?garden=river`). Tudo opt-in; padrão inalterado.
+
+## Estado do backlog
+
+- Item 1 (animações de estado): `client/src/world/fx/vibe.ts`, opt-in `?fx=vibe` / `VITE_HABBLAUD_FX=vibe` — café (ícone) ao entrar em espera de permissão, tombo (estrelinhas de tontura + suor) ao erro, confete ao `done` do agente principal.
+- Item 2 (Areas por projeto): `shared/areas.ts` + `VITE_HABBLAUD_AREAS='[{"name":"Singolo","paths":["/caminho/singolo"]}]'` — a sala de um projeto dentro dessas pastas passa a mostrar o nome da área (placa, rótulo no chão, lista).

@@ -984,6 +984,7 @@ export class Renderer {
       if (!head || !head.visible || now - e.at > 1500) continue;
       if (e.kind === 'confetti') this.particles.confetti(head.x, head.y - 4);
       else if (e.kind === 'sparkle') this.particles.sparkle(head.x, head.y + 4);
+      else if (e.kind === 'tumble') this.particles.sparkle(head.x, head.y - 2, 6);
       else if (e.kind === 'coins') {
         const to = this.heads.get(e.toId);
         if (to && to.visible) this.particles.coins(head.x, head.y + 2, to.x, to.y + 2);

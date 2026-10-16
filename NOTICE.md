@@ -16,3 +16,12 @@ qualquer redistribuição (inclusive versões whitelabel).
   `docs/QODE-REFERENCIAS.md`.
 - Se no futuro entrarem assets externos, só com licença CC0/MIT/CC-BY compatível e registados aqui
   com autor, origem, licença e data.
+
+## Ideias adaptadas de projetos MIT (sem código nem sprites copiados)
+
+- **vibeoffice** — https://github.com/acost1a/vibeoffice — MIT, Copyright (c) 2026 acost1a.
+  Inspiração para `client/src/world/fx/vibe.ts` (café ao esperar permissão, tombo ao erro, confete
+  ao terminar). Opt-in `?fx=vibe` / `VITE_HABBLAUD_FX=vibe`.
+- **pixel-agents** — https://github.com/pixel-agents-hq/pixel-agents — MIT, Copyright (c) 2026 Pablo De
+  Lucca. Inspiração para `shared/areas.ts` (áreas nomeadas mapeadas a pastas).
+  Os personagens do pixel-agents (baseados em JIK-A-4 "Metro City") **não** são usados.
