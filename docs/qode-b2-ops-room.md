@@ -196,7 +196,7 @@ Alinhar tetos B1; ops room **observa** contadores quando API existir:
 - `hasMisleadingLive` trata `ops-room` como proibido em `live`.
 - **Sem** UI de despacho; **sem** adapter HTTP para OpenCode.
 
-Branch: `socio/qode-b2-ops-stub` → draft PR https://github.com/Matheusqf/habblaud-qode/pull/9 (`6440f38`).
+Branch: `socio/qode-b2-ops-stub` → draft PR https://github.com/Matheusqf/habblaud-qode/pull/9 (`21c6e00`).
 
 ---
 
