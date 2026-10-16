@@ -305,19 +305,27 @@ export function paintShell(art: ArtModule, ctx: CanvasRenderingContext2D, floors
 /** Pinta um texto no chão como faixa de sinalização (sem assets externos; só canvas). */
 export function drawFloorLabel(ctx: CanvasRenderingContext2D, l: { x: number; y: number; w: number; h: number; color: string }, text: string): void {
   const label = text.toUpperCase().slice(0, 28);
+  const x = Math.round(l.x);
+  const y = Math.round(l.y);
+  const w = Math.round(l.w);
+  const h = Math.round(l.h);
   ctx.save();
-  ctx.globalAlpha = 0.85;
+  // faixa pintada no chão (cor de destaque da sala) com o nome em claro
+  ctx.globalAlpha = 0.78;
   ctx.fillStyle = l.color;
-  ctx.fillRect(Math.round(l.x), Math.round(l.y), Math.round(l.w), 1);
-  ctx.fillRect(Math.round(l.x), Math.round(l.y + l.h - 1), Math.round(l.w), 1);
-  let size = Math.max(5, Math.floor(l.h - 3));
+  ctx.fillRect(x, y, w, h);
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(x, y + h - 1, w, 1);
+  let size = Math.max(5, h - 2);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   for (; size > 4; size--) {
     ctx.font = `bold ${size}px monospace`;
-    if (ctx.measureText(label).width <= l.w - 4) break;
+    if (ctx.measureText(label).width <= w - 4) break;
   }
-  ctx.globalAlpha = 0.7;
-  ctx.fillText(label, Math.round(l.x + l.w / 2), Math.round(l.y + l.h / 2) + 0.5, l.w - 4);
+  ctx.globalAlpha = 0.95;
+  ctx.fillStyle = '#fffaf0';
+  ctx.fillText(label, x + w / 2, y + h / 2 + 0.5, w - 4);
   ctx.restore();
 }

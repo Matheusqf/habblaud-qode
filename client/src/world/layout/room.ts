@@ -477,7 +477,7 @@ function layoutOpenspaceRoom(room: RoomInput, theme: RoomTheme): AreaLayout {
   ];
   area.zones = zones;
   area.floorLabels = [
-    { zoneId: zones[0].id, x: island.x * TILE + 4, y: (r.y + 8) * TILE + 3, w: island.w * TILE - 8, h: TILE - 5, color: theme.accent },
+    { zoneId: zones[0].id, x: island.x * TILE + 4, y: (r.y + 8) * TILE + 4, w: island.w * TILE - 8, h: TILE - 4, color: theme.accent },
   ];
   return area;
 }
