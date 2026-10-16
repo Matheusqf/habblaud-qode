@@ -9,7 +9,10 @@
 // A leitura do banco é injetada (run); em produção é readOnlyRunner (reader.ts): SQLite somente leitura, sem o
 // inicializador/migrações do OpenCode. Estado: o banco não prova processo vivo, então o personagem fica 'idle' e a
 // atividade sai como INFERIDA (AgentInfo.observed, com horário; stale quando a leitura falha). Só entram sessões de
-// projetos da allowlist (`projects`), filtradas antes de qualquer coisa chegar ao Office. Boot assíncrono: beginBoot antes e endBoot num `finally`.
+// projetos da allowlist (`projects`, caminhos canônicos). Limite: a seleção acontece ANTES de inserir no Office, mas
+// DEPOIS da consulta de metadados ao banco (o SELECT traz as sessões da janela de todos os projetos; as de fora da
+// allowlist são descartadas em memória, sem ir para Office, snapshot, cache ou log). Boot assíncrono: beginBoot antes e endBoot num `finally`.
+import { realpathSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import type { ObservedActivity, SourceInfo } from '../../../shared/types';
 import { ACCOUNT_COLORS } from '../../accounts/detect';
@@ -41,11 +44,25 @@ export interface OpenCodeSourceOptions {
   activeStaleMs?: number;
 }
 
-/** A pasta está na allowlist (igual ou abaixo de uma das pastas). */
+/** Caminho canônico (symlinks resolvidos); undefined se não existe ou não dá para resolver (= fora da allowlist). */
+function canonical(p: string): string | undefined {
+  try {
+    return realpathSync(p);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A pasta está na allowlist (igual ou abaixo de uma das pastas), comparando caminhos CANÔNICOS (realpath): um
+ * /permitido/link que aponta para fora não passa. Pasta que não existe mais não passa.
+ */
 export function inAllowlist(dir: string, projects: readonly string[]): boolean {
-  const d = resolve(dir);
+  const d = canonical(resolve(dir));
+  if (!d) return false;
   return projects.some((p) => {
-    const root = resolve(p);
+    const root = canonical(resolve(p));
+    if (!root) return false;
     return d === root || d.startsWith(root.endsWith(sep) ? root : root + sep);
   });
 }
@@ -130,7 +147,7 @@ export class OpenCodeSource implements AgentSource {
     const now = this.now();
     const seen = new Set<string>();
     for (const session of sessions) {
-      // Allowlist ANTES de qualquer ingestão.
+      // Allowlist antes de inserir no Office (depois da consulta ao banco; ver o topo).
       if (!inAllowlist(session.directory, this.opts.projects)) continue;
       const key = `${this.account}:${session.id}`;
       seen.add(key);

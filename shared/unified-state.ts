@@ -3,9 +3,10 @@
 // Código puro: cada ferramenta tem um adaptador que traduz o que a fonte expõe para os 6 estados.
 import type { ActivityKind, AgentInfo } from './types';
 
-export type UnifiedState = 'reading' | 'editing' | 'command' | 'waiting' | 'error' | 'done';
+/** 'inferred' = fonte sem estado ao vivo (AgentInfo.observed): nunca vira 'done' por falta de evidência. */
+export type UnifiedState = 'reading' | 'editing' | 'command' | 'waiting' | 'error' | 'done' | 'inferred';
 
-export const UNIFIED_STATES: readonly UnifiedState[] = ['reading', 'editing', 'command', 'waiting', 'error', 'done'];
+export const UNIFIED_STATES: readonly UnifiedState[] = ['reading', 'editing', 'command', 'waiting', 'error', 'done', 'inferred'];
 
 export const UNIFIED_LABEL: Readonly<Record<UnifiedState, string>> = {
   reading: 'Lendo',
@@ -14,6 +15,7 @@ export const UNIFIED_LABEL: Readonly<Record<UnifiedState, string>> = {
   waiting: 'Esperando',
   error: 'Erro',
   done: 'Feito',
+  inferred: 'Inferido (sem estado ao vivo)',
 };
 
 export const UNIFIED_ICON: Readonly<Record<UnifiedState, string>> = {
@@ -23,9 +25,10 @@ export const UNIFIED_ICON: Readonly<Record<UnifiedState, string>> = {
   waiting: '✋',
   error: '⚠️',
   done: '✅',
+  inferred: '❔',
 };
 
-type AgentLike = Pick<AgentInfo, 'status' | 'activity'> & { provider?: string };
+type AgentLike = Pick<AgentInfo, 'status' | 'activity'> & { provider?: string; observed?: AgentInfo['observed'] };
 type Adapter = (a: AgentLike) => UnifiedState;
 
 const KIND_TO_STATE: Partial<Record<ActivityKind, UnifiedState>> = {
@@ -53,6 +56,8 @@ const KIND_TO_STATE: Partial<Record<ActivityKind, UnifiedState>> = {
 
 /** Base comum: status de alto nível primeiro, depois o tipo da atividade atual. */
 function base(a: AgentLike): UnifiedState {
+  // Atividade só inferida (ativa, desconhecida, ociosa ou leitura desatualizada): nunca 'Feito'.
+  if (a.observed) return 'inferred';
   if (a.status === 'waiting') return 'waiting';
   if (a.status === 'shell') return 'command';
   if (a.status === 'done' || a.status === 'offline' || a.status === 'idle') return a.activity?.error ? 'error' : 'done';

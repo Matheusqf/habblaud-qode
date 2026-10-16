@@ -5,7 +5,8 @@
 // (node:sqlite ainda pede --experimental-sqlite no Node 22.12), sem PRAGMA nem migração:
 // - banco ausente: erro, nada é criado (existsSync antes de abrir; readOnly também não cria);
 // - schema antigo/incompatível: erro "schema incompatível", nada é migrado;
-// - qualquer escrita é recusada pelo SQLite (conexão read-only);
+// - qualquer escrita SQL é recusada pelo SQLite (conexão read-only). Não é "zero escrita em arquivo": num banco em
+//   WAL, o leitor ainda pode tocar os auxiliares -wal/-shm (índice de memória partilhada); o .db não é alterado;
 // - falha de leitura vira erro (a fonte marca stale), nunca saída parcial.
 // A saída do filho (linhas JSON) nunca vai para o log.
 import { execFile } from 'node:child_process';

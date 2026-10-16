@@ -7818,6 +7818,7 @@ html.is-replay #world {
 .qode-card { display: block; width: 100%; text-align: left; background: #1d2231; color: #dfe4f0; border: 1px solid #2c3347; border-left: 4px solid #5d6b8c; border-radius: 8px; padding: 8px 10px; font: inherit; cursor: pointer; }
 .qode-card.is-waiting { border-left-color: #f5c242; }
 .qode-card.is-error { border-left-color: #ff5d5d; }
+.qode-card.is-inferred { border-left-color: #8a8fa8; border-left-style: dashed; }
 .qode-card.is-editing { border-left-color: #6fd38a; }
 .qode-card.is-command { border-left-color: #59b7ff; }
 .qode-card.is-done { opacity: .75; }

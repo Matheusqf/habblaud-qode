@@ -1,5 +1,8 @@
 // Integração da fonte do OpenCode: um runner falso (JSON de linhas do banco), o AccountsService e o Office.
-import { afterEach, describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import type { AgentInfo } from '../../../shared/types';
 import { AccountsService } from '../../accounts/service';
 import { setQuiet } from '../../log';
@@ -8,6 +11,13 @@ import { Office } from '../../model/office';
 import { inAllowlist, OpenCodeSource } from './source';
 
 setQuiet(true);
+
+// Pastas reais: a allowlist compara caminhos canônicos (realpath). link -> fora da allowlist.
+const ROOT = realpathSync(mkdtempSync(join(tmpdir(), 'oc-allow-')));
+const P = join(ROOT, 'projetos');
+for (const d of ['projetos/loja', 'projetos/lojaX', 'outro']) mkdirSync(join(ROOT, d), { recursive: true });
+symlinkSync(join(ROOT, 'outro'), join(P, 'link'));
+afterAll(() => rmSync(ROOT, { recursive: true, force: true }));
 
 const KEY = '.opencode:ses-1';
 
@@ -22,7 +32,7 @@ function row(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 'ses-1',
     parent_id: null,
-    directory: '/projetos/loja',
+    directory: `${P}/loja`,
     model: 'claude-sonnet-4',
     agent: 'build',
     cost: 0.5,
@@ -64,7 +74,7 @@ function setup(opts: { projects?: string[] } = {}) {
     if (failure) throw failure;
     return output;
   };
-  const source = new OpenCodeSource({ accounts, office, dataDir: '/tmp/opencode', run, now, projects: opts.projects ?? ['/projetos'] });
+  const source = new OpenCodeSource({ accounts, office, dataDir: '/tmp/opencode', run, now, projects: opts.projects ?? [P] });
   // Para o ciclo agendado pelo start() antes de qualquer limpeza.
   cleanups.unshift(() => source.stop());
   return {
@@ -99,7 +109,7 @@ describe('fonte do OpenCode', () => {
       provider: 'opencode',
       account: '.opencode',
       sessionId: 'ses-1',
-      roomId: '/projetos/loja',
+      roomId: `${P}/loja`,
       role: 'build',
       // O banco não prova processo vivo: nunca 'working'.
       status: 'idle',
@@ -176,8 +186,8 @@ describe('fonte do OpenCode', () => {
   });
 
   it('allowlist: só sessões dentro dos projetos permitidos entram; allowlist vazia = nada entra', async () => {
-    const ctx = setup({ projects: ['/projetos/loja'] });
-    ctx.setRows([row(), row({ id: 'ses-2', directory: '/projetos/lojaX' }), row({ id: 'ses-3', directory: '/outro' })]);
+    const ctx = setup({ projects: [`${P}/loja`] });
+    ctx.setRows([row(), row({ id: 'ses-2', directory: `${P}/lojaX` }), row({ id: 'ses-3', directory: `${ROOT}/outro` })]);
     await ctx.source.start();
     expect(ctx.office.commit().snapshot.agents.map((a) => a.id)).toEqual([KEY]);
 
@@ -188,11 +198,23 @@ describe('fonte do OpenCode', () => {
   });
 });
 
-describe('inAllowlist', () => {
-  it('igual ou abaixo; prefixo de nome não conta', () => {
-    expect(inAllowlist('/a/b', ['/a/b'])).toBe(true);
-    expect(inAllowlist('/a/b/c', ['/a/b/'])).toBe(true);
-    expect(inAllowlist('/a/bc', ['/a/b'])).toBe(false);
-    expect(inAllowlist('/a/b/../x', ['/a/b'])).toBe(false);
+describe('inAllowlist (caminho canônico)', () => {
+  it('igual ou abaixo; prefixo de nome não conta; .. e symlink para fora não passam; inexistente não passa', () => {
+    expect(inAllowlist(`${P}/loja`, [P])).toBe(true);
+    expect(inAllowlist(`${P}/loja`, [`${P}/`])).toBe(true);
+    expect(inAllowlist(`${P}/lojaX`, [`${P}/loja`])).toBe(false);
+    expect(inAllowlist(`${P}/../outro`, [P])).toBe(false);
+    // /permitido/link -> /fora: path.resolve deixaria passar; realpath não.
+    expect(inAllowlist(`${P}/link`, [P])).toBe(false);
+    expect(inAllowlist(`${P}/nao-existe`, [P])).toBe(false);
+    // allowlist via symlink para dentro continua valendo pelo destino real
+    expect(inAllowlist(`${ROOT}/outro`, [`${P}/link`])).toBe(true);
+  });
+
+  it('sessão num symlink que aponta para fora da allowlist não entra no Office', async () => {
+    const ctx = setup();
+    ctx.setRows([row({ id: 'ses-link', directory: `${P}/link` })]);
+    await ctx.source.start();
+    expect(ctx.office.commit().snapshot.agents).toEqual([]);
   });
 });
