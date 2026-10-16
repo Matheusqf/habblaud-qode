@@ -9,10 +9,9 @@ import { assembleBuilding, type BuildingLayout } from '../layout/building';
 import { RECEPTION_ID } from '../layout/core';
 import { columnsFor, inRect } from '../layout/geometry';
 import { layoutProjectRoom } from '../layout/room';
-import { currentRoomStyle, currentSeason, watchAutoSeason } from '../season';
+import { currentRoomStyle, currentSeason } from '../season';
 
 const SEASON = currentSeason();
-watchAutoSeason();
 const ROOM_STYLE = currentRoomStyle();
 import type { SpotDef, SpotKind } from '../layout/types';
 import { PathFinder } from '../path/astar';
