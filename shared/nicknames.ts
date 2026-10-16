@@ -1,4 +1,6 @@
-// Apelidos de protagonistas (só exibição): o id real e o nome original ficam intactos (realName).
+// Apelidos de protagonistas (só exibição): o id real e o nome canônico ficam intactos.
+// `name` do snapshot de exibição = apelido; `canonicalName` = nome real (o único que vai para o
+// servidor: editor de personagem, busca e persistência usam `canonicalName(a)`).
 // Rascunho gerado com deepseek-v4.1-flash (OpenCode Go), revisto à mão.
 import { hash32 } from './hash';
 import type { AgentInfo, OfficeSnapshot } from './types';
@@ -158,14 +160,43 @@ export function applyNicknames(snap: OfficeSnapshot): OfficeSnapshot {
       if (entry === undefined) return { ...agent };
 
       const originalName =
-        (agent as AgentInfo & { realName?: string }).realName ?? agent.name;
+        canonicalName(agent);
 
       return {
         ...agent,
         name: entry.name,
         look: entry.look,
-        realName: originalName,
-      } as AgentInfo & { realName?: string };
+        canonicalName: originalName,
+      } as NicknamedAgent;
     }),
   };
+}
+
+/** Agente no snapshot de exibição (com apelido aplicado). */
+export type NicknamedAgent = AgentInfo & { canonicalName?: string };
+
+/** Nome canônico (persistido no servidor), independente do apelido exibido. */
+export function canonicalName(agent: AgentInfo): string {
+  return (agent as NicknamedAgent).canonicalName ?? agent.name;
+}
+
+/** Nome original quando difere do exibido (para mostrar ao lado do apelido); senão undefined. */
+export function originalNameShown(agent: AgentInfo): string | undefined {
+  const c = (agent as NicknamedAgent).canonicalName;
+  return c !== undefined && c !== agent.name ? c : undefined;
+}
+
+/** Os apelidos estão ligados? `?nicknames=0` ou localStorage `habblaud:nicknames`='0' desligam; storage que lança = padrão (ligado). */
+export function nicknamesEnabled(search: string | undefined, storage: Pick<Storage, 'getItem'> | undefined): boolean {
+  try {
+    if (search !== undefined && new URLSearchParams(search).get('nicknames') === '0') return false;
+  } catch {
+    /* busca inválida: segue */
+  }
+  try {
+    if (storage && storage.getItem('habblaud:nicknames') === '0') return false;
+  } catch {
+    /* sem storage (modo privado, bloqueado): fica no padrão */
+  }
+  return true;
 }

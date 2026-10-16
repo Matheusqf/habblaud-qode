@@ -7,16 +7,16 @@
 import type { AppearanceParts } from '../../../shared/appearance';
 import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeSnapshot, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
 import { DemoSimulator } from '../../../shared/demo/simulator';
-import { applyNicknames } from '../../../shared/nicknames';
+import { applyNicknames, nicknamesEnabled as nicknamesFor, type NicknamedAgent } from '../../../shared/nicknames';
 
 function nicknamesEnabled(): boolean {
+  let storage: Storage | undefined;
   try {
-    if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('nicknames') === '0') return false;
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('habblaud:nicknames') === '0') return false;
+    storage = typeof localStorage !== 'undefined' ? localStorage : undefined;
   } catch {
-    /* sem storage: fica no padrão */
+    storage = undefined;
   }
-  return true;
+  return nicknamesFor(typeof location !== 'undefined' ? location.search : undefined, storage);
 }
 
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'mock';
@@ -285,7 +285,10 @@ export class OfficeStore {
    * erro (nome em uso, acesso que não é local...).
    */
   async saveCharacter(id: string, body: { name: string; seed: number; parts: AppearanceParts }): Promise<string | undefined> {
-    return this.characterRequest(id, 'PUT', body);
+    // O apelido é só exibição: nunca vai para o servidor como nome do personagem.
+    const a = this.agentIndex.get(id) as NicknamedAgent | undefined;
+    const name = a?.canonicalName !== undefined && body.name === a.name ? a.canonicalName : body.name;
+    return this.characterRequest(id, 'PUT', { ...body, name });
   }
 
   /** "Voltar ao sorteio": apaga o personagem do projeto (DELETE /api/agents/:id/character). */
