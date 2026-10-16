@@ -11,8 +11,8 @@ const MAX_PAGES = 10;
 const DETAIL_CONCURRENCY = 4;
 const PAGE_LIMIT = 50;
 const RECENT_MS = 24 * 3_600_000;
-// A API real chega a demorar >10 s numa página (poll_failed=TimeoutError no :4320); 30 s por pedido.
-const TIMEOUT_MS = 30_000;
+// Medido no :4320 (16/10): pedidos reais à API até ~27 s até aos headers → poll_failed=TimeoutError com 10 s/30 s. 60 s por pedido.
+const TIMEOUT_MS = 60_000;
 const MAX_BODY = 512 * 1024;
 
 export type FetchLike = (url: string, init: { method: 'GET'; headers: Record<string, string>; signal?: AbortSignal; redirect: 'manual' }) => Promise<{
