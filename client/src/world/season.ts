@@ -36,3 +36,16 @@ export function currentRoomStyle(): RoomStyle | undefined {
   if (typeof location === 'undefined') return undefined;
   return resolveRoomStyle(location.search);
 }
+
+/**
+ * Com ?season=auto, o tema é decidido no carregamento; para não ficar preso ao mês antigo, verifica
+ * de hora em hora e recarrega a página quando o resultado muda (virada de 30/09→01/10 e 31/10→01/11).
+ */
+export function watchAutoSeason(intervalMs = 3_600_000): void {
+  if (typeof location === 'undefined' || typeof setInterval === 'undefined') return;
+  if (new URLSearchParams(location.search).get('season') !== 'auto') return;
+  const initial = resolveSeason(location.search);
+  setInterval(() => {
+    if (resolveSeason(location.search) !== initial) location.reload();
+  }, intervalMs);
+}

@@ -115,8 +115,39 @@ function applyHalloween(area: AreaLayout, slot: number): void {
     area.wallItems.push({ id: `${area.id}#hw${n++}:${kind}`, kind, variant, cx: Math.round(x0 + lcx * TILE), baseY, on: 'face', order: 0.97 });
   add('cobweb', 1, 'left');
   add('cobweb', 15, 'right');
-  add('bat_frame', north ? 2 : 14.5);
-  if (north) add('pumpkin_garland', 8);
+  // morcego e guirlanda só onde a parede está livre (sem outro item nem móvel alto na frente)
+  const free = (lcx: number, w: number) => wallSpanFree(area, x0 + lcx * TILE, (w * TILE) / 2, rect.y + 2);
+  const batAt = [2, 14, 12.5, 3, 13].find((c) => free(c, 1));
+  if (batAt !== undefined) add('bat_frame', batAt);
+  const garlandAt = [north ? 11.5 : 4.5, 4.5, 11.5, 2.5, 13.5].find((c) => free(c, 3));
+  if (garlandAt !== undefined) add('pumpkin_garland', garlandAt);
+}
+
+/** Móveis de chão que tapam (total ou parcialmente) o que está pendurado na parede logo atrás. */
+export const WALL_OCCLUDERS = new Set<FurnitureKind>([
+  'desk', 'desk_back', 'plant_tall', 'bookshelf', 'binder_shelf', 'fridge', 'vending_machine', 'arcade', 'water_cooler', 'floor_lamp', 'toilet_stall', 'aquarium', 'globe', 'pumpkin',
+]);
+/** Tapa a parede? (abóbora simples é baixa como o vaso pequeno que substitui; a pilha é alta). */
+export function occludesWall(f: { kind: FurnitureKind; variant?: string }): boolean {
+  return WALL_OCCLUDERS.has(f.kind) && !(f.kind === 'pumpkin' && f.variant !== 'stack');
+}
+/** Itens de parede que não contam como decoração ocludível (passagem, interruptor, teia no topo do canto). */
+export const WALL_IGNORED = new Set<FurnitureKind>(['door_frame', 'light_switch', 'cobweb']);
+
+/** O trecho [cx-half, cx+half] (px) da face da parede está livre de itens e de móveis que o tapam? */
+export function wallSpanFree(area: AreaLayout, cx: number, half: number, wallRow: number): boolean {
+  for (const w of area.wallItems) {
+    if (w.on !== 'face' || WALL_IGNORED.has(w.kind)) continue;
+    const h = (FURNITURE[w.kind].footprint.w * TILE) / 2;
+    if (w.cx - h < cx + half && w.cx + h > cx - half) return false;
+  }
+  for (const f of area.furniture) {
+    if (!occludesWall(f) || f.ty !== wallRow) continue;
+    const fx0 = f.tx * TILE + (f.dx ?? 0);
+    const fx1 = fx0 + FURNITURE[f.kind].footprint.w * TILE;
+    if (fx0 < cx + half && fx1 > cx - half) return false;
+  }
+  return true;
 }
 
 function layoutIslandRoom(room: RoomInput, theme: RoomTheme): AreaLayout {
@@ -360,30 +391,31 @@ function layoutGatherRoom(room: RoomInput, theme: RoomTheme): AreaLayout {
   area.door = north ? { x: rect.x + DOOR_X, y: rect.y + 11, w: DOOR_W, h: 1 } : { x: rect.x + DOOR_X, y: rect.y, w: DOOR_W, h: 2 };
   b.walk(area.door.x - rect.x, area.door.y - rect.y, area.door.w, area.door.h);
 
-  // ---- parede: letreiro grande com o nome do projeto ao centro, quadro, relógio, dardos
-  area.signId = b.wall('sign', north ? 8 : 11, undefined, { order: 0.95 });
+  // ---- parede: letreiro com o nome do projeto, quadro, relógio, dardos. Nenhum item de parede
+  // fica atrás das estações (mesas em 1–2 e 13–14 na linha 2): o trecho livre é 3–12.
   b.wall('whiteboard', 4.5, undefined, { order: 0.6 });
   if (north) {
-    b.wall('clock', 10.5, undefined, { order: 0.7 });
-    b.wall('dartboard', 13, undefined, { order: 0.5 });
+    area.signId = b.wall('sign', 8, undefined, { order: 0.95 });
+    b.wall('clock', 10.25, undefined, { order: 0.7 });
+    b.wall('dartboard', 11.5, undefined, { order: 0.5 });
     b.wall('light_switch', DOOR_X - 0.5, 'on', { ly: 12, on: 'south', order: 0.8 });
     b.spot('switch', DOOR_X - 1, 10, 'down', { dy: -1 });
   } else {
+    area.signId = b.wall('sign', 10.5, undefined, { order: 0.95 });
     b.wall('light_switch', DOOR_X - 0.5, 'on', { order: 0.8 });
-    b.wall('dartboard', 13.5, undefined, { order: 0.5 });
     b.spot('switch', DOOR_X - 1, 2, 'up', { dy: -3 });
   }
   b.spot('whiteboard', 5, 2, 'up', { dx: 0, dy: 2 });
 
-  // ---- estações individuais nas paredes (3 ao norte, de costas p/ câmera; 3 ao sul, de frente)
+  // ---- estações individuais: 2 na parede norte (de costas p/ câmera) + 1 avulsa junto à parede
+  // oeste (também de costas), 3 na parede sul (de frente). Ranks 0–5, 3 de cada lado.
   const deskV = theme.deskVariant;
   const chairV = theme.chairVariant;
-  const cols = [1, 3, 12];
-  cols.forEach((lx, i) => {
-    const d = b.furn('desk', lx, 2, deskV, { order: 0.35 + i * 0.03, seat: `S${i}` });
-    b.seat('desk', 'office_chair', lx, 3, 'up', chairV, { dx: TILE / 2, deskId: d, rank: i, side: 'S', order: 0.6 + i * 0.02 });
+  ([[1, 2], [13, 2], [2, 7]] as const).forEach(([lx, ly], i) => {
+    const d = b.furn('desk', lx, ly, deskV, { order: 0.35 + i * 0.03, seat: `S${i}` });
+    b.seat('desk', 'office_chair', lx, ly + 1, 'up', chairV, { dx: TILE / 2, deskId: d, rank: i, side: 'S', order: 0.6 + i * 0.02 });
   });
-  cols.forEach((lx, i) => {
+  [4, 9, 12].forEach((lx, i) => {
     const d = b.furn('desk_back', lx, 10, deskV, { order: 0.4 + i * 0.03, seat: `N${i}` });
     b.seat('desk', 'office_chair_front', lx, 9, 'down', chairV, { dx: TILE / 2, deskId: d, rank: 3 + i, side: 'N', order: 0.65 + i * 0.02 });
   });
@@ -406,13 +438,12 @@ function layoutGatherRoom(room: RoomInput, theme: RoomTheme): AreaLayout {
   b.furn('binder_shelf', 14, 5, undefined, { order: 0.28 });
   b.furn(rng() < 0.5 ? 'printer' : 'filing_cabinet', 14, 6, undefined, { order: 0.29 });
   b.furn('trash_bin', 14, 7, undefined, { order: 0.3 });
-  b.furn('plant_tall', 14, 2, pick(PLANTS_TALL), { order: 0.19 });
   b.furn(rng() < 0.5 ? 'aquarium' : 'globe', 14, 10, undefined, { order: 0.19 });
-  b.furn('plant_small', 5, 10, pick(PLANTS_SMALL), { order: 0.2 });
-  b.furn('plant_tall', 10, 10, pick(PLANTS_TALL), { order: 0.21 });
+  b.furn('plant_tall', 1, 10, pick(PLANTS_TALL), { order: 0.2 });
+  b.furn('plant_small', 2, 10, pick(PLANTS_SMALL), { order: 0.21 });
 
   // pontos em pé (subagentes sem lugar sentado / conversa)
-  b.spot('stand', 3, 6, 'right');
+  b.spot('stand', 4, 6, 'right');
   b.spot('stand', 12, 6, 'left');
   b.spot('stand', 11, 8, 'up', { dy: -2 });
 
