@@ -1,4 +1,4 @@
-// B4 L1: gate mínimo da SPA. Com HABBLAUD_AUTH desligado, /api/auth/status dá 404 e nada muda.
+// B4 L1: gate mínimo da SPA. Com HABBLAUD_AUTH desligado, /api/auth/status dá {authRequired:false} (404 de servidores antigos também é aceite).
 // Com auth ligada e sem sessão, mostra um formulário de senha e só arranca o escritório depois do login.
 
 export interface AuthStatus {
