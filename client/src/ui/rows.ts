@@ -3,6 +3,7 @@ import type { AccountInfo, AgentInfo } from '../../../shared/types';
 import { createAvatar, updateAvatar, type AvatarSize } from './avatar';
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { formatDuration } from './format';
+import { UNIFIED_ICON, UNIFIED_LABEL, unifiedState } from '../../../shared/unified-state';
 import { activityFallback, shellLine, shellWaitIn, statusLabel } from './model';
 import {
   createAccountChip,
@@ -27,6 +28,7 @@ interface RowRefs {
   task: HTMLElement;
   /** Há quanto tempo está ocioso (no lugar do "Principal"). */
   since: HTMLElement;
+  ustate: HTMLElement;
   size: AvatarSize;
 }
 
@@ -41,16 +43,17 @@ export function createAgentRow(agent: AgentInfo, onPick: (id: string) => void, s
   const activity = createActivityLine();
   const task = h('span', { class: 'ui-agent__task', hidden: true });
   const since = h('span', { class: 'ui-agent__since', hidden: true });
+  const ustate = h('span', { class: 'ui-ustate ui-ustate--sm' });
   const row = h(
     'button',
     { class: 'ui-agent', type: 'button' },
     avatar,
-    h('span', { class: 'ui-agent__main' }, h('span', { class: 'ui-agent__top' }, name, chip, since, role), task, activity),
+    h('span', { class: 'ui-agent__main' }, h('span', { class: 'ui-agent__top' }, name, chip, since, role, ustate), task, activity),
     dot,
   );
   row.dataset.id = agent.id;
   row.addEventListener('click', () => onPick(row.dataset.id!));
-  refs.set(row, { avatar, name, chip, role, dot, activity, task, since, size });
+  refs.set(row, { avatar, name, chip, role, dot, activity, task, since, ustate, size });
   return row;
 }
 
@@ -92,6 +95,10 @@ export function updateAgentRow(
   if (wait) updateShellActivityLine(r.activity, wait, now);
   else updateActivityLine(r.activity, agent.activity, activityFallback(agent));
   setVariant(row, 'is-', status);
+  const us = unifiedState(agent);
+  setText(r.ustate, UNIFIED_ICON[us]);
+  setTitle(r.ustate, UNIFIED_LABEL[us]);
+  r.ustate.dataset.state = us;
   row.classList.toggle('is-selected', selected);
   setAttr(row, 'aria-current', selected ? 'true' : null);
   // Para leitores de tela, o tempo em minutos (o cronômetro mudaria o rótulo a cada segundo).
@@ -99,6 +106,6 @@ export function updateAgentRow(
   setAttr(
     row,
     'aria-label',
-    `${agent.name}, ${agent.kind === 'main' ? 'agente principal' : `subagente ${agent.role}`}, ${account?.name ?? agent.account}${agent.provider === 'codex' ? ' (Codex)' : ''}, ${statusLabel(status)}${doing ? `: ${doing}` : ''}`,
+    `${agent.name}, ${agent.kind === 'main' ? 'agente principal' : `subagente ${agent.role}`}, ${account?.name ?? agent.account}${agent.provider === 'codex' ? ' (Codex)' : ''}, ${statusLabel(status)} (${UNIFIED_LABEL[unifiedState(agent)]})${doing ? `: ${doing}` : ''}`,
   );
 }

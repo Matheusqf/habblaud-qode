@@ -5,6 +5,7 @@ import { originalNameShown } from '../../../shared/nicknames';
 import { formatDuration } from './format';
 import { shellStage, shellWaitIn, statusLabel } from './model';
 import { providerOf } from './provider';
+import { UNIFIED_ICON, UNIFIED_LABEL, unifiedState } from '../../../shared/unified-state';
 import {
   createAccountChip,
   createActivityLine,
@@ -31,6 +32,7 @@ export class HoverTip implements UiComponent {
   private task: HTMLElement;
   private real: HTMLElement;
   private since: HTMLElement;
+  private ustate: HTMLElement;
 
   constructor(private ctx: UiContext) {
     this.name = h('strong', { class: 'ui-tip__name' });
@@ -43,10 +45,11 @@ export class HoverTip implements UiComponent {
     this.mood = h('div', { class: 'ui-tip__mood', hidden: true });
     this.task = h('div', { class: 'ui-tip__task', hidden: true });
     this.since = h('span', { class: 'ui-tip__since' });
+    this.ustate = h('span', { class: 'ui-ustate' });
     this.el = h(
       'div',
       { class: 'ui-tip', attrs: { 'aria-hidden': 'true' } },
-      h('div', { class: 'ui-tip__top' }, this.name, this.chip, this.prov),
+      h('div', { class: 'ui-tip__top' }, this.name, this.chip, this.prov, this.ustate),
       this.real,
       this.task,
       h('div', { class: 'ui-tip__line' }, this.dot, this.status, this.since),
@@ -105,6 +108,9 @@ export class HoverTip implements UiComponent {
     updateStatusDot(this.dot, status);
     setText(this.status, a.status === 'waiting' && a.waitingFor ? `${statusLabel(a.status)}: ${a.waitingFor}` : `${statusLabel(status)}${a.kind === 'sub' ? ` · ${a.role}` : ''}`);
     setVariant(this.el, 'is-', status);
+    const us = unifiedState(a);
+    setText(this.ustate, `${UNIFIED_ICON[us]} ${UNIFIED_LABEL[us]}`);
+    this.ustate.dataset.state = us;
     // Do que se trata a sessão (título) e há quanto tempo está nesse estado (ex.: ociosa há 12 min).
     const title = a.title?.trim();
     setHidden(this.task, !title);

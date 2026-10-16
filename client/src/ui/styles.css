@@ -7778,3 +7778,9 @@ html.is-replay #world {
   font-size: 11px;
   opacity: 0.8;
 }
+
+/* Estados unificados (shared/unified-state.ts) */
+.ui-ustate { font-size: 11px; padding: 0 4px; border-radius: 4px; background: rgba(255,255,255,.08); white-space: nowrap; }
+.ui-ustate--sm { padding: 0 2px; background: none; }
+.ui-ustate[data-state='waiting'] { background: rgba(255,200,60,.25); }
+.ui-ustate[data-state='error'] { background: rgba(255,80,80,.25); }
