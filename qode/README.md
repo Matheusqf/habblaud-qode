@@ -151,3 +151,7 @@ Se um caminho cair em mais de um projeto, o privado ganha.
 - **Ops room (B2 stub):** `qode.opsRoom` + capability `ops-room` — bot proposto = OpenCode via floating-flow/`flow-bot-relay`;
   `origin=unavailable` até API comprovada; sem cruzar salas; Vida excluído; remoto só após B4. Ver `docs/qode-b2-ops-room.md`.
 - Fora deste ciclo: adaptador OpenCode/Cursor e Docker. O QODE Office roda direto no Node.
+
+## Auth local (B4 L1, opt-in)
+
+`HABBLAUD_AUTH=1` liga login por senha + sessão em todas as `/api/*`. Remoto **não** está pronto (sem Funnel; Serve TBD). Ver `docs/remote-access.md`.

@@ -26,7 +26,7 @@
 // (o Codex não os aceita: o hook "falha" sem decidir). Nos eventos de observação, nada vai para o stdout (no
 // UserPromptSubmit e no SessionStart ele viraria contexto do modelo). Só fala com 127.0.0.1.
 // HABBLAUD_HOOK_DEBUG=1 escreve o que acontece no stderr.
-import { readFileSync, realpathSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -174,11 +174,28 @@ function readStdin() {
 }
 
 /** Requisição ao QODE Office local; null = fora do ar, tempo esgotado ou resposta ilegível. */
+/** Token dos hooks (B4): HABBLAUD_HOOKS_TOKEN ou <HABBLAUD_DATA_DIR|~/.habblaud>/hooks.token. Nunca logado. */
+export function hooksToken(env = process.env) {
+  const direct = env.HABBLAUD_HOOKS_TOKEN?.trim();
+  if (direct) return direct;
+  try {
+    const file = join(env.HABBLAUD_DATA_DIR?.trim() || join(env.HOME || homedir(), '.habblaud'), 'hooks.token');
+    if (!lstatSync(file).isFile()) return undefined;
+    const t = readFileSync(file, 'utf8').trim();
+    return t.length >= 32 ? t : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function call(base, method, path, body, timeoutMs) {
   try {
+    const headers = body === undefined ? {} : { 'Content-Type': 'application/json' };
+    const token = hooksToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch(`${base}${path}`, {
       method,
-      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
