@@ -27,14 +27,14 @@ describe('CursorCollector', () => {
     expect(calls.every((x) => x.method === 'GET' && x.url.startsWith('https://api.cursor.com/v1/agents'))).toBe(true);
     expect(calls[0].auth).toBe(`Basic ${Buffer.from('k:').toString('base64')}`);
     expect(out.map((o) => [o.id, o.state, !!o.link])).toEqual([
-      ['bc-00000000-0000-0000-0000-000000000001', 'running', true],
+      ['bc-00000000-0000-0000-0000-000000000001', 'unknown', true],
       ['bc-00000000-0000-0000-0000-000000000002', 'idle', false],
     ]);
     expect(JSON.stringify(out)).not.toContain(CANARY);
     // detalhe em cache: segundo ciclo não repete GET de detalhe
     const n = calls.length;
     await c.poll(FIX_NOW);
-    expect(calls.length - n).toBe(2);
+    expect(calls.length - n).toBe(3); // 2 páginas + 1 GET de run (ACTIVE); detalhes em cache
   });
   it('erro HTTP não ecoa corpo', async () => {
     const f: FetchLike = async () => ({ ok: false, status: 401, text: async () => `token ${CANARY}` });
@@ -91,5 +91,43 @@ describe('CursorCollector', () => {
     const cache = [...(c as unknown as { projectOf: Map<string, string | null> }).projectOf.values()];
     expect(cache.some((v) => v && /https?:|github\.com/.test(v))).toBe(false);
     expect(cache).toContain(null); // repo fora da allowlist
+  });
+  it('ACTIVE só é execução se o run estiver RUNNING; IDLE > 24 h vai para lastWindowExcluded', async () => {
+    const list = { items: [
+      { id: 'bc-act0000001', status: 'ACTIVE', updatedAt: '2026-10-16T12:59:00Z', latestRunId: 'run-r1' },
+      { id: 'bc-act0000002', status: 'ACTIVE', updatedAt: '2026-10-16T12:59:00Z', latestRunId: 'run-r2' },
+      { id: 'bc-act0000003', status: 'ACTIVE', updatedAt: '2026-10-16T12:59:00Z' },
+      { id: 'bc-old0000009', status: 'IDLE', updatedAt: '2026-10-01T00:00:00Z' },
+    ] };
+    const runs: Record<string, unknown> = { 'run-r1': { status: 'RUNNING', result: CANARY }, 'run-r2': { status: 'CREATING' } };
+    const f: FetchLike = async (url, init) => {
+      expect(init.method).toBe('GET');
+      const p = new URL(url).pathname.split('/');
+      const body = p.length === 3 ? list : p[4] === 'runs' ? runs[p[5]] : { repos: [{ url: 'https://github.com/matheusqf/habblaud-qode' }] };
+      return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+    };
+    const c = new CursorCollector({ apiKey: 'k', cfg, fetch: f });
+    const out = await c.poll(FIX_NOW);
+    expect(out.map((o) => [o.id, o.state])).toEqual([['bc-act0000001', 'running'], ['bc-act0000002', 'unknown'], ['bc-act0000003', 'unknown']]);
+    expect(JSON.stringify(out)).not.toContain(CANARY);
+    expect([...c.lastWindowExcluded]).toEqual(['bc-old0000009']);
+  });
+  it('multirepo: todos os repos têm de estar na allowlist', async () => {
+    const list = { items: [
+      { id: 'bc-multi00001', status: 'IDLE', updatedAt: '2026-10-16T12:59:00Z' },
+      { id: 'bc-multi00002', status: 'IDLE', updatedAt: '2026-10-16T12:59:00Z' },
+      { id: 'bc-multi00003', status: 'IDLE', updatedAt: '2026-10-16T12:59:00Z' },
+    ] };
+    const det: Record<string, unknown> = {
+      'bc-multi00001': { repos: [{ url: 'https://github.com/alguem/privado' }, { url: 'https://github.com/matheusqf/habblaud-qode' }] },
+      'bc-multi00002': { repos: [{ url: 'https://github.com/matheusqf/habblaud-qode' }, { url: 'https://github.com/alguem/privado' }] },
+      'bc-multi00003': { repos: [{ url: 'https://github.com/matheusqf/habblaud-qode' }, { url: 'https://github.com/matheusqf/habblaud-qode.git' }] },
+    };
+    const f: FetchLike = async (url) => {
+      const p = new URL(url).pathname.split('/');
+      return { ok: true, status: 200, text: async () => JSON.stringify(p.length === 3 ? list : det[p[3]]) };
+    };
+    const out = await new CursorCollector({ apiKey: 'k', cfg, fetch: f }).poll(FIX_NOW);
+    expect(out.map((o) => o.id)).toEqual(['bc-multi00003']);
   });
 });

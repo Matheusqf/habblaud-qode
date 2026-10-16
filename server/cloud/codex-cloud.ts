@@ -41,24 +41,25 @@ export class CodexCloudCollector implements CloudCollector {
     private readonly deps: {
       bin: string;
       cfg: Pick<CloudConfig, 'projects' | 'ttlMs'>;
-      /** HABBLAUD_CLOUD_CODEX_VERSION: saída EXATA exigida de `codex --version` (ex. "codex-cli 0.162.0-alpha.17.2"). */
-      pinnedVersion?: string;
+      /** HABBLAUD_CLOUD_CODEX_VERSION (OBRIGATÓRIO): saída EXATA de `codex --version`, verificada em cada execução. */
+      pinnedVersion: string;
       /** environment_id -> projeto (HABBLAUD_CLOUD_CODEX_ENVS). Sem entrada = tarefa descartada. */
       envs: ReadonlyMap<string, string>;
       run?: RunFixed;
     },
-  ) {}
+  ) {
+    if (!deps.pinnedVersion?.trim()) throw new Error('codex cloud: HABBLAUD_CLOUD_CODEX_VERSION obrigatório');
+  }
 
   private run(args: readonly string[]): Promise<string> {
     return (this.deps.run ?? runFixed)(this.deps.bin, args);
   }
 
   async poll(now: number): Promise<CloudObservation[]> {
-    if (this.deps.pinnedVersion && this.versionOk === undefined) {
-      const v = (await this.run(['--version'])).trim();
-      this.versionOk = v === this.deps.pinnedVersion;
-    }
-    if (this.versionOk === false) throw new Error('codex cloud: versão do CLI fora da fixada');
+    // Pin verificado em CADA execução (o binário pode ser trocado entre ciclos): diverge => falha fechada.
+    const v = (await this.run(['--version'])).trim();
+    this.versionOk = v === this.deps.pinnedVersion.trim();
+    if (!this.versionOk) throw new Error('codex cloud: versão do CLI fora da fixada');
     const out: CloudObservation[] = [];
     let cursor: string | undefined;
     let page = 0;
@@ -74,10 +75,18 @@ export class CodexCloudCollector implements CloudCollector {
         const o = sanitize('codex-cloud', { id: r.id, project, nativeState: r.status, updatedAt: r.updated_at, link: r.url }, this.deps.cfg, now);
         if (o) out.push(o);
       }
-      cursor = typeof parsed.cursor === 'string' && CURSOR_RE.test(parsed.cursor) ? parsed.cursor : undefined;
       page++;
+      if (parsed.cursor === null) {
+        cursor = undefined; // fim explícito: inventário completo
+        this.lastPartial = false;
+      } else if (typeof parsed.cursor === 'string' && CURSOR_RE.test(parsed.cursor)) {
+        cursor = parsed.cursor;
+        this.lastPartial = true; // até chegar ao fim
+      } else {
+        cursor = undefined; // ausente/inválido: não dá para provar que acabou => parcial
+        this.lastPartial = true;
+      }
     } while (cursor && page < MAX_PAGES);
-    this.lastPartial = !!cursor;
     return out;
   }
 }

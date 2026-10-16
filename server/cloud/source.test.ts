@@ -30,7 +30,7 @@ describe('CloudSource', () => {
   });
   it('running -> working, idle -> idle, ended sai da sala', async () => {
     const { office, agents } = fakeOffice();
-    let list = [obs('bc-aaaaaa01', 'ACTIVE'), obs('bc-aaaaaa02', 'IDLE')];
+    let list = [obs('bc-aaaaaa01', 'RUNNING'), obs('bc-aaaaaa02', 'IDLE')];
     let now = FIX_NOW;
     const s = new CloudSource({ office, collectors: [{ provider: 'cursor', poll: async () => list }], now: () => now });
     await s.tick();
@@ -47,7 +47,7 @@ describe('CloudSource', () => {
     const { office, agents } = fakeOffice();
     let fail = false;
     let now = FIX_NOW;
-    const s = new CloudSource({ office, collectors: [{ provider: 'cursor', poll: async () => { if (fail) throw new Error('HTTP 500 body SECRET'); return [obs('bc-aaaaaa01', 'ACTIVE')]; } }], now: () => now });
+    const s = new CloudSource({ office, collectors: [{ provider: 'cursor', poll: async () => { if (fail) throw new Error('HTTP 500 body SECRET'); return [obs('bc-aaaaaa01', 'RUNNING')]; } }], now: () => now });
     await s.tick();
     fail = true;
     now += 31_000;
@@ -76,7 +76,7 @@ describe('CloudSource', () => {
     const unk = sanitize('cursor', { id: 'bc-aaaaaa09', project: 'matheusqf/habblaud-qode', nativeState: 'NOVO_ESTADO', updatedAt: FIX_NOW }, cfg, FIX_NOW)!;
     let now = FIX_NOW;
     let fail = false;
-    const s = new CloudSource({ office, collectors: [{ provider: 'cursor', poll: async () => { if (fail) throw new Error('x'); return [obs('bc-aaaaaa01', 'ACTIVE'), unk]; } }], now: () => now });
+    const s = new CloudSource({ office, collectors: [{ provider: 'cursor', poll: async () => { if (fail) throw new Error('x'); return [obs('bc-aaaaaa01', 'RUNNING'), unk]; } }], now: () => now });
     await s.tick();
     expect(agents.get('cloud:cursor:bc-aaaaaa09')?.cloud?.state).toBe('unknown');
     expect(agents.get('cloud:cursor:bc-aaaaaa01')?.cloud?.state).toBe('running');
@@ -153,15 +153,61 @@ describe('CloudSource', () => {
     expect(agents.get('cloud:cursor:bc-aaaaaa02')?.cloud?.state).toBe('stale');
     expect(agents.has('cloud:cursor:bc-aaaaaa02')).toBe(true);
   });
+  it('relógio pós-await: poll de 165 s não nasce vencido (TTL 180 s conta do fim) e nextAt/backoff usam o fim', async () => {
+    const { office, agents } = fakeOffice();
+    let now = FIX_NOW;
+    let fail = false;
+    const s = new CloudSource({
+      office,
+      collectors: [{ provider: 'cursor', poll: async (t) => { now += 165_000; if (fail) throw new Error('x'); return [sanitize('cursor', { id: 'bc-aaaaaa03', project: 'matheusqf/habblaud-qode', nativeState: 'RUNNING', updatedAt: t }, cfg, t)!]; } }],
+      now: () => now,
+    });
+    await s.tick();
+    expect(s.observations()[0].expiresAt).toBe(FIX_NOW + 165_000 + 180_000);
+    expect(agents.get('cloud:cursor:bc-aaaaaa03')?.cloud?.state).toBe('running');
+    // próximo poll agenda a partir do fim: um tick logo a seguir não chama de novo
+    const before = now;
+    now = before + 10_000;
+    fail = true;
+    await s.tick();
+    expect(now).toBe(before + 10_000); // não chamou poll (senão avançaria 165 s)
+    now = before + 31_000;
+    await s.tick(); // chama e falha; backoff a partir do fim da falha
+    const failedAt = now;
+    now = failedAt + 30_000;
+    await s.tick();
+    expect(now).toBe(failedAt + 30_000);
+  });
+  it('excluído por janela (IDLE > 24 h) num inventário completo não fecha', async () => {
+    const { office: base, agents } = fakeOffice();
+    const closes: string[] = [];
+    const office = { ...base, closeMain: (id: string) => (closes.push(id), base.closeMain(id)) };
+    const col: { provider: 'cursor'; lastPartial: boolean; lastWindowExcluded?: Set<string>; poll: () => Promise<CloudObservation[]> } = { provider: 'cursor', lastPartial: false, poll: async () => list };
+    let list = [obs('bc-aaaaaa01', 'IDLE'), obs('bc-aaaaaa02', 'IDLE')];
+    let now = FIX_NOW;
+    const s = new CloudSource({ office, collectors: [col], now: () => now });
+    await s.tick();
+    list = [obs('bc-aaaaaa01', 'IDLE', FIX_NOW + 31_000)];
+    col.lastWindowExcluded = new Set(['bc-aaaaaa02']);
+    now += 31_000;
+    await s.tick();
+    expect(closes).toEqual([]);
+    expect(agents.has('cloud:cursor:bc-aaaaaa02')).toBe(true);
+    // ausência verdadeira (nem na listagem) num inventário completo fecha
+    col.lastWindowExcluded = new Set();
+    now += 31_000;
+    await s.tick();
+    expect(closes).toEqual(['cloud:cursor:bc-aaaaaa02']);
+  });
   it('inventário parcial: ausência não encerra o agente', async () => {
     const { office, agents } = fakeOffice();
-    let list = [obs('bc-aaaaaa01', 'ACTIVE'), obs('bc-aaaaaa02', 'ACTIVE')];
+    let list = [obs('bc-aaaaaa01', 'RUNNING'), obs('bc-aaaaaa02', 'RUNNING')];
     const col = { provider: 'cursor' as const, lastPartial: false, poll: async () => list };
     let now = FIX_NOW;
     const s = new CloudSource({ office, collectors: [col], now: () => now });
     await s.tick();
     col.lastPartial = true;
-    list = [obs('bc-aaaaaa01', 'ACTIVE', FIX_NOW + 31_000)];
+    list = [obs('bc-aaaaaa01', 'RUNNING', FIX_NOW + 31_000)];
     now += 31_000;
     await s.tick();
     expect(agents.has('cloud:cursor:bc-aaaaaa02')).toBe(true);
@@ -169,5 +215,4 @@ describe('CloudSource', () => {
     now += 31_000;
     await s.tick();
     expect(agents.has('cloud:cursor:bc-aaaaaa02')).toBe(false);
-  });
-});
+  });});

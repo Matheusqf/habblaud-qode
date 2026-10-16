@@ -15,7 +15,9 @@ export function buildCloudCollectors(cfg: CloudConfig, env: NodeJS.ProcessEnv): 
   }
   if (cfg.codex) {
     const bin = findCodexBin(env);
-    if (bin) out.push(new CodexCloudCollector({ bin, cfg, envs: parseCodexEnvMap(env.HABBLAUD_CLOUD_CODEX_ENVS), pinnedVersion: env.HABBLAUD_CLOUD_CODEX_VERSION?.trim() || undefined }));
+    const pin = env.HABBLAUD_CLOUD_CODEX_VERSION?.trim();
+    if (bin && pin) out.push(new CodexCloudCollector({ bin, cfg, envs: parseCodexEnvMap(env.HABBLAUD_CLOUD_CODEX_ENVS), pinnedVersion: pin }));
+    else if (bin) log.warn('Cloud: HABBLAUD_CLOUD_CODEX=1 sem HABBLAUD_CLOUD_CODEX_VERSION (pin obrigatório); ponte Codex desligada.');
     else log.warn('Cloud: HABBLAUD_CLOUD_CODEX=1 mas o CLI `codex` não foi encontrado (HABBLAUD_CODEX_BIN ou PATH).');
   }
   return out;

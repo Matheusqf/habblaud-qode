@@ -18,7 +18,9 @@ describe('cloud contract', () => {
   });
   it('IDLE não é sucesso nem trabalho; desconhecido fica desconhecido', () => {
     expect(normalizeState('cursor', 'IDLE')).toBe('idle');
-    expect(normalizeState('cursor', 'ACTIVE')).toBe('running');
+    expect(normalizeState('cursor', 'ACTIVE')).toBe('unknown');
+    expect(normalizeState('cursor', 'CREATING')).toBe('unknown');
+    expect(normalizeState('cursor', 'RUNNING')).toBe('running');
     expect(normalizeState('cursor', 'WHATEVER')).toBe('unknown');
     expect(normalizeState('codex-cloud', 'pending')).toBe('unknown');
     expect(normalizeState('codex-cloud', 'queued')).toBe('unknown');
@@ -40,8 +42,8 @@ describe('cloud contract', () => {
     expect(o2.link).toBeUndefined();
   });
   it('sem hora = desconhecido; running vencido = stale', () => {
-    expect(sanitize('cursor', { id: 'bc-abcdef12', project: 'matheusqf/habblaud-qode', nativeState: 'ACTIVE', updatedAt: undefined }, cfg, FIX_NOW)!.state).toBe('unknown');
-    const o = sanitize('cursor', { id: 'bc-abcdef12', project: 'matheusqf/habblaud-qode', nativeState: 'ACTIVE', updatedAt: FIX_NOW }, cfg, FIX_NOW)!;
+    expect(sanitize('cursor', { id: 'bc-abcdef12', project: 'matheusqf/habblaud-qode', nativeState: 'RUNNING', updatedAt: undefined }, cfg, FIX_NOW)!.state).toBe('unknown');
+    const o = sanitize('cursor', { id: 'bc-abcdef12', project: 'matheusqf/habblaud-qode', nativeState: 'RUNNING', updatedAt: FIX_NOW }, cfg, FIX_NOW)!;
     expect(effectiveState(o, FIX_NOW + 1)).toBe('running');
     expect(effectiveState(o, o.expiresAt + 1)).toBe('stale');
     const idle = sanitize('cursor', { id: 'bc-abcdef12', project: 'matheusqf/habblaud-qode', nativeState: 'IDLE', updatedAt: FIX_NOW }, cfg, FIX_NOW)!;
@@ -50,7 +52,7 @@ describe('cloud contract', () => {
     expect(effectiveState(unk, unk.expiresAt + 1)).toBe('stale');
     const end = sanitize('cursor', { id: 'bc-abcdef12', project: 'matheusqf/habblaud-qode', nativeState: 'ARCHIVED', updatedAt: FIX_NOW }, cfg, FIX_NOW)!;
     expect(effectiveState(end, end.expiresAt + 1)).toBe('ended');
-    const old = sanitize('cursor', { id: 'bc-abcdef12', project: 'matheusqf/habblaud-qode', nativeState: 'ACTIVE', updatedAt: FIX_NOW - 86_400_000 }, cfg, FIX_NOW)!;
+    const old = sanitize('cursor', { id: 'bc-abcdef12', project: 'matheusqf/habblaud-qode', nativeState: 'RUNNING', updatedAt: FIX_NOW - 86_400_000 }, cfg, FIX_NOW)!;
     expect(old.state).toBe('stale');
   });
 });
