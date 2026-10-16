@@ -24,15 +24,15 @@ HABBLAUD_AUTH=1 npm start      # bind continua 127.0.0.1; preflight de seguranç
   (`/api/stream` e `*/terminal`) sem esperar o próximo pedido. Idle 8h, absoluto 7d. Login: 5 falhas/15 min → 429.
 - `HABBLAUD_REMOTE=1` sem `HABBLAUD_AUTH=1` → preflight recusa. Remoto também recusa Vite/dev, bind externo e senha ausente.
 
-## Limitações conhecidas (antes de ligar auth no dia-a-dia)
+## Contrato efetivo
 
-- Os hooks/mod ainda **não enviam** o Bearer: com `HABBLAUD_AUTH=1` passam a levar 401 nas rotas de hook. Patch seguinte.
-- Sessões em memória: reiniciar o servidor desloga (rotação de senha no disco já invalida em quente).
-- Autorização fina por escopo UI (terminal vs messages vs tasks) ainda é "sessão = tudo" no cookie; Bearer já é por capacidade.
+Matriz, token, epoch/revogação, fail-closed, rate-limit e pendências: **`docs/QODE-B4-AUTH-CONTRACT.md`** (fonte de
+verdade alinhada ao código). Hooks/mod/bridge já enviam o Bearer resolvido de env **ou** `hooks.token`
+(mods: leitura do ficheiro depende de `$.fs.read` no engine — pendente de verificação no Claude Code real).
 
 ## Próximos passos (não feitos)
 
-1. Propagar Bearer nos hooks + `hooks:install`.
+1. Confirmar no Claude Code real que os mods leem `hooks.token` sem env.
 2. C9 com proxy real (caddy/socat) contra o servidor completo.
 3. L2 perfil remote + runbook `tailscale serve` (sem Funnel) — só com ok do Matheus.
 

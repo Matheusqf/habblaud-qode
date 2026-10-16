@@ -32,6 +32,7 @@
 // Análise estática do Claude Code: cada chamada é escrita por extenso ($.noun.método), o nome do evento é
 // sempre uma string literal e `$` só é passado para funções declaradas no topo deste arquivo.
 import type { EngineInterface, HttpResponse, Register } from 'claude-code'
+import { engineReader, resolveModHooksToken } from './token'
 
 /** Porta padrão do QODE Office (a mesma do servidor, do mod e do docker-compose). */
 export const DEFAULT_PORT = 4747
@@ -203,7 +204,7 @@ async function waitAtMost<T>($: EngineInterface, promise: Promise<T>, ms: number
 async function postJson($: EngineInterface, port: number, path: string, body: string): Promise<HttpResponse | undefined> {
   try {
     // B4: com HABBLAUD_AUTH=1 as rotas de ingest exigem Bearer (HABBLAUD_HOOKS_TOKEN). Nunca logado.
-    const token = (await $.env.get('HABBLAUD_HOOKS_TOKEN'))?.trim()
+    const token = await resolveModHooksToken((k) => $.env.get(k), engineReader($))
     const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json' }
     if (token) headers.authorization = `Bearer ${token}`
     const request = $.http.fetch(`http://127.0.0.1:${port}${path}`, {
