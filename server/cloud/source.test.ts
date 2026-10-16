@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { log } from '../log';
 import type { MainInput } from '../model/office';
 import { sanitize, type CloudObservation } from './contract';
 import { FIX_NOW } from './fixtures';
@@ -55,5 +56,18 @@ describe('CloudSource', () => {
     now += 200_000;
     await s.tick();
     expect(agents.get('cloud:cursor:bc-aaaaaa01')?.status).toBe('idle');
+  });
+  it('log de falha não contém texto bruto do erro (canário)', async () => {
+    const lines: string[] = [];
+    const a = vi.spyOn(log, 'warnOnce').mockImplementation((_k: string, m: string) => void lines.push(m));
+    const b = vi.spyOn(log, 'warn').mockImplementation((m: string) => void lines.push(m));
+    const { office } = fakeOffice();
+    const s = new CloudSource({ office, collectors: [{ provider: 'cursor', poll: async () => { throw new Error('HTTP 500 body SECRET-CANARIO token=abc'); } }], now: () => FIX_NOW });
+    await s.tick();
+    a.mockRestore();
+    b.mockRestore();
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.join('\n')).not.toMatch(/SECRET|token=|HTTP 500/);
+    expect(lines.join('\n')).toMatch(/categoria=poll_failed/);
   });
 });
