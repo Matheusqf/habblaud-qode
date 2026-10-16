@@ -35,3 +35,35 @@ com atribuição; arte de terceiros com licença incerta nunca é copiada.** Nad
 
 - Item 1 (animações de estado): `client/src/world/fx/vibe.ts`, opt-in `?fx=vibe` / `VITE_HABBLAUD_FX=vibe` — café (ícone) ao entrar em espera de permissão, tombo (estrelinhas de tontura + suor) ao erro, confete ao `done` do agente principal.
 - Item 2 (Areas por projeto): `shared/areas.ts` + `VITE_HABBLAUD_AREAS='[{"name":"Singolo","paths":["/caminho/singolo"]}]'` — a sala de um projeto dentro dessas pastas passa a mostrar o nome da área (placa, rótulo no chão, lista).
+
+## SkyOffice deep-dive (16/10/2026)
+
+Fonte: [kevinshen56714/SkyOffice](https://github.com/kevinshen56714/SkyOffice) @ `3f66b8b` (19/12/2025). Código **MIT** (© 2021 Kuan-Hsuan Shen). Stack: Phaser 3 + Colyseus + React/Redux + PeerJS.
+
+### Licença dos assets — NÃO copiar
+Tilesets (`client/public/assets/tileset/*`, `map/FloorAndGround.png`, `archive/Room_Builder_*`) e personagens (`character/adam|ash|lucy|nancy`) são do **LimeZu** (Modern Interiors / Modern Office, itch.io). A licença LimeZu permite usar em jogos, mas **proíbe redistribuir os ficheiros**, e os packs completos são pagos. A MIT do repo não cobre esses PNGs. Regra: **zero assets do SkyOffice no nosso repo**; usar CC0 (2dPig Pixel Office, Office 8x8) ou arte própria. Os `map.json/.tmx` dependem desses tilesets, então também não se copiam (só a estrutura de camadas como ideia).
+
+### Features
+| Feature | O que faz | Arquivos-chave | Encaixe QODE (observe-only) | Valor × esforço | Porte |
+|---|---|---|---|---|---|
+| Mapa Tiled com camadas de objetos | Itens (Chair, Computer, Whiteboard, VendingMachine) vêm de object layers do Tiled e viram objetos interativos | `client/src/scenes/Game.ts` (L98-150, `addObjectFromTiled`), `client/src/items/*` | Alto: definir mesas/quadros/zonas num JSON Tiled em vez de layout hardcoded (`world/layout`) | Alto × médio | Reescrever loader para o nosso renderer canvas (não usamos Phaser); ideia do contrato de camadas |
+| Item selector por sobreposição | Caixa à frente do avatar destaca o item mais próximo e mostra dica ("E para sentar") | `characters/PlayerSelector.ts`, `items/Item.ts` (`onOverlapDialog`) | Médio: hover/foco por teclado em mesas mostra cartão do agente/projeto | Médio × baixo | Copiar a lógica do Item (dialog box) com atribuição MIT, adaptada |
+| Computadores "compartilhados" | Ao usar um PC, entra num grupo de screen-share (WebRTC) com quem está no mesmo PC | `items/Computer.ts`, `web/ShareScreenManager.ts`, `components/ComputerDialog.tsx`, `server/rooms/commands/ComputerUpdateArrayCommand.ts` | Adaptado: clicar no monitor de uma mesa abre painel **só leitura** com a ação/ficheiro atual do agente (feature #2 do backlog). Screen-share real = ideia futura | Alto × médio | Reescrever; padrão `connectedUser` por item é bom |
+| Whiteboard embutido | Iframe do WBO por sala, com quem está conectado | `items/Whiteboard.ts`, `components/WhiteboardDialog.tsx`, `stores/WhiteboardStore.ts` | Médio: o nosso kanban de parede abre um painel com o board real do projeto (Notion/GitHub Projects), só leitura | Médio × baixo | Reescrever (iframe/link simples) |
+| Chat com balões em tempo real | Chat global + balão de fala sobre o avatar que some após alguns segundos | `components/Chat.tsx`, `characters/Player.ts` (`updateDialogBubble`), `stores/ChatStore.ts`, `ChatMessageUpdateCommand.ts` | Já temos `world/social` (balões/linhas). Adotar: balão com a última mensagem/commit do agente, com timeout e limite de caracteres | Médio × baixo | Copiar a lógica de wrap/timeout do bubble (MIT, atribuição) |
+| Proximidade (vídeo) | Overlap entre jogadores dispara chamada PeerJS; afastar desliga | `scenes/Game.ts` `handlePlayersOverlap`, `web/WebRTC.ts`, `MyPlayer.ts` | Vídeo/voz: **só ideia futura**. Reuso já: agentes próximos (mesmo projeto/ficheiro) mostram linha de "colaborando" | Médio × baixo (só visual) | Reescrever |
+| Salas públicas/privadas com senha | Lobby lista salas Colyseus; criar sala custom com nome, descrição, senha | `components/RoomSelectionDialog.tsx`, `CreateRoomForm.tsx`, `CustomRoomTable.tsx`, `server/index.ts`, `types/Rooms.ts` | Whitelabel: "workspaces" por cliente/equipa com link privado | Alto (venda) × alto | Ideia; arquitetura nossa (sem Colyseus) |
+| Seleção de avatar + nome | Login com carrossel de 4 personagens | `components/LoginDialog.tsx`, `anims/CharacterAnims.ts` | Já temos CharacterEditor; ideia de carrossel de presets | Baixo × baixo | Ideia |
+| Fundo dia/noite com nuvens | Backdrop e nuvens animadas trocam por modo | `scenes/Background.ts`, `types/BackgroundMode.ts` | Já temos `render/daylight.ts`; ideia: céu/nuvens parallax no exterior do mapa gather | Baixo × baixo | Reescrever com arte CC0 |
+| Sentar / animações por direção | `E` senta na cadeira com direção do Tiled | `items/Chair.ts`, `MyPlayer.ts` | Já temos (agentes sentam nas mesas) | — | — |
+| Joystick mobile | Joystick virtual | `components/MobileVirtualJoystick.tsx` | Útil para vista telemóvel (pan da câmara) | Baixo × baixo | Ideia |
+| Estado autoritativo no servidor | Schema Colyseus (`OfficeState`) + commands | `server/rooms/schema/OfficeState.ts`, `server/rooms/commands/*` | Já temos snapshot do servidor; ideia: comandos pequenos e testáveis por tipo de evento | Médio × médio | Ideia |
+
+### Top recomendado (ordem)
+1. **Monitor clicável = painel só leitura do agente** (padrão Computer + `connectedUser`).
+2. **Layout via Tiled JSON** (object layers para mesas/quadros/zonas) — destrava o whitelabel.
+3. **Balões com última ação/commit** (timeout/wrap do Player bubble).
+4. **Kanban de parede abre o board real do projeto** (padrão Whiteboard).
+5. **Workspaces privados por cliente** (ideia das salas custom) para a versão whitelabel.
+
+Fora: controlar agentes, vídeo/voz/screen-share (futuro). Atribuição: código copiado leva cabeçalho `Adapted from SkyOffice (MIT) © 2021 Kuan-Hsuan Shen` e entrada no `NOTICE.md`.
