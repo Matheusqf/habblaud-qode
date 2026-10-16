@@ -20,6 +20,7 @@ export const cursorDetails: Record<string, unknown> = {
   'bc-00000000-0000-0000-0000-000000000004': { repos: [{ url: 'https://github.com/matheusqf/habblaud-qode' }] },
 };
 
+// SINTÉTICO: envelope {tasks, cursor} confirmado com o CLI real (0 tarefas); campos por tarefa conforme nomes do CLI, não observados.
 export const codexCloudFixture = {
   tasks: [
     { id: 'task_e_abc123', url: 'https://chatgpt.com/codex/tasks/task_e_abc123', title: `t ${CANARY}`, status: 'in_progress', updated_at: '2026-10-16T12:59:30Z', environment_id: 'env1', environment_label: 'outro/privado', summary: { files_changed: 1 }, is_review: false },
