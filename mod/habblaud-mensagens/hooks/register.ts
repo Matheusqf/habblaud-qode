@@ -202,10 +202,14 @@ async function waitAtMost<T>($: EngineInterface, promise: Promise<T>, ms: number
 /** POST de um JSON ao QODE Office local com prazo de 2 s: a resposta, ou undefined (fora do ar, travado). Nunca lança. */
 async function postJson($: EngineInterface, port: number, path: string, body: string): Promise<HttpResponse | undefined> {
   try {
+    // B4: com HABBLAUD_AUTH=1 as rotas de ingest exigem Bearer (HABBLAUD_HOOKS_TOKEN). Nunca logado.
+    const token = (await $.env.get('HABBLAUD_HOOKS_TOKEN'))?.trim()
+    const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json' }
+    if (token) headers.authorization = `Bearer ${token}`
     const request = $.http.fetch(`http://127.0.0.1:${port}${path}`, {
       method: 'POST',
       // Sem o Content-Type, o guarda do servidor recusa o POST (415).
-      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      headers,
       body,
     })
     return await waitAtMost($, request, FETCH_TIMEOUT_MS)

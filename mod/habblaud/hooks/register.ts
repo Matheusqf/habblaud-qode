@@ -299,7 +299,11 @@ async function askHabblaud($: EngineInterface, port: number, query: string): Pro
     wait = $.clock.after(FETCH_TIMEOUT_MS, () => resolve(undefined))
   })
   try {
-    const res = await Promise.race([$.http.fetch(`http://127.0.0.1:${port}/api/mod/summary${query}`, { headers: { accept: 'application/json' } }), timeout])
+    // B4: /api/mod/summary é rota de máquina (Bearer HABBLAUD_HOOKS_TOKEN) com HABBLAUD_AUTH=1. Nunca logado.
+    const token = (await $.env.get('HABBLAUD_HOOKS_TOKEN'))?.trim()
+    const headers: Record<string, string> = { accept: 'application/json' }
+    if (token) headers.authorization = `Bearer ${token}`
+    const res = await Promise.race([$.http.fetch(`http://127.0.0.1:${port}/api/mod/summary${query}`, { headers }), timeout])
     if (!res) return { kind: 'offline' }
     // 404 JSON = um QODE Office de antes do mod (rota desconhecida); outro 404 qualquer = não é o QODE Office.
     if (res.status === 404 && res.text.includes('rota desconhecida')) return { kind: 'outdated' }

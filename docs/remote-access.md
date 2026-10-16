@@ -35,3 +35,16 @@ HABBLAUD_AUTH=1 npm start      # bind continua 127.0.0.1; preflight de seguranç
 1. Propagar Bearer nos hooks + `hooks:install`.
 2. C9 com proxy real (caddy/socat) contra o servidor completo.
 3. L2 perfil remote + runbook `tailscale serve` (sem Funnel) — só com ok do Matheus.
+
+## Confiança local do token de hooks (B4 L1, rodada 3)
+
+- O token Bearer (`HABBLAUD_HOOKS_TOKEN` ou `<dataDir>/hooks.token`, 0600) vale para **a máquina inteira**: qualquer
+  processo do mesmo utilizador que o consiga ler pode falar como "hook". Não há vínculo a account/session/task.
+- É aceito **só** em loopback e **só** nas rotas de ingest: `POST /api/permissions`, `GET /api/permissions/:id/wait`,
+  `POST /api/codex/events`, `POST /api/mod/inbox[/ack]`, `POST /api/codex/bridge/{poll,ack}` e `GET /api/mod/summary`
+  (resumo só-leitura do mod do Claude Code, que agora envia o Bearer). Não abre UI/operate.
+- Cookie de sessão do operador abre UI/operate e **não** abre as rotas de ingest (matriz por principal).
+- Este token **não é identidade** e **nunca** é reutilizado como credencial do B2 / cloudbot / ops-room; um canal
+  remoto ou cloud precisa de identidade própria, escopada e revogável.
+- `auth.json` ausente, corrompido, não-regular (symlink/dir) ou com parâmetros inválidos = fail-closed: preflight
+  recusa o boot e, com o servidor vivo, todas as sessões/SSE são revogadas e o login é recusado.

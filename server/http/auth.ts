@@ -9,10 +9,16 @@
 //   (a) remoteAddress é loopback e (b) a rota+método é de hook (register/wait, codex events, inbox/bridge).
 //   Host nunca é identidade. Bearer NÃO abre UI/operate: snapshot, stream, terminal, permissions detail/decision, messages.
 // - Todos os SSE da sessão (/api/stream e */terminal) são rastreados; fecho por timer/evento sem esperar o próximo pedido.
-// - Rotação de senha (auth.json.generation) invalida sessões e streams na hora.
+// - Rotação de senha (auth.json.generation) invalida sessões e streams na hora. Cada sessão guarda o epoch sob que
+//   foi emitida; login reconcilia o epoch DEPOIS do body e antes de emitir. auth.json ausente/corrompido/inválido
+//   = fail-closed (revoga tudo, recusa login). Escrita atómica (tmp+rename).
+// - Rate-limit conta falhas + logins em curso (reserva antes do await readBody).
+// - Matriz por principal: cookie (operador) → UI/operate; Bearer (máquina) → SÓ ingest. Cookie NÃO abre ingest.
+// - Confiança local: o token de hooks vale para a máquina inteira (qualquer processo do user que o leia), sem
+//   vínculo a account/session/task. NÃO é identidade e NUNCA é reutilizado como credencial do B2/cloudbot.
 // - Token de sessão em query string é ignorado (só cookie).
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, join } from 'node:path';
 
@@ -75,23 +81,57 @@ export function writePasswordFile(dataDir: string, password: string): AuthFile {
   const file = authFile(dataDir);
   mkdirSync(dirname(file), { recursive: true });
   const body: AuthFile = { password: hashPassword(password), generation: randomBytes(16).toString('hex') };
-  writeFileSync(file, JSON.stringify(body, null, 2) + '\n', { mode: 0o600 });
-  chmodSync(file, 0o600);
+  // Escrita atómica: tmp exclusivo (0600) + rename — o leitor nunca vê um auth.json pela metade.
+  const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  writeFileSync(tmp, JSON.stringify(body, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  chmodSync(tmp, 0o600);
+  renameSync(tmp, file);
   return body;
 }
 
-function readAuthFile(dataDir: string): AuthFile | undefined {
+const B64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/** Valida o registo de auth.json (algo, parâmetros scrypt, salt/hash, generation). undefined = inválido. */
+export function validateAuthFile(raw: unknown): AuthFile | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as { password?: Partial<PasswordRecord>; generation?: unknown };
+  const pw = r.password;
+  if (!pw || typeof pw !== 'object' || pw.algo !== 'scrypt') return undefined;
+  const int = (v: unknown, lo: number, hi: number) => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
+  if (!int(pw.N, 16384, 1 << 20) || (pw.N! & (pw.N! - 1)) !== 0) return undefined;
+  if (!int(pw.r, 8, 32) || !int(pw.p, 1, 16)) return undefined;
+  if (typeof pw.salt !== 'string' || !B64.test(pw.salt) || Buffer.from(pw.salt, 'base64').length < 16) return undefined;
+  if (typeof pw.hash !== 'string' || !B64.test(pw.hash) || Buffer.from(pw.hash, 'base64').length < 32) return undefined;
+  if (typeof r.generation !== 'string' || !/^[0-9a-f]{16,128}$/.test(r.generation)) return undefined;
+  return { password: { algo: 'scrypt', N: pw.N!, r: pw.r!, p: pw.p!, salt: pw.salt, hash: pw.hash }, generation: r.generation };
+}
+
+/** Lê e valida auth.json; exige ficheiro regular (sem symlink). undefined = ausente/corrompido/inválido. */
+export function loadAuthFile(dataDir: string): AuthFile | undefined {
   try {
-    const raw = JSON.parse(readFileSync(authFile(dataDir), 'utf8')) as Partial<AuthFile>;
-    if (!raw.password || typeof raw.password.hash !== 'string') return undefined;
-    return {
-      password: raw.password,
-      generation: typeof raw.generation === 'string' && raw.generation.length >= 8 ? raw.generation : 'legacy',
-    };
+    const st = lstatSync(authFile(dataDir));
+    if (!st.isFile()) return undefined;
+    return validateAuthFile(JSON.parse(readFileSync(authFile(dataDir), 'utf8')));
   } catch {
     return undefined;
   }
 }
+
+/** Token Bearer dos hooks: env ou <dataDir>/hooks.token (ficheiro regular, ≥32 chars). */
+export function resolveHooksToken(dataDir: string, envToken?: string): string | undefined {
+  const env = envToken?.trim();
+  if (env) return env.length >= 32 ? env : undefined;
+  const file = join(dataDir, 'hooks.token');
+  try {
+    if (!lstatSync(file).isFile()) return undefined;
+    const t = readFileSync(file, 'utf8').trim();
+    return t.length >= 32 ? t : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const readAuthFile = loadAuthFile;
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
@@ -131,6 +171,8 @@ export function hooksBearerAllowed(path: string, method: string): boolean {
   if (path === '/api/codex/bridge/ack' && m === 'POST') return true;
   if (path === '/api/permissions' && m === 'POST') return true;
   if (m === 'GET' && /^\/api\/permissions\/[^/]+\/wait$/.test(path)) return true;
+  // Mod do Claude Code (register.ts) — resumo só-leitura; principal de máquina, não UI.
+  if (path === '/api/mod/summary' && m === 'GET') return true;
   return false;
 }
 
@@ -140,6 +182,8 @@ export function isSessionSsePath(path: string): boolean {
 }
 
 interface Session {
+  /** Epoch (generation de auth.json) sob a qual a sessão foi emitida. */
+  generation: string;
   created: number;
   last: number;
   streams: Set<ServerResponse>;
@@ -222,20 +266,12 @@ export function createAuth(opts: AuthOptions): Auth {
   const clearIntervalFn = opts.clearIntervalFn ?? clearInterval;
   const sessions = new Map<string, Session>();
   const failures = new Map<string, number[]>();
+  /** Logins com body ainda a chegar, por IP — contam para o rate-limit (reserva antes do await). */
+  const inflight = new Map<string, number>();
+  /** Epoch corrente; '' = auth.json ausente/inválido → fail-closed (sem sessões, sem login). */
   let knownGeneration = readAuthFile(opts.dataDir)?.generation ?? '';
 
-  const hooksToken = (): string | undefined => {
-    const env = opts.hooksToken?.trim();
-    if (env) return env;
-    const file = join(opts.dataDir, 'hooks.token');
-    if (!existsSync(file)) return undefined;
-    try {
-      const t = readFileSync(file, 'utf8').trim();
-      return t.length >= 32 ? t : undefined;
-    } catch {
-      return undefined;
-    }
-  };
+  const hooksToken = (): string | undefined => resolveHooksToken(opts.dataDir, opts.hooksToken);
 
   const clearExpiry = (s: Session) => {
     if (s.expiryTimer) {
@@ -296,6 +332,10 @@ export function createAuth(opts: AuthOptions): Auth {
     const key = sha256(token);
     const s = sessions.get(key);
     if (!s) return undefined;
+    if (!knownGeneration || s.generation !== knownGeneration) {
+      drop(key);
+      return undefined;
+    }
     const t = now();
     if (t - s.last > IDLE_MS || t - s.created > ABSOLUTE_MS) {
       drop(key);
@@ -316,14 +356,12 @@ export function createAuth(opts: AuthOptions): Auth {
     return !!expected && safeEqual(h.replace(/^Bearer\s+/i, '').trim(), expected);
   };
 
-  const bearerOk = (req: IncomingMessage, path: string, method: string): boolean =>
-    bearerTokenOk(req) && hooksBearerAllowed(path, method);
-
+  /** Falhas recentes + logins em curso: N bodies suspensos não passam juntos. */
   const limited = (ip: string): boolean => {
     const t = now();
     const list = (failures.get(ip) ?? []).filter((x) => t - x < RL_WINDOW_MS);
     failures.set(ip, list);
-    return list.length >= RL_MAX;
+    return list.length + (inflight.get(ip) ?? 0) >= RL_MAX;
   };
 
   /** Secure/__Host só com perfil canónico ou TLS real do socket — nunca X-Forwarded-Proto. */
@@ -335,18 +373,17 @@ export function createAuth(opts: AuthOptions): Auth {
     return `${name}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
   };
 
+  /**
+   * Reconcilia o epoch com auth.json. Mudou, sumiu ou ficou inválido → revoga TUDO (fail-closed).
+   * Sessões com epoch ≠ corrente também morrem no sessionKey (defesa em profundidade).
+   */
   function checkPasswordRotation(): boolean {
     const gen = readAuthFile(opts.dataDir)?.generation ?? '';
-    if (!knownGeneration) {
-      knownGeneration = gen;
-      return false;
-    }
-    if (gen && gen !== knownGeneration) {
-      knownGeneration = gen;
-      for (const k of [...sessions.keys()]) drop(k);
-      return true;
-    }
-    return false;
+    if (gen === knownGeneration) return false;
+    knownGeneration = gen;
+    const had = sessions.size > 0;
+    for (const k of [...sessions.keys()]) drop(k);
+    return had || !gen;
   }
 
   function sweepExpired(): number {
@@ -366,28 +403,39 @@ export function createAuth(opts: AuthOptions): Auth {
     checkPasswordRotation();
     const ip = req.socket.remoteAddress ?? '?';
     if (limited(ip)) return json(res, 429, { error: 'muitas tentativas; tente mais tarde' }, { 'Retry-After': String(RL_WINDOW_MS / 1000) });
+    // Reserva a tentativa ANTES do await: bodies suspensos contam para o limite.
+    inflight.set(ip, (inflight.get(ip) ?? 0) + 1);
     let password = '';
     try {
-      const body = JSON.parse(await readBody(req)) as { password?: unknown };
-      if (typeof body.password === 'string') password = body.password;
-    } catch {
-      /* cai no erro genérico */
+      try {
+        const body = JSON.parse(await readBody(req)) as { password?: unknown };
+        if (typeof body.password === 'string') password = body.password;
+      } catch {
+        /* cai no erro genérico */
+      }
+    } finally {
+      const n = (inflight.get(ip) ?? 1) - 1;
+      if (n > 0) inflight.set(ip, n);
+      else inflight.delete(ip);
     }
+    // Reconcilia o epoch DEPOIS do body: rotação durante a espera revoga as sessões antigas antes de emitir.
+    checkPasswordRotation();
     const file = readAuthFile(opts.dataDir);
-    const ok = !!file && password.length > 0 && verifyPassword(password, file.password);
+    const ok = !!file && file.generation === knownGeneration && password.length > 0 && verifyPassword(password, file.password);
     if (!ok) {
       failures.get(ip)?.push(now()) ?? failures.set(ip, [now()]);
       return json(res, 401, { error: 'credenciais inválidas' });
     }
+    // Revalida após o scrypt: se rodou entretanto, não emite sob epoch velho.
+    if (checkPasswordRotation() || knownGeneration !== file!.generation) return json(res, 401, { error: 'credenciais inválidas' });
     failures.delete(ip);
-    knownGeneration = file!.generation;
     // Regenera: qualquer sessão trazida no pedido morre.
     const old = sessionKey(req, false);
     if (old) drop(old);
     const token = randomBytes(32).toString('base64url');
     const t = now();
     const key = sha256(token);
-    sessions.set(key, { created: t, last: t, streams: new Set() });
+    sessions.set(key, { generation: file!.generation, created: t, last: t, streams: new Set() });
     scheduleExpiry(key);
     json(res, 200, { ok: true, authenticated: true }, { 'Set-Cookie': cookieFor(req, token, ABSOLUTE_MS / 1000) });
   }
@@ -440,12 +488,17 @@ export function createAuth(opts: AuthOptions): Auth {
         json(res, 200, { ok: true }, { 'Set-Cookie': cookieFor(req, '', 0) });
         return true;
       }
+      // Matriz por principal: rotas de ingest (hooks/mod/bridge) são SÓ Bearer — cookie de browser não as abre.
+      if (hooksBearerAllowed(path, method)) {
+        if (bearerTokenOk(req)) return false;
+        json(res, 401, { error: 'autenticação necessária' });
+        return true;
+      }
       const key = sessionKey(req);
       if (key) {
         if (isSessionSsePath(path)) attachStream(key, res);
         return false;
       }
-      if (bearerOk(req, path, method)) return false;
       json(res, 401, { error: 'autenticação necessária' });
       return true;
     },

@@ -9,9 +9,8 @@ import { AccountsService } from './accounts/service';
 import { loadConfig, messagesOffReason, terminalOffReason } from './config';
 import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard } from './http/guard';
-import { authEnabled, authFile, createAuth, remoteEnabled } from './http/auth';
+import { authEnabled, createAuth, loadAuthFile, remoteEnabled } from './http/auth';
 import { securityPreflight } from './http/security-preflight';
-import { existsSync as authFileExists } from 'node:fs';
 import { Hub } from './http/sse';
 import { createStaticHandler } from './http/static';
 import { TerminalStreams } from './http/terminal';
@@ -277,9 +276,9 @@ const auth = createAuth({
   // Secure/__Host pelo perfil canónico (remoto) ou TLS real — nunca X-Forwarded-Proto.
   secureCookies: remoteEnabled(process.env),
 });
-if (auth.enabled && !authFileExists(authFile(config.dataDir))) {
+if (auth.enabled && !loadAuthFile(config.dataDir)) {
   // securityPreflight já recusou na ausência de senha; este ramo é defesa em profundidade.
-  log.warn('HABBLAUD_AUTH ligado mas sem senha definida: rode `npm run auth:set-password`. Login recusado até lá.');
+  log.warn('HABBLAUD_AUTH ligado mas sem auth.json válido (fail-closed): rode `npm run auth:set-password`. Login recusado até lá.');
 }
 
 server.on('request', (req, res) => {

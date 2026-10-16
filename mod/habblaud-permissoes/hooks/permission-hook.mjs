@@ -27,7 +27,9 @@
 //
 // Regras: Node puro (22+), sem dependências; nunca trava nem quebra a sessão (todo erro = sair sem
 // decidir). Só fala com 127.0.0.1. HABBLAUD_HOOK_DEBUG=1 escreve o que acontece no stderr.
-import { realpathSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const DEFAULT_PORT = 4747;
@@ -173,12 +175,30 @@ function readStdin() {
   });
 }
 
-/** Requisição ao QODE Office local; null = fora do ar, tempo esgotado ou resposta ilegível. */
-async function call(base, method, path, body, timeoutMs) {
+/** Token dos hooks (B4): HABBLAUD_HOOKS_TOKEN ou <HABBLAUD_DATA_DIR|~/.habblaud>/hooks.token. Ausente = sem header. */
+export function hooksToken(env = process.env) {
+  const direct = env.HABBLAUD_HOOKS_TOKEN?.trim();
+  if (direct) return direct;
   try {
+    const dir = env.HABBLAUD_DATA_DIR?.trim() || join(env.HOME?.trim() || homedir(), '.habblaud');
+    const file = join(dir, 'hooks.token');
+    if (!lstatSync(file).isFile()) return undefined;
+    const t = readFileSync(file, 'utf8').trim();
+    return t.length >= 32 ? t : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Requisição ao QODE Office local; null = fora do ar, tempo esgotado ou resposta ilegível. */
+async function call(base, method, path, body, timeoutMs, token) {
+  try {
+    const headers = body === undefined ? {} : { 'Content-Type': 'application/json' };
+    // B4: com HABBLAUD_AUTH=1 o servidor exige Bearer nas rotas de hook (loopback). Nunca logado.
+    if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch(`${base}${path}`, {
       method,
-      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -213,7 +233,7 @@ export async function run(argv = process.argv.slice(2), env = process.env, stdin
 
     const base = `http://127.0.0.1:${opts.port}`;
     const deadline = Date.now() + opts.timeoutMs;
-    const reg = await call(base, 'POST', '/api/permissions', requestBody(input, opts.timeoutMs), REGISTER_TIMEOUT_MS);
+    const reg = await call(base, 'POST', '/api/permissions', requestBody(input, opts.timeoutMs), REGISTER_TIMEOUT_MS, hooksToken(env));
     if (!reg || reg.status !== 201 || typeof reg.json?.id !== 'string') {
       debug(`sem desvio (${reg ? `${reg.status} ${JSON.stringify(reg.json ?? null)}` : 'QODE Office fora do ar'})`);
       return undefined;
@@ -226,7 +246,7 @@ export async function run(argv = process.argv.slice(2), env = process.env, stdin
         return undefined;
       }
       const waitS = Math.max(0.05, Math.min(WAIT_S, left / 1_000));
-      const r = await call(base, 'GET', `/api/permissions/${id}/wait?timeout=${waitS}`, undefined, waitS * 1_000 + 5_000);
+      const r = await call(base, 'GET', `/api/permissions/${id}/wait?timeout=${waitS}`, undefined, waitS * 1_000 + 5_000, hooksToken(env));
       if (!r || r.status !== 200) return undefined;
       const status = r.json?.status;
       if (status === 'pending') continue;

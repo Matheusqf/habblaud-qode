@@ -292,6 +292,7 @@ describe('middleware HTTP', () => {
 describe('securityPreflight / boot', () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'qode-sec-'));
   writePasswordFile(dataDir, PW);
+  writeFileSync(join(dataDir, 'hooks.token'), HOOK + '\n', { mode: 0o600 });
   const base = { dataDir, host: '127.0.0.1', inDocker: false, dev: false, allowedHosts: new Set<string>() };
 
   it('REMOTE sem AUTH → erro; REMOTE+AUTH+senha+loopback → ok', () => {
