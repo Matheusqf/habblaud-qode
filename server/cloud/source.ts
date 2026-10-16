@@ -1,6 +1,6 @@
 // Fonte "cloud" do Office: junta coletores observe-only (Cursor, Codex cloud) e põe os agentes nas salas.
 // Desligada por padrão (HABBLAUD_CLOUD). Nunca despacha, responde ou opera nada nos provedores.
-import type { SourceInfo } from '../../shared/types';
+import type { AgentInfo, SourceInfo } from '../../shared/types';
 import { log } from '../log';
 import type { MainInput } from '../model/office';
 import { effectiveState, type CloudObservation, type CloudProvider } from './contract';
@@ -17,7 +17,10 @@ export interface CloudOffice {
   setStatus(id: string, status: 'working' | 'idle'): void;
   closeMain(id: string): void;
   has(id: string): boolean;
+  setCloudMeta?(id: string, meta: NonNullable<AgentInfo['cloud']>, role: string): void;
 }
+
+const STATE_LABEL: Record<string, string> = { running: 'em execução', idle: 'parado (IDLE ≠ sucesso)', stale: 'sem confirmação recente', unknown: 'estado desconhecido' };
 
 export const POLL_MS = 30_000;
 export const MAX_BACKOFF_MS = 15 * 60_000;
@@ -46,6 +49,8 @@ export class CloudSource {
   private readonly states: CollectorState[];
   private timer?: NodeJS.Timeout;
   private readonly present = new Set<string>();
+  /** Coletor com poll em curso: um tick novo não o chama de novo (sem polls sobrepostos). */
+  private readonly busy = new Set<CollectorState>();
 
   constructor(
     private readonly deps: { office: CloudOffice; collectors: readonly CloudCollector[]; now?: () => number; pollMs?: number },
@@ -87,7 +92,9 @@ export class CloudSource {
   async tick(): Promise<void> {
     const now = this.now();
     for (const s of this.states) {
-      if (now < s.nextAt) continue;
+      if (now < s.nextAt || this.busy.has(s)) continue;
+      // Reserva ANTES do await: ticks concorrentes (setInterval + coletor lento) não sobrepõem polls.
+      this.busy.add(s);
       try {
         const list = await s.c.poll(now);
         s.seen = new Map(list.slice(0, MAX_AGENTS).map((o) => [o.id, o]));
@@ -102,6 +109,8 @@ export class CloudSource {
         s.nextAt = now + Math.min(MAX_BACKOFF_MS, POLL_MS * 2 ** Math.min(s.failures, 6));
         // Só provedor + categoria controlada: nunca o texto do erro (pode trazer corpo, headers ou tokens).
         log.warnOnce(`cloud:${s.c.provider}:${s.failures > 1}`, `Cloud ${s.c.provider}: coletor indisponível (categoria=poll_failed, falhas=${s.failures}).`);
+      } finally {
+        this.busy.delete(s);
       }
     }
     this.reconcile(now);
@@ -122,7 +131,9 @@ export class CloudSource {
       }
     }
     for (const [id, o] of want) {
-      const status = effectiveState(o, now) === 'running' ? 'working' : 'idle';
+      const st = effectiveState(o, now) as 'running' | 'idle' | 'stale' | 'unknown';
+      // O personagem só "trabalha" com running; stale/unknown ficam parados MAS o estado real vai para a UI (cloud.state).
+      const status = st === 'running' ? 'working' : 'idle';
       if (!this.present.has(id) || !office.has(id)) {
         office.addMain({
           id,
@@ -135,6 +146,7 @@ export class CloudSource {
         });
         this.present.add(id);
       } else office.setStatus(id, status);
+      office.setCloudMeta?.(id, { provider: o.provider, state: st, nativeState: o.nativeState, updatedAt: o.updatedAt, ...(o.link ? { link: o.link } : {}) }, `${LABEL[o.provider]} · ${STATE_LABEL[st]}`);
     }
   }
 
