@@ -87,6 +87,7 @@ const SHORTCUTS: [string[], string][] = [
   [['Ctrl+F'], 'Com o terminal em foco: buscar na conversa (⌘F no Mac); Enter e Shift+Enter navegam'],
   [['L'], 'Abrir ou fechar o timelapse do dia'],
   [['P'], 'Ir até o próximo pedido de permissão ou pergunta para responder pelo escritório'],
+  [['V'], 'Painel só leitura do agente selecionado (o mesmo do monitor da mesa)'],
   [['M'], 'Meu dia: para onde foi o tempo (trabalhando, esperando você...)'],
   [['O', '0'], 'Visão geral do prédio'],
   [['Esc'], 'Fechar o painel da mesa, a busca do terminal, depois o terminal; depois, a gaveta e a seleção'],

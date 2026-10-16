@@ -35,6 +35,8 @@ export class DeskPanel implements UiComponent {
   private statusText: HTMLElement;
   private rows = new Map<DeskRowKey, { dt: HTMLElement; dd: HTMLElement }>();
   private tipTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Ponto de ancoragem (clique ou centro da janela): reposiciona após render e resize. */
+  private at: { x: number; y: number } | null = null;
 
   constructor(
     private ctx: UiContext,
@@ -85,6 +87,10 @@ export class DeskPanel implements UiComponent {
     this.dot = dot!;
     this.statusText = statusText!;
 
+    // viewport mudou: volta a limitar a posição à janela
+    window.addEventListener('resize', () => {
+      if (this.state.open && this.at) this.place(this.at);
+    });
     // Esc dentro do painel fecha (o mesmo caminho do atalho global da UI).
     this.el.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
@@ -101,26 +107,37 @@ export class DeskPanel implements UiComponent {
   onDeskClick(agentId: string | null, at: { x: number; y: number }): void {
     const r = deskClick(this.state, agentId);
     this.apply(r.state, r.effect);
-    if (r.state.open) this.place(at);
+    if (r.state.open) {
+      this.at = at;
+      // conteúdo primeiro, medida depois (senão a altura é a do painel vazio/anterior)
+      this.render();
+    }
     if (r.effect.tooltip) this.showTip(at, r.effect.tooltip);
     this.ctx.invalidate();
+  }
+
+  /** Entrada por teclado (atalho V): o mesmo painel só leitura para o agente selecionado, ao centro. */
+  openFor(agentId: string): void {
+    this.onDeskClick(agentId, { x: Math.round(window.innerWidth / 2 - 160), y: Math.round(window.innerHeight / 2 + 120) });
   }
 
   /** Fecha (Esc, botão Fechar ou agente que saiu): o foco volta ao canvas do escritório. */
   close(): void {
     const r = deskClose(this.state);
+    this.at = null;
     this.apply(r.state, r.effect);
   }
 
   render(): void {
     if (!this.state.open || this.state.agentId === null) return;
     const a = deskPanelAgent(this.state, this.ctx.store.snapshot?.agents ?? []);
-    if (!a) {
-      // quem estava sentado saiu do escritório (trocar de mesa não: o painel segue pelo id)
+    if (!a || a.status === 'offline') {
+      // quem estava sentado saiu (offline fecha já, sem esperar a tolerância de remoção; trocar de mesa não: segue pelo id)
       this.close();
       return;
     }
     this.update(deskPanelView(a));
+    if (this.at) this.place(this.at);
   }
 
   private apply(state: DeskPanelState, effect: DeskPanelEffect): void {
@@ -155,7 +172,8 @@ export class DeskPanel implements UiComponent {
     const h = this.el.offsetHeight || 240;
     const x = Math.round(Math.min(Math.max(8, at.x + 14), Math.max(8, window.innerWidth - w - 8)));
     const y = Math.round(Math.min(Math.max(8, at.y - h - 10), Math.max(8, window.innerHeight - h - 8)));
-    this.el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    const t = `translate3d(${x}px, ${y}px, 0)`;
+    if (this.el.style.transform !== t) this.el.style.transform = t;
   }
 
   /** Dica curta no ponto do clique (mesa livre); some sozinha. */

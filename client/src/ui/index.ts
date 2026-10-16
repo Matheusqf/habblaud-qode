@@ -331,6 +331,13 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
         e.preventDefault();
         ctx.camera('overview');
         break;
+      case 'v':
+      case 'V':
+        // Painel só leitura (o mesmo do monitor da mesa) para o agente selecionado — entrada por teclado.
+        e.preventDefault();
+        if (selection?.type === 'agent') desk.openFor(selection.id);
+        else ctx.announce('Selecione um agente para ver o painel só leitura.');
+        break;
       case 'm':
       case 'M':
         e.preventDefault();
