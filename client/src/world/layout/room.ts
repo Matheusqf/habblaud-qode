@@ -152,12 +152,12 @@ export function wallSpanFree(area: AreaLayout, cx: number, half: number, wallRow
   return true;
 }
 
-function layoutIslandRoom(room: RoomInput, theme: RoomTheme): AreaLayout {
+function layoutIslandRoom(room: RoomInput, theme: RoomTheme, over: Partial<RoomVariant> = {}): AreaLayout {
   const rect = slotRect(room.slot);
   const side = slotSide(room.slot);
   const rng = mulberry32(room.seed ^ 0x5eed);
   const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(rng() * arr.length) % arr.length];
-  const v = roomVariant(room.seed);
+  const v = { ...roomVariant(room.seed), ...over };
   const b = new AreaBuilder(room.id, 'room', rect);
   const area = b.area;
   area.side = side;
@@ -460,7 +460,8 @@ function layoutGatherRoom(room: RoomInput, theme: RoomTheme): AreaLayout {
  * pintado no chão na frente dela. Só via ?rooms=openspace (a semente nunca sorteia este estilo).
  */
 function layoutOpenspaceRoom(room: RoomInput, theme: RoomTheme): AreaLayout {
-  const area = layoutIslandRoom(room, theme);
+  // G4: no open-space o canto de reunião é sempre a mesa grande (4 banquetas), com rótulo no chão
+  const area = layoutIslandRoom(room, theme, { meeting: 'table' });
   const r = area.rect;
   for (const f of area.floors) f.kind = 'wood';
   const desks = area.furniture.filter((f) => f.kind === 'desk' || f.kind === 'desk_back');
@@ -478,6 +479,7 @@ function layoutOpenspaceRoom(room: RoomInput, theme: RoomTheme): AreaLayout {
   area.zones = zones;
   area.floorLabels = [
     { zoneId: zones[0].id, x: island.x * TILE + 4, y: (r.y + 8) * TILE + 4, w: island.w * TILE - 8, h: TILE - 4, color: theme.accent },
+    { zoneId: zones[1].id, x: meeting.x * TILE + 4, y: (r.y + 8) * TILE + 4, w: meeting.w * TILE - 8, h: TILE - 4, color: shade(theme.accent, -0.25), text: 'REUNIÃO' },
   ];
   return area;
 }

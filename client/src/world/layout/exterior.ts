@@ -17,7 +17,24 @@ export interface ExteriorLayout {
   /** Linha central da rua (px), para as faixas tracejadas. */
   streetY: number;
   streetH: number;
+  /** Jardim decorativo (G5): rio e pontes ao norte do prédio; fora da grade de caminhos. */
+  decor: GardenDecor[];
 }
+
+export interface GardenDecor {
+  kind: 'water' | 'bridge';
+  /** px de mundo */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  seed: number;
+}
+
+export type GardenStyle = 'river';
+
+/** Faixa do rio (tiles, ao norte do prédio, no bosque; nunca encosta na grade caminhável). */
+export const RIVER_ROWS = { y: -4, h: 2 } as const;
 
 /** Fechamento do corredor e pátio de um slot sem sala. */
 export interface SlotShell {
@@ -29,7 +46,7 @@ export interface SlotShell {
   props: ExteriorProp[];
 }
 
-export function layoutExterior(cols: number): ExteriorLayout {
+export function layoutExterior(cols: number, opts: { garden?: GardenStyle } = {}): ExteriorLayout {
   const w = cols * COL_W;
   const bounds: TileRect = { x: -EXT_WEST, y: -EXT_NORTH, w: w + EXT_WEST + EXT_EAST, h: BUILDING_H + EXT_NORTH + EXT_SOUTH };
   const px = (t: number) => t * TILE;
@@ -93,6 +110,20 @@ export function layoutExterior(cols: number): ExteriorLayout {
   // totem com a marca na entrada principal (oeste)
   props.push({ kind: 'totem', x: px(-3) + 6, y: px(CORRIDOR_Y + 1), seed: 2 });
 
+  const decor: GardenDecor[] = [];
+  if (opts.garden === 'river') {
+    const ry0 = px(RIVER_ROWS.y);
+    const ry1 = px(RIVER_ROWS.y + RIVER_ROWS.h);
+    decor.push({ kind: 'water', x: px(bounds.x), y: ry0, w: px(bounds.w), h: ry1 - ry0, seed: 21 });
+    // pontes de madeira a cada ~12 tiles (cosméticas: ninguém anda no exterior)
+    for (let x = bounds.x + 6; x < bounds.x + bounds.w - 4; x += 12) decor.push({ kind: 'bridge', x: px(x), y: ry0 - 4, w: px(2), h: ry1 - ry0 + 8, seed: x });
+    // árvores e arbustos que cairiam dentro do rio somem (a copa vai até ~1 tile acima da base)
+    for (let i = props.length - 1; i >= 0; i--) {
+      const p = props[i];
+      if (p.y >= ry0 - 2 && p.y <= ry1 + TILE) props.splice(i, 1);
+    }
+  }
+
   const streetY = px(south + 4);
   const streetH = px(5);
   return {
@@ -105,6 +136,7 @@ export function layoutExterior(cols: number): ExteriorLayout {
     ],
     streetY,
     streetH,
+    decor,
   };
 }
 

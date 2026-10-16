@@ -24,6 +24,8 @@ export interface FloorLabel {
   w: number;
   h: number;
   color: string;
+  /** Texto fixo; sem ele, o render usa o nome do projeto. */
+  text?: string;
 }
 
 const inside = (a: TileRect, b: TileRect) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
