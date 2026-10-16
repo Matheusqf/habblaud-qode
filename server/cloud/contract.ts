@@ -99,7 +99,9 @@ export function normalizeProject(v: unknown): string | undefined {
 export function normalizeState(provider: CloudProvider, native: string): CloudState {
   const n = native.toUpperCase();
   if (provider === 'cursor') {
-    if (n === 'ACTIVE' || n === 'RUNNING' || n === 'CREATING') return 'running';
+    // Só um RUN em RUNNING é execução. ACTIVE (agente) cobre também "à espera"/"prestes a começar"; CREATING ainda
+    // não executa: ambos ficam 'unknown' (conservador).
+    if (n === 'RUNNING') return 'running';
     if (n === 'IDLE') return 'idle';
     if (n === 'ARCHIVED' || n === 'FINISHED' || n === 'ERROR' || n === 'CANCELLED' || n === 'EXPIRED') return 'ended';
     return 'unknown';

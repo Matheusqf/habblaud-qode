@@ -24,3 +24,9 @@ Cada agente entra como principal com cwd `/cloud/<provedor>/<projeto>` e conta `
 
 ## Claude Code web
 Sem interface pública oficial de listagem/status: **observação automática indisponível**. Não extrair cookies nem chamar endpoints privados.
+
+## Cursor — estados e janela (review ZikaBOT 16/10)
+- Agente `ACTIVE` não é execução: o coletor lê só o `status` do run `latestRunId` (`GET /v1/agents/{id}/runs/{runId}`); `RUNNING` → running; `CREATING`/outros → unknown; run terminal → IDLE (o agente continua).
+- Multirepo: o agente só passa se **todos** os `repos` estiverem na allowlist.
+- IDLE > 24 h sai do inventário por janela (`lastWindowExcluded`): filtro visual, **não** término — não fecha agentes já na sala.
+- TTL/nextAt/backoff contam a partir do fim da consulta (relógio pós-await).

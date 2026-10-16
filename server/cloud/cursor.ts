@@ -6,7 +6,7 @@ import type { CloudCollector } from './source';
 
 export const CURSOR_API = 'https://api.cursor.com';
 export const CURSOR_KEY_ENV = 'CURSOR_API_KEY';
-const ALLOWED_PATHS = [/^\/v1\/agents$/, /^\/v1\/agents\/bc-[A-Za-z0-9-]{6,64}$/];
+const ALLOWED_PATHS = [/^\/v1\/agents$/, /^\/v1\/agents\/bc-[A-Za-z0-9-]{6,64}$/, /^\/v1\/agents\/bc-[A-Za-z0-9-]{6,64}\/runs\/run-[A-Za-z0-9-]{1,64}$/];
 const MAX_PAGES = 10;
 const DETAIL_CONCURRENCY = 4;
 const PAGE_LIMIT = 50;
@@ -54,6 +54,8 @@ export class CursorCollector implements CloudCollector {
   private readonly projectOf = new Map<string, string | null>();
   /** Última consulta bateu no teto de páginas: inventário parcial (ausência ≠ encerramento). */
   lastPartial = false;
+  /** Ids listados mas fora da janela (IDLE > 24 h): filtro visual, não término (ver CloudSource). */
+  lastWindowExcluded: ReadonlySet<string> = new Set();
 
   constructor(
     private readonly deps: { apiKey: string; cfg: Pick<CloudConfig, 'projects' | 'ttlMs'>; fetch?: FetchLike },
@@ -93,33 +95,52 @@ export class CursorCollector implements CloudCollector {
       page++;
     } while (cursor && page < MAX_PAGES);
     this.lastPartial = !!cursor;
+    const excluded = new Set<string>();
     const candidates = items.filter((it) => {
       if (typeof it.id !== 'string') return false;
       const updated = Date.parse(String(it.updatedAt));
-      return it.status === 'ACTIVE' || now - updated <= RECENT_MS;
+      const keep = it.status === 'ACTIVE' || now - updated <= RECENT_MS;
+      if (!keep) excluded.add(it.id);
+      return keep;
     });
+    this.lastWindowExcluded = excluded;
     const out: CloudObservation[] = [];
     for (let i = 0; i < candidates.length; i += DETAIL_CONCURRENCY) {
       const batch = candidates.slice(i, i + DETAIL_CONCURRENCY);
       const projects = await Promise.all(batch.map((it) => this.project(it.id as string)));
+      // ACTIVE (agente) não é execução: só o estado do run mais recente decide (GET do run; só `status` é lido).
+      const native = await Promise.all(batch.map((it, k) => (projects[k] && it.status === 'ACTIVE' ? this.runState(it) : Promise.resolve(it.status))));
       batch.forEach((it, k) => {
         const project = projects[k];
         if (!project) return;
-        const o = sanitize('cursor', { id: it.id, project, nativeState: it.status, updatedAt: it.updatedAt, link: it.url }, this.deps.cfg, now);
+        const o = sanitize('cursor', { id: it.id, project, nativeState: native[k], updatedAt: it.updatedAt, link: it.url }, this.deps.cfg, now);
         if (o) out.push(o);
       });
     }
     return out;
   }
 
+  /** RUNNING → execução; CREATING/outros/sem run → ACTIVE (unknown). Terminal do run ≠ fim do agente → IDLE. */
+  private async runState(it: Record<string, unknown>): Promise<string> {
+    const run = typeof it.latestRunId === 'string' && /^run-[A-Za-z0-9-]{1,64}$/.test(it.latestRunId) ? it.latestRunId : undefined;
+    if (!run) return 'ACTIVE';
+    const r = (await this.get(`/v1/agents/${it.id as string}/runs/${run}`)) as { status?: unknown };
+    const st = typeof r?.status === 'string' ? r.status.toUpperCase() : '';
+    if (st === 'RUNNING') return 'RUNNING';
+    if (st === 'CREATING') return 'CREATING';
+    if (st === 'FINISHED' || st === 'ERROR' || st === 'CANCELLED' || st === 'EXPIRED') return 'IDLE';
+    return 'ACTIVE';
+  }
+
   private async project(id: string): Promise<string | undefined> {
     if (this.projectOf.has(id)) return this.projectOf.get(id) ?? undefined;
     if (!/^bc-[A-Za-z0-9-]{6,64}$/.test(id)) return undefined;
     const d = (await this.get(`/v1/agents/${id}`)) as { repos?: Array<{ url?: unknown }> };
-    const raw = Array.isArray(d?.repos) && typeof d.repos[0]?.url === 'string' ? d.repos[0].url : undefined;
-    // Allowlist ANTES do cache: só o projeto canónico permitido é guardado; o resto vira null.
-    const p = normalizeProject(raw);
-    const allowed = p && this.deps.cfg.projects.has(p) ? p : null;
+    // Multirepo: verifica TODOS os repos; o agente só passa se TODOS estiverem na allowlist (um repo privado fora
+    // dela basta para o esconder). Projeto mostrado = o primeiro. Allowlist ANTES do cache; nunca guarda URLs.
+    const repos = Array.isArray(d?.repos) ? d.repos : [];
+    const ps = repos.map((r) => normalizeProject(typeof r?.url === 'string' ? r.url : undefined));
+    const allowed = ps.length > 0 && ps.every((p) => !!p && this.deps.cfg.projects.has(p)) ? ps[0]! : null;
     this.projectOf.set(id, allowed);
     if (this.projectOf.size > 500) this.projectOf.delete(this.projectOf.keys().next().value!);
     return allowed ?? undefined;
