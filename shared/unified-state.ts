@@ -57,7 +57,8 @@ const KIND_TO_STATE: Partial<Record<ActivityKind, UnifiedState>> = {
 /** Base comum: status de alto nível primeiro, depois o tipo da atividade atual. */
 function base(a: AgentLike): UnifiedState {
   // Atividade só inferida (ativa, desconhecida, ociosa ou leitura desatualizada): nunca 'Feito'.
-  if (a.observed) return 'inferred';
+  // Erro só com evidência explícita gravada e leitura em dia; stale volta a 'inferred'.
+  if (a.observed) return a.observed.error && !a.observed.stale ? 'error' : 'inferred';
   if (a.status === 'waiting') return 'waiting';
   if (a.status === 'shell') return 'command';
   if (a.status === 'done' || a.status === 'offline' || a.status === 'idle') return a.activity?.error ? 'error' : 'done';

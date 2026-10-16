@@ -43,8 +43,9 @@ describe('OPENCODE_SESSIONS_SQL', () => {
     }
   });
 
-  it('sessões raiz não arquivadas, da mais recente, no máximo 50, com o placeholder do corte', () => {
-    for (const frag of ['parent_id IS NULL', 'time_archived IS NULL', 'ORDER BY s.time_updated DESC', 'LIMIT 50', '{{SINCE}}']) {
+  it('não filtra por parent_id (raízes e filhas), não arquivadas, da mais recente, no máximo 100, com o placeholder', () => {
+    expect(OPENCODE_SESSIONS_SQL).not.toContain('parent_id IS NULL');
+    for (const frag of ['time_archived IS NULL', 'ORDER BY s.time_updated DESC', 'LIMIT 100', '{{SINCE}}']) {
       expect(OPENCODE_SESSIONS_SQL).toContain(frag);
     }
   });
@@ -82,6 +83,12 @@ describe('parseSessions', () => {
     expect(s.startedAt).toBe(1000);
     expect(s.updatedAt).toBe(2000);
     expect(s.costUSD).toBe(0.5);
+  });
+
+  it('parentId vem de parent_id (só string; raiz sem pai fica undefined)', () => {
+    expect(parse([row({ parent_id: 'ses-pai' })])[0].parentId).toBe('ses-pai');
+    expect(parse([row({ parent_id: null })])[0].parentId).toBeUndefined();
+    expect(parse([row({ parent_id: 42 })])[0].parentId).toBeUndefined();
   });
 
   it('working: última mensagem do usuário, ou assistente ainda sem completed', () => {

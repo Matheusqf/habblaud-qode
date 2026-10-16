@@ -12,5 +12,5 @@ function hhmm(ms: number): string {
 /** Ex.: "atividade inferida: ativa (dado das 21:03)" / "... desconhecida (dado das 21:03, leitura desatualizada)". */
 export function observedLabel(o: ObservedActivity | undefined, time: (ms: number) => string = hhmm): string | undefined {
   if (!o) return undefined;
-  return `atividade inferida: ${WORD[o.activity]} (dado das ${time(o.at)}${o.stale ? ', leitura desatualizada' : ''})`;
+  return `atividade inferida: ${WORD[o.activity]}${o.error ? ', última resposta com erro' : ''} (dado das ${time(o.at)}${o.stale ? ', leitura desatualizada' : ''})`;
 }

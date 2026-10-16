@@ -137,6 +137,8 @@ export interface ObservedActivity {
   at: number;
   /** A última leitura da fonte falhou: o valor é o da leitura anterior. */
   stale: boolean;
+  /** A última mensagem gravada terminou em erro (evidência explícita, sem o texto do erro). */
+  error?: boolean;
 }
 
 export interface AgentInfo {

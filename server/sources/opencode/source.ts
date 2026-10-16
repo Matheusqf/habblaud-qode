@@ -6,6 +6,9 @@
 // sessão que estava sendo acompanhada e some de uma leitura BEM-SUCEDIDA é encerrada (closeMain); uma leitura que
 // falha só marca a fonte como não-ok e mantém os agentes como estavam (nada de sumiço por erro de leitura).
 //
+// Filhas (parent_id preenchido) cujo pai foi acompanhado NESTA leitura viram subagentes (addSub/completeSub); filha
+// órfã é pulada, e filha que some de uma leitura bem-sucedida é concluída. Mesma allowlist de pasta das raízes.
+//
 // A leitura do banco é injetada (run); em produção é readOnlyRunner (reader.ts): SQLite somente leitura, sem o
 // inicializador/migrações do OpenCode. Estado: o banco não prova processo vivo, então o personagem fica 'idle' e a
 // atividade sai como INFERIDA (AgentInfo.observed, com horário; stale quando a leitura falha). Só entram sessões de
@@ -13,7 +16,7 @@
 // DEPOIS da consulta de metadados ao banco (o SELECT traz as sessões da janela de todos os projetos; as de fora da
 // allowlist são descartadas em memória, sem ir para Office, snapshot, cache ou log). Boot assíncrono: beginBoot antes e endBoot num `finally`.
 import { realpathSync } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { isAbsolute, sep } from 'node:path';
 import type { ObservedActivity, SourceInfo } from '../../../shared/types';
 import { ACCOUNT_COLORS } from '../../accounts/detect';
 import type { AccountsService } from '../../accounts/service';
@@ -47,7 +50,8 @@ export interface OpenCodeSourceOptions {
 /** Caminho canônico (symlinks resolvidos); undefined se não existe ou não dá para resolver (= fora da allowlist). */
 function canonical(p: string): string | undefined {
   try {
-    return realpathSync(p);
+    // .native = realpath(3): '..' depois de symlink segue o destino (o realpathSync em JS resolve '..' lexicalmente).
+    return realpathSync.native(p);
   } catch {
     return undefined;
   }
@@ -58,10 +62,13 @@ function canonical(p: string): string | undefined {
  * /permitido/link que aponta para fora não passa. Pasta que não existe mais não passa.
  */
 export function inAllowlist(dir: string, projects: readonly string[]): boolean {
-  const d = canonical(resolve(dir));
+  // realpath direto (sem path.resolve antes): '..' depois de um symlink sobe a partir do DESTINO, como o kernel faz.
+  // path.resolve('/permitido/link/../x') daria '/permitido/x' (lexical) e deixaria passar o que fica fora.
+  if (!isAbsolute(dir)) return false;
+  const d = canonical(dir);
   if (!d) return false;
   return projects.some((p) => {
-    const root = canonical(resolve(p));
+    const root = isAbsolute(p) ? canonical(p) : undefined;
     if (!root) return false;
     return d === root || d.startsWith(root.endsWith(sep) ? root : root + sep);
   });
@@ -71,8 +78,10 @@ export class OpenCodeSource implements AgentSource {
   readonly provider = PROVIDER;
   /** Id final da conta no AccountsService (setProviderAccounts pode desambiguar). */
   private account = '.opencode';
-  /** Sessões acompanhadas (chave = conta:sessão). */
+  /** Sessões raiz acompanhadas (chave = conta:sessão). */
   private readonly tracked = new Set<string>();
+  /** Sessões filhas acompanhadas (subagentes; chave = conta:sessão). */
+  private readonly children = new Set<string>();
   private ok = true;
   private busy = false;
   private error: string | undefined;
@@ -138,7 +147,7 @@ export class OpenCodeSource implements AgentSource {
       this.ok = false;
       this.error = errMsg(err).slice(0, 200);
       // Leitura falhou: o que se sabe é velho. Marca stale (mantém o horário do último dado) e atividade unknown.
-      for (const key of this.tracked) {
+      for (const key of [...this.tracked, ...this.children]) {
         const prev = office.get(key)?.observed;
         office.setObserved(key, { basis: 'inferred', activity: 'unknown', at: prev?.at ?? this.now(), stale: true });
       }
@@ -147,6 +156,7 @@ export class OpenCodeSource implements AgentSource {
     const now = this.now();
     const seen = new Set<string>();
     for (const session of sessions) {
+      if (session.parentId !== undefined) continue; // filhas tratadas depois das raízes
       // Allowlist antes de inserir no Office (depois da consulta ao banco; ver o topo).
       if (!inAllowlist(session.directory, this.opts.projects)) continue;
       const key = `${this.account}:${session.id}`;
@@ -171,13 +181,52 @@ export class OpenCodeSource implements AgentSource {
       office.applyTranscript(key, summary);
       const activity: ObservedActivity['activity'] =
         session.inferred === 'active' && now - session.updatedAt > this.activeStaleMs ? 'unknown' : session.inferred;
-      office.setObserved(key, { basis: 'inferred', activity, at: session.updatedAt, stale: false });
+      office.setObserved(key, { basis: 'inferred', activity, at: session.updatedAt, stale: false, ...(session.error ? { error: true } : {}) });
       this.tracked.add(key);
     }
     for (const key of [...this.tracked]) {
       if (seen.has(key)) continue;
       office.closeMain(key);
       this.tracked.delete(key);
+    }
+    // Filhas (subagentes): só entram se o pai foi acompanhado NESTA leitura (mesma allowlist de pasta).
+    const seenChildren = new Set<string>();
+    for (const session of sessions) {
+      if (session.parentId === undefined) continue;
+      const parentKey = `${this.account}:${session.parentId}`;
+      if (!this.tracked.has(parentKey)) continue; // pai ausente/fora da allowlist: filha pulada
+      if (!inAllowlist(session.directory, this.opts.projects)) continue;
+      const key = `${this.account}:${session.id}`;
+      seenChildren.add(key);
+      if (office.has(key) && office.isSubDone(key)) {
+        office.reactivateSub(key);
+      } else if (!office.has(key)) {
+        office.addSub({
+          id: key,
+          parentId: parentKey,
+          sessionId: session.id,
+          role: session.agent ?? PROVIDER,
+          background: false,
+          startedAt: session.startedAt,
+        });
+      }
+      office.setStatus(key, 'idle');
+      const summary: TranscriptSummary = {
+        tasks: [],
+        stats: { toolCalls: 0, tokensIn: session.tokensIn, tokensOut: session.tokensOut, costUSD: session.costUSD, subagents: 0 },
+        lastAt: session.updatedAt,
+      };
+      if (session.model) summary.model = session.model;
+      office.applyTranscript(key, summary);
+      const activity: ObservedActivity['activity'] =
+        session.inferred === 'active' && now - session.updatedAt > this.activeStaleMs ? 'unknown' : session.inferred;
+      office.setObserved(key, { basis: 'inferred', activity, at: session.updatedAt, stale: false, ...(session.error ? { error: true } : {}) });
+      this.children.add(key);
+    }
+    for (const key of [...this.children]) {
+      if (seenChildren.has(key)) continue;
+      if (!office.isSubDone(key)) office.completeSub(key);
+      this.children.delete(key);
     }
   }
 

@@ -66,4 +66,23 @@ describe('OpenCode ponta a ponta', () => {
     expect(v.text).toContain('leitura desatualizada');
     src.stop();
   });
+
+  it('erro gravado chega como Erro no card e no texto; filha vira sub do principal', async () => {
+    const clock = 10_000_000;
+    const now = () => clock;
+    const accounts = new AccountsService({ dirs: [], home: '/tmp', env: {}, now, onChange: () => undefined });
+    const office = new Office({ names: new NameStore(null), version: 't', startedAt: clock, accounts: (s) => accounts.list(s), sources: () => [], accountName: () => undefined, now });
+    const base = { directory: DIR, model: null, agent: 'build', cost: 0.1, tokens_input: 1, tokens_output: 1, tokens_reasoning: 0, tokens_cache_read: 0, tokens_cache_write: 0, time_created: clock - 2000, time_updated: clock - 1000, time_archived: null, last_role: 'assistant', last_model: null, last_provider: null, last_completed: clock - 1000 };
+    const rows = [{ ...base, id: 'p1', parent_id: null, last_error: 1 }, { ...base, id: 'c1', parent_id: 'p1', last_error: 0 }];
+    const src = new OpenCodeSource({ accounts, office, dataDir: '/tmp/oc', run: async () => JSON.stringify(rows), now, projects: [DIR] });
+    await src.start();
+    const snap = office.commit().snapshot;
+    const dto = { ...snap, agents: snap.agents.map(privateAgent) };
+    const room = buildCards(dto)[0];
+    expect(room.cards).toHaveLength(1);
+    expect(room.cards[0].state).toBe('error');
+    expect(activityFallback(dto.agents.find((a) => a.kind === 'main')!)).toContain('última resposta com erro');
+    expect(room.cards[0].subs.map((c) => [c.agent.kind, c.state])).toEqual([['sub', 'inferred']]);
+    src.stop();
+  });
 });

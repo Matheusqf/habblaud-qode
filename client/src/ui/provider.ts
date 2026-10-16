@@ -34,8 +34,8 @@ export function accountProvider(account: Pick<AccountInfo, 'provider'> | undefin
 
 /**
  * Letra do chip de uma conta que não está no snapshot: a primeira letra depois do prefixo da pasta
- * (".claude-conta2" -> "C", ".codex-trabalho" -> "T"). A pasta padrão do Codex (".codex") vira "X"; a do Claude Code,
- * "?" (como antes). Nunca devolve "." nem vazio.
+ * (".claude-conta2" -> "C", ".codex-trabalho" -> "T"). A pasta padrão do Codex (".codex") vira "X"; a do OpenCode,
+ * "O"; a do Claude Code, "?" (como antes). Nunca devolve "." nem vazio.
  */
 export function fallbackShort(id: string, provider: Provider = accountProvider(undefined, id)): string {
   const rest = id
@@ -44,20 +44,24 @@ export function fallbackShort(id: string, provider: Provider = accountProvider(u
     .replace(/^\.?(?:claude|codex)(?=[-_.]|$)[-_.]?/i, '');
   const letter = /[\p{L}\p{N}]/u.exec(rest)?.[0];
   if (letter) return letter.toUpperCase();
-  return provider === 'codex' ? 'X' : '?';
+  if (provider === 'codex') return 'X';
+  return provider === 'opencode' ? 'O' : '?';
 }
 
-/** O selo "Codex" ao lado do nome da conta (não repete quando o nome já diz "Codex"). */
+/** O selo da ferramenta ao lado do nome da conta (não repete quando o nome já diz "Codex"/"OpenCode"). */
 export function showsProviderTag(provider: Provider, accountName = ''): boolean {
-  return provider === 'codex' && !/codex/i.test(accountName);
+  if (provider === 'codex') return !/codex/i.test(accountName);
+  if (provider === 'opencode') return !/opencode/i.test(accountName);
+  return false;
 }
 
-/** Rótulo do chip da conta (dica e leitores de tela): "Conta C (dev@x.com)", "Codex · plano Team". */
+/** Rótulo do chip da conta (dica e leitores de tela): "Conta C (dev@x.com)", "Codex · plano Team", "Conta O · OpenCode". */
 export function accountChipLabel(account: Pick<AccountInfo, 'name' | 'email' | 'plan' | 'provider'> | undefined, fallbackId: string, provider: Provider): string {
-  if (!account) return fallbackId ? `${fallbackId}${provider === 'codex' ? ' · Codex' : ''}` : 'Conta desconhecida';
-  if (provider !== 'codex') return `${account.name}${account.email ? ` (${account.email})` : ''}`;
-  const tag = showsProviderTag(provider, account.name) ? ' · Codex' : '';
-  return `${account.name}${tag}${account.plan ? ` · plano ${account.plan}` : ''}`;
+  const tag = provider === 'codex' || provider === 'opencode' ? ` · ${PROVIDER_NAME[provider]}` : '';
+  if (!account) return fallbackId ? `${fallbackId}${tag}` : 'Conta desconhecida';
+  if (!tag) return `${account.name}${account.email ? ` (${account.email})` : ''}`;
+  const shown = showsProviderTag(provider, account.name) ? tag : '';
+  return `${account.name}${shown}${account.plan ? ` · plano ${account.plan}` : ''}`;
 }
 
 /**

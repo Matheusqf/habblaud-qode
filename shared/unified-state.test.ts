@@ -13,6 +13,9 @@ describe('unifiedState', () => {
       for (const stale of [false, true])
         expect(unifiedState({ status: 'idle', provider: 'opencode', observed: { basis: 'inferred', activity, at: 0, stale } })).toBe('inferred');
     expect(unifiedState({ status: 'idle' })).toBe('done');
+    // erro gravado e leitura em dia = Erro; stale volta a inferido
+    expect(unifiedState({ status: 'idle', observed: { basis: 'inferred', activity: 'idle', at: 0, stale: false, error: true } })).toBe('error');
+    expect(unifiedState({ status: 'idle', observed: { basis: 'inferred', activity: 'unknown', at: 0, stale: true, error: true } })).toBe('inferred');
   });
   it('Claude: mapeia atividade e status', () => {
     expect(unifiedState({ status: 'working', activity: act('read') })).toBe('reading');

@@ -5,7 +5,7 @@
 const SINCE_PLACEHOLDER = '{{SINCE}}';
 
 /**
- * Sessões raiz (sem pai) não arquivadas mexidas desde o corte, da mais recente para a mais
+ * Sessões (raízes e filhas) não arquivadas mexidas desde o corte, da mais recente para a mais
  * antiga. O que a última mensagem diz (papel, modelo, erro...) vem de subselects escalares.
  */
 export const OPENCODE_SESSIONS_SQL: string = `
@@ -19,9 +19,9 @@ export const OPENCODE_SESSIONS_SQL: string = `
     (SELECT json_extract(m.data, '$.time.completed') FROM message m WHERE m.session_id = s.id ORDER BY m.time_created DESC LIMIT 1) AS last_completed,
     (SELECT json_type(m.data, '$.error') IS NOT NULL FROM message m WHERE m.session_id = s.id ORDER BY m.time_created DESC LIMIT 1) AS last_error
   FROM session s
-  WHERE s.parent_id IS NULL AND s.time_archived IS NULL AND s.time_updated > ${SINCE_PLACEHOLDER}
+  WHERE s.time_archived IS NULL AND s.time_updated > ${SINCE_PLACEHOLDER}
   ORDER BY s.time_updated DESC
-  LIMIT 50
+  LIMIT 100
 `;
 
 /** OPENCODE_SESSIONS_SQL com o corte em ms (truncado para inteiro) no lugar do placeholder. */
@@ -35,6 +35,8 @@ export function sessionsSql(sinceMs: number): string {
 /** Uma sessão do OpenCode já lapidada (tempos em ms de época). */
 export interface OpenCodeSession {
   id: string;
+  /** Id da sessão pai; presente só nas filhas (subagentes). */
+  parentId?: string;
   /** Pasta do projeto onde a sessão roda. */
   directory: string;
   /** 'provedor/modelo' (da última mensagem ou da própria sessão). */
@@ -102,6 +104,7 @@ export function parseSessions(json: string): OpenCodeSession[] {
       tokensOut: numOrZero(r.tokens_output) + numOrZero(r.tokens_reasoning),
       costUSD: numOrZero(r.cost),
     };
+    if (typeof r.parent_id === 'string') s.parentId = r.parent_id;
     if (typeof r.last_provider === 'string' && typeof r.last_model === 'string') {
       s.model = `${r.last_provider}/${r.last_model}`;
     } else if (typeof r.model === 'string') {
