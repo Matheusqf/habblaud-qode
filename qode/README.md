@@ -148,4 +148,6 @@ Se um caminho cair em mais de um projeto, o privado ganha.
   `dispatch.sh run/review` a partir do escritório.
 - **Matriz canário (Q4):** `server/qode/canary-matrix.test.ts` usa o sentinela `QODE_CANARY_PRIVATE_48H` em fixtures
   sintéticas. Gaps (relativo, variável ≠ HOME, paste sem path) estão reproduzidos à parte — não estão corrigidos.
+- **Ops room (B2 stub):** `qode.opsRoom` + capability `ops-room` — bot proposto = OpenCode via floating-flow/`flow-bot-relay`;
+  `origin=unavailable` até API comprovada; sem cruzar salas; Vida excluído; remoto só após B4. Ver `docs/qode-b2-ops-room.md`.
 - Fora deste ciclo: adaptador OpenCode/Cursor e Docker. O QODE Office roda direto no Node.

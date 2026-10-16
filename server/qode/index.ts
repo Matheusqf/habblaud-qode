@@ -16,6 +16,7 @@ import { isPrivatePath, loadQodeConfig, MENTIONS_BYTES_MAX, opaqueRoomKey, PRIVA
 import { Privacy } from './privacy';
 import { qodeCapabilities, type SourceCapability } from './capabilities';
 import { qodeOrchestrateStatus, type OrchestrateStatus } from './orchestrate-status';
+import { qodeOpsRoomStatus, type OpsRoomStatus } from './ops-room-status';
 
 const SCAN_CHUNK = 1 << 20;
 const SCAN_LINE_MAX = 1 << 20;
@@ -282,6 +283,8 @@ export interface QodeHealth {
   capabilities: SourceCapability[];
   /** B1: coordenador = floating-flow; QODE só observa (nunca despacha). */
   orchestrate: OrchestrateStatus;
+  /** B2: ops room stub — bot OpenCode proposto; api unavailable até adaptador. */
+  opsRoom: OpsRoomStatus;
 }
 
 export interface QodeSetup {
@@ -343,6 +346,7 @@ export function setupQode(o: QodeOptions): QodeSetup {
           privados: 0,
           capabilities: qodeCapabilities({ orchestrate }),
           orchestrate,
+          opsRoom: qodeOpsRoomStatus(),
         };
       },
       transcriptPathOf: (inner) => inner,
@@ -397,9 +401,10 @@ export function setupQode(o: QodeOptions): QodeSetup {
     health: () => {
       const orchestrate = qodeOrchestrateStatus(o.env, o.home);
       const capabilities = qodeCapabilities({ orchestrate });
+      const opsRoom = qodeOpsRoomStatus();
       return cfg.invalid
-        ? { config: 'invalida', projetos: 0, privados: 0, erro: privacy.redact(cfg.invalid), capabilities, orchestrate }
-        : { config: 'ok', projetos: cfg.projects.length, privados, capabilities, orchestrate };
+        ? { config: 'invalida', projetos: 0, privados: 0, erro: privacy.redact(cfg.invalid), capabilities, orchestrate, opsRoom }
+        : { config: 'ok', projetos: cfg.projects.length, privados, capabilities, orchestrate, opsRoom };
     },
     roomOf: (cwd) => {
       if (!cfg.invalid) return projectOf(cfg, cwd)?.roomKey;

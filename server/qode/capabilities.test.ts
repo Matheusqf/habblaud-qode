@@ -1,6 +1,6 @@
-// Q3 + B1: origem/capacidade explícitas — Manual≠live; floating-flow observe-only.
+// Q3 + B1 + B2: origem/capacidade explícitas — Manual≠live; floating-flow observe-only; ops-room unavailable.
 import { describe, expect, it } from 'vitest';
-import { hasMisleadingLive, qodeCapabilities, floatingFlowCapability } from './capabilities';
+import { hasMisleadingLive, opsRoomCapability, qodeCapabilities, floatingFlowCapability } from './capabilities';
 import type { SourceInfo } from '../../shared/types';
 import type { OrchestrateStatus } from './orchestrate-status';
 
@@ -22,7 +22,7 @@ const flowUp: OrchestrateStatus = {
 };
 
 describe('Q3 capabilities', () => {
-  it('catálogo inclui Manual, OpenCode, Cursor e floating-flow com origem correta', () => {
+  it('catálogo inclui Manual, OpenCode, Cursor, floating-flow e ops-room com origem correta', () => {
     const caps = qodeCapabilities({ orchestrate: flowDown });
     const byId = Object.fromEntries(caps.map((c) => [c.id, c]));
     expect(byId['manual-registry'].origin).toBe('manual');
@@ -33,13 +33,15 @@ describe('Q3 capabilities', () => {
     expect(byId.cursor.capabilities).toEqual([]);
     expect(byId['floating-flow'].origin).toBe('unavailable');
     expect(byId['floating-flow'].capabilities).toEqual([]);
+    expect(byId['ops-room'].origin).toBe('unavailable');
+    expect(byId['ops-room'].capabilities).toEqual([]);
     // Sem SourceInfo: Claude/Codex ficam unknown (não fingem live).
     expect(byId.claude.origin).toBe('unknown');
     expect(byId.codex.origin).toBe('unknown');
     expect(hasMisleadingLive(caps)).toBe(false);
   });
 
-  it('Claude/Codex ok → live; floating-flow ready → manual+observe (nunca live)', () => {
+  it('Claude/Codex ok → live; floating-flow ready → manual+observe (nunca live); ops-room nunca live', () => {
     const connected: SourceInfo[] = [
       { label: '.claude', path: '/x', sessions: 1, ok: true },
       { label: '.codex', provider: 'codex', path: '/y', sessions: 0, ok: false, error: 'sem pasta' },
@@ -50,6 +52,7 @@ describe('Q3 capabilities', () => {
     expect(byId.codex.origin).toBe('unknown');
     expect(byId.opencode.origin).toBe('unavailable');
     expect(byId.cursor.origin).toBe('unavailable');
+    expect(byId['ops-room'].origin).toBe('unavailable');
     expect(byId['manual-registry'].origin).toBe('manual');
     expect(byId['floating-flow'].origin).toBe('manual');
     expect(byId['floating-flow'].capabilities).toEqual(['observe']);
@@ -63,7 +66,14 @@ describe('Q3 capabilities', () => {
     expect(floatingFlowCapability(flowDown).origin).toBe('unavailable');
   });
 
-  it('health do setup ausente inclui capabilities + orchestrate', async () => {
+  it('opsRoomCapability nunca live', () => {
+    const c = opsRoomCapability();
+    expect(c.id).toBe('ops-room');
+    expect(c.origin).toBe('unavailable');
+    expect(c.capabilities).toEqual([]);
+  });
+
+  it('health do setup ausente inclui capabilities + orchestrate + opsRoom', async () => {
     const { setupQode } = await import('./index');
     const { RoomAliases } = await import('../model/room-aliases');
     const qode = setupQode({
@@ -86,5 +96,11 @@ describe('Q3 capabilities', () => {
     expect(h.orchestrate.configured).toBe(false);
     expect(h.orchestrate.artifactsPresent).toBe(false);
     expect(h.orchestrate).not.toHaveProperty('root');
+    expect(h.capabilities.find((c) => c.id === 'ops-room')?.origin).toBe('unavailable');
+    expect(h.opsRoom.bot).toBe('opencode');
+    expect(h.opsRoom.ready).toBe(false);
+    expect(h.opsRoom.api).toBe('unavailable');
+    expect(h.opsRoom.sensitiveTrack).toBe('excluded');
+    expect(JSON.stringify(h.opsRoom).toLowerCase()).not.toMatch(/vida|documents|secret|~\//);
   });
 });

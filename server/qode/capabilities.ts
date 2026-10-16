@@ -2,8 +2,10 @@
 // Manual continua Manual; OpenCode/Cursor ficam "unavailable" até existir adaptador;
 // fonte ligada com erro fica "unknown" (não aparenta live).
 // B1: floating-flow = coordenador único (observe); QODE não despacha.
+// B2: ops-room = 1 bot OpenCode proposto; sempre unavailable neste stub (sem API live).
 import type { SourceInfo } from '../../shared/types';
 import { qodeOrchestrateStatus, type OrchestrateStatus } from './orchestrate-status';
+import { qodeOpsRoomStatus, type OpsRoomStatus } from './ops-room-status';
 
 /** Origem declarada: o que a UI/health pode alegar sem mentir. */
 export type CapabilityOrigin = 'live' | 'manual' | 'unavailable' | 'unknown';
@@ -17,7 +19,8 @@ export type CapabilitySourceId =
   | 'opencode'
   | 'cursor'
   | 'manual-registry'
-  | 'floating-flow';
+  | 'floating-flow'
+  | 'ops-room';
 
 export interface SourceCapability {
   id: CapabilitySourceId;
@@ -61,6 +64,17 @@ export function floatingFlowCapability(status: OrchestrateStatus): SourceCapabil
   };
 }
 
+/** Capability da ops room: never live neste stub. */
+export function opsRoomCapability(status: OpsRoomStatus = qodeOpsRoomStatus()): SourceCapability {
+  return {
+    id: 'ops-room',
+    label: 'Ops room (OpenCode)',
+    origin: 'unavailable',
+    capabilities: [],
+    note: status.note,
+  };
+}
+
 export interface QodeCapabilitiesOptions {
   connected?: readonly SourceInfo[];
   /** Quando omitido, floating-flow fica unavailable (sem fingir ready). */
@@ -71,6 +85,7 @@ export interface QodeCapabilitiesOptions {
  * Catálogo estático + estado das fontes ligadas.
  * OpenCode e Cursor NÃO entram como live enquanto não houver adaptador em server/sources/.
  * floating-flow NUNCA é live neste ciclo (só observe via artefactos em disco).
+ * ops-room NUNCA é live neste ciclo (API unavailable; ver docs/qode-b2-ops-room.md).
  */
 export function qodeCapabilities(opts: QodeCapabilitiesOptions = {}): SourceCapability[] {
   const connected = opts.connected;
@@ -121,6 +136,7 @@ export function qodeCapabilities(opts: QodeCapabilitiesOptions = {}): SourceCapa
       note: 'tarefas/entradas manuais não são trabalho live',
     },
     floatingFlowCapability(flow),
+    opsRoomCapability(),
   ];
 }
 
@@ -138,7 +154,11 @@ export function qodeCapabilitiesWithEnv(
 export function hasMisleadingLive(caps: readonly SourceCapability[]): boolean {
   return caps.some(
     (c) =>
-      (c.id === 'opencode' || c.id === 'cursor' || c.id === 'manual-registry' || c.id === 'floating-flow') &&
+      (c.id === 'opencode' ||
+        c.id === 'cursor' ||
+        c.id === 'manual-registry' ||
+        c.id === 'floating-flow' ||
+        c.id === 'ops-room') &&
       c.origin === 'live',
   );
 }
