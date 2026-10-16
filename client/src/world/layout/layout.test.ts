@@ -270,10 +270,11 @@ describe('estilos de sala e tema sazonal', () => {
     }
   });
 
-  it('tema sazonal: desligado por padrão; ?season=halloween liga; ?season=auto só em outubro', () => {
+  it('tema sazonal: padrão = auto (outubro); ?season=off desliga; ?season=halloween força', () => {
     const oct = new Date(2026, 9, 16);
     const nov = new Date(2026, 10, 2);
-    expect(resolveSeason('', oct)).toBeUndefined();
+    expect(resolveSeason('', oct)).toBe('halloween');
+    expect(resolveSeason('', nov)).toBeUndefined();
     expect(resolveSeason('?season=off', oct)).toBeUndefined();
     expect(resolveSeason('?season=halloween', nov)).toBe('halloween');
     expect(resolveSeason('?season=auto', oct)).toBe('halloween');

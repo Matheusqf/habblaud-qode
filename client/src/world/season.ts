@@ -1,9 +1,10 @@
-// Opções de cenário por URL. Tema sazonal das salas (só decoração): desligado por padrão.
+// Opções de cenário por URL. Tema sazonal das salas (só decoração): padrão = auto (Halloween em outubro).
 //   ?season=halloween  liga sempre
 //   ?season=auto       liga só em outubro (relógio local do navegador), avaliado UMA vez ao abrir a
 //                      página. Não há recarga automática (preserva rascunhos do MessageComposer e
 //                      edições não salvas do CharacterEditor): a virada do mês vale no próximo carregamento.
-//   ?season=off / sem parâmetro → desligado
+//   ?season=off        desliga
+//   sem parâmetro      = auto
 import type { RoomStyle, Season } from './layout/room';
 
 export function resolveSeason(search: string, now: Date = new Date()): Season | undefined {
@@ -14,8 +15,9 @@ export function resolveSeason(search: string, now: Date = new Date()): Season | 
     return undefined;
   }
   if (v === 'halloween') return 'halloween';
-  if (v === 'auto' && now.getMonth() === 9) return 'halloween';
-  return undefined;
+  if (v === 'off') return undefined;
+  // padrão = auto: Halloween em outubro
+  return now.getMonth() === 9 ? 'halloween' : undefined;
 }
 
 export function currentSeason(): Season | undefined {
