@@ -20,6 +20,21 @@ export interface RoomInput {
   id: string;
   slot: number;
   seed: number;
+  /** Tema sazonal (só decoração; nunca muda lugares nem caminhos). Desligado por padrão. */
+  season?: Season;
+  /** Força o estilo de planta (senão a semente sorteia). */
+  style?: RoomStyle;
+}
+
+/** Tema sazonal opcional das salas. */
+export type Season = 'halloween';
+
+/** Estilo de planta da sala: ilha face a face (clássico) ou "gather" (estações nas paredes e mesa de reunião central). */
+export type RoomStyle = 'island' | 'gather';
+
+/** Sorteio do estilo da sala (rng próprio, para não mexer nas outras variações). */
+export function roomStyle(seed: number): RoomStyle {
+  return mulberry32((seed ^ 0x6a7e) >>> 0)() < 0.5 ? 'gather' : 'island';
 }
 
 const PLANTS_TALL = ['palm', 'ficus', 'monstera', 'bonsai'] as const;
@@ -67,6 +82,75 @@ export function roomVariant(seed: number): RoomVariant {
 }
 
 export function layoutProjectRoom(room: RoomInput, theme: RoomTheme): AreaLayout {
+  const area = (room.style ?? roomStyle(room.seed)) === 'gather' ? layoutGatherRoom(room, theme) : layoutIslandRoom(room, theme);
+  if (room.season === 'halloween') applyHalloween(area, room.slot);
+  return area;
+}
+
+/**
+ * Decoração de Halloween por cima de um layout pronto: troca plantas por abóboras e lixeiras por
+ * caldeirões (mesmo footprint 1x1, mesmo bloqueio) e pendura teias/morcego/guirlanda na parede.
+ * Não cria nem remove spots: o mesmo seed dá os mesmos lugares com ou sem tema.
+ */
+function applyHalloween(area: AreaLayout, slot: number): void {
+  let n = 0;
+  for (const f of area.furniture) {
+    if (f.kind === 'plant_small') {
+      f.kind = 'pumpkin';
+      f.variant = 'single';
+    } else if (f.kind === 'plant_tall') {
+      f.kind = 'pumpkin';
+      f.variant = 'stack';
+    } else if (f.kind === 'trash_bin') {
+      f.kind = 'cauldron';
+      f.variant = undefined;
+    } else continue;
+    n++;
+  }
+  const rect = slotRect(slot);
+  const north = slotSide(slot) === 'north';
+  const x0 = rect.x * TILE;
+  const baseY = (rect.y + 2) * TILE;
+  const add = (kind: FurnitureKind, lcx: number, variant?: string) =>
+    area.wallItems.push({ id: `${area.id}#hw${n++}:${kind}`, kind, variant, cx: Math.round(x0 + lcx * TILE), baseY, on: 'face', order: 0.97 });
+  add('cobweb', 1, 'left');
+  add('cobweb', 15, 'right');
+  // morcego e guirlanda só onde a parede está livre (sem outro item nem móvel alto na frente)
+  const free = (lcx: number, w: number) => wallSpanFree(area, x0 + lcx * TILE, (w * TILE) / 2, rect.y + 2);
+  const batAt = [2, 14, 12.5, 3, 13].find((c) => free(c, 1));
+  if (batAt !== undefined) add('bat_frame', batAt);
+  const garlandAt = [north ? 11.5 : 4.5, 4.5, 11.5, 2.5, 13.5].find((c) => free(c, 3));
+  if (garlandAt !== undefined) add('pumpkin_garland', garlandAt);
+}
+
+/** Móveis de chão que tapam (total ou parcialmente) o que está pendurado na parede logo atrás. */
+export const WALL_OCCLUDERS = new Set<FurnitureKind>([
+  'desk', 'desk_back', 'plant_tall', 'bookshelf', 'binder_shelf', 'fridge', 'vending_machine', 'arcade', 'water_cooler', 'floor_lamp', 'toilet_stall', 'aquarium', 'globe', 'pumpkin',
+]);
+/** Tapa a parede? (abóbora simples é baixa como o vaso pequeno que substitui; a pilha é alta). */
+export function occludesWall(f: { kind: FurnitureKind; variant?: string }): boolean {
+  return WALL_OCCLUDERS.has(f.kind) && !(f.kind === 'pumpkin' && f.variant !== 'stack');
+}
+/** Itens de parede que não contam como decoração ocludível (passagem, interruptor, teia no topo do canto). */
+export const WALL_IGNORED = new Set<FurnitureKind>(['door_frame', 'light_switch', 'cobweb']);
+
+/** O trecho [cx-half, cx+half] (px) da face da parede está livre de itens e de móveis que o tapam? */
+export function wallSpanFree(area: AreaLayout, cx: number, half: number, wallRow: number): boolean {
+  for (const w of area.wallItems) {
+    if (w.on !== 'face' || WALL_IGNORED.has(w.kind)) continue;
+    const h = (FURNITURE[w.kind].footprint.w * TILE) / 2;
+    if (w.cx - h < cx + half && w.cx + h > cx - half) return false;
+  }
+  for (const f of area.furniture) {
+    if (!occludesWall(f) || f.ty !== wallRow) continue;
+    const fx0 = f.tx * TILE + (f.dx ?? 0);
+    const fx1 = fx0 + FURNITURE[f.kind].footprint.w * TILE;
+    if (fx0 < cx + half && fx1 > cx - half) return false;
+  }
+  return true;
+}
+
+function layoutIslandRoom(room: RoomInput, theme: RoomTheme): AreaLayout {
   const rect = slotRect(room.slot);
   const side = slotSide(room.slot);
   const rng = mulberry32(room.seed ^ 0x5eed);
@@ -263,6 +347,106 @@ export function layoutProjectRoom(room: RoomInput, theme: RoomTheme): AreaLayout
   spot('stand', 13, 9, 'up', { dy: -2 });
 
   // ---- sombreamento quando a luz está apagada (salas ao norte: a mureta sul fica clara)
+  const p = { x: rect.x * TILE, y: rect.y * TILE, w: rect.w * TILE, h: rect.h * TILE };
+  area.shade = north ? { x: p.x, y: p.y, w: p.w, h: p.h - TILE } : { x: p.x, y: p.y, w: p.w, h: p.h };
+  return b.build();
+}
+
+/**
+ * Sala estilo "Gather" (inspirada em escritórios pixel-art reais): piso de madeira, estações
+ * individuais encostadas nas paredes norte e sul (onde os agentes sentam), mesa de reunião no
+ * centro com sofás e poltronas em volta, estantes, plantas, aquário/globo e alvo de dardos.
+ * Simétrica: não usa espelhamento. A passagem da porta (colunas 7–8) fica sempre livre.
+ */
+function layoutGatherRoom(room: RoomInput, theme: RoomTheme): AreaLayout {
+  const rect = slotRect(room.slot);
+  const side = slotSide(room.slot);
+  const rng = mulberry32(room.seed ^ 0x9a7e);
+  const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(rng() * arr.length) % arr.length];
+  const b = new AreaBuilder(room.id, 'room', rect);
+  const area = b.area;
+  area.side = side;
+  const wall: WallStyle = theme.wall;
+  const north = side === 'north';
+  const door = { lx: DOOR_X, w: DOOR_W };
+
+  b.floor('wood', 0, 0, 16, 12, room.seed);
+  area.floorTint = theme.carpet;
+  // tapete da zona de reunião (cor do tema = identidade da sala)
+  b.rug(4.5, 3.6, 7, 4.8, theme.carpet, room.seed);
+  b.rug(DOOR_X - 0.25, north ? 9.5 : 2, DOOR_W + 0.5, 1.25, shade(theme.carpet2, -0.1), room.seed + 1);
+
+  if (north) {
+    b.face(0.5, 15, wall);
+    b.south(0.5, 15, 11, wall, [door]);
+  } else {
+    b.face(0.5, 15, wall, [door]);
+    b.south(0.5, 15, 11, { ...wall, exterior: true });
+    b.wall('door_frame', DOOR_X + DOOR_W / 2, undefined, { order: 0.05 });
+  }
+  b.cap(0, 0, 0.5, 12, wall);
+  b.cap(15.5, 0, 0.5, 12, wall);
+
+  b.walk(1, 2, 14, 9);
+  area.door = north ? { x: rect.x + DOOR_X, y: rect.y + 11, w: DOOR_W, h: 1 } : { x: rect.x + DOOR_X, y: rect.y, w: DOOR_W, h: 2 };
+  b.walk(area.door.x - rect.x, area.door.y - rect.y, area.door.w, area.door.h);
+
+  // ---- parede: letreiro com o nome do projeto, quadro, relógio, dardos. Nenhum item de parede
+  // fica atrás das estações (mesas em 1–2 e 13–14 na linha 2): o trecho livre é 3–12.
+  b.wall('whiteboard', 4.5, undefined, { order: 0.6 });
+  if (north) {
+    area.signId = b.wall('sign', 8, undefined, { order: 0.95 });
+    b.wall('clock', 10.25, undefined, { order: 0.7 });
+    b.wall('dartboard', 11.5, undefined, { order: 0.5 });
+    b.wall('light_switch', DOOR_X - 0.5, 'on', { ly: 12, on: 'south', order: 0.8 });
+    b.spot('switch', DOOR_X - 1, 10, 'down', { dy: -1 });
+  } else {
+    area.signId = b.wall('sign', 10.5, undefined, { order: 0.95 });
+    b.wall('light_switch', DOOR_X - 0.5, 'on', { order: 0.8 });
+    b.spot('switch', DOOR_X - 1, 2, 'up', { dy: -3 });
+  }
+  b.spot('whiteboard', 5, 2, 'up', { dx: 0, dy: 2 });
+
+  // ---- estações individuais: 2 na parede norte (de costas p/ câmera) + 1 avulsa junto à parede
+  // oeste (também de costas), 3 na parede sul (de frente). Ranks 0–5, 3 de cada lado.
+  const deskV = theme.deskVariant;
+  const chairV = theme.chairVariant;
+  ([[1, 2], [13, 2], [2, 7]] as const).forEach(([lx, ly], i) => {
+    const d = b.furn('desk', lx, ly, deskV, { order: 0.35 + i * 0.03, seat: `S${i}` });
+    b.seat('desk', 'office_chair', lx, ly + 1, 'up', chairV, { dx: TILE / 2, deskId: d, rank: i, side: 'S', order: 0.6 + i * 0.02 });
+  });
+  [4, 9, 12].forEach((lx, i) => {
+    const d = b.furn('desk_back', lx, 10, deskV, { order: 0.4 + i * 0.03, seat: `N${i}` });
+    b.seat('desk', 'office_chair_front', lx, 9, 'down', chairV, { dx: TILE / 2, deskId: d, rank: 3 + i, side: 'N', order: 0.65 + i * 0.02 });
+  });
+
+  // ---- reunião central: mesa longa com sofá em cima/baixo e poltronas nas pontas
+  b.furn('meeting_table', 6, 5, undefined, { order: 0.45 });
+  const sofaN = b.furn('sofa', 6, 4, 'down', { order: 0.5 });
+  b.seat('nook', 'sofa', 6, 4, 'down', undefined, { dx: TILE, noFurniture: true, furnitureId: sofaN });
+  const sofaS = b.furn('sofa', 6, 7, 'up', { order: 0.55 });
+  b.seat('nook', 'sofa', 6, 7, 'up', undefined, { dx: TILE, noFurniture: true, furnitureId: sofaS });
+  b.seat('stool', 'armchair', 5, 5, 'right', 'right', { order: 0.56 });
+  b.seat('stool', 'armchair', 9, 6, 'left', 'left', { order: 0.57 });
+  b.furn('plant_tall', 5, 4, pick(PLANTS_TALL), { order: 0.3 });
+  b.furn('plant_tall', 9, 4, pick(PLANTS_TALL), { order: 0.31 });
+
+  // ---- laterais: estantes, aquário/globo, impressora e plantas
+  b.furn('binder_shelf', 1, 5, undefined, { order: 0.25 });
+  b.furn(rng() < 0.5 ? 'aquarium' : 'globe', 1, 6, undefined, { order: 0.26 });
+  b.furn('plant_small', 1, 7, pick(PLANTS_SMALL), { order: 0.27 });
+  b.furn('binder_shelf', 14, 5, undefined, { order: 0.28 });
+  b.furn(rng() < 0.5 ? 'printer' : 'filing_cabinet', 14, 6, undefined, { order: 0.29 });
+  b.furn('trash_bin', 14, 7, undefined, { order: 0.3 });
+  b.furn(rng() < 0.5 ? 'aquarium' : 'globe', 14, 10, undefined, { order: 0.19 });
+  b.furn('plant_tall', 1, 10, pick(PLANTS_TALL), { order: 0.2 });
+  b.furn('plant_small', 2, 10, pick(PLANTS_SMALL), { order: 0.21 });
+
+  // pontos em pé (subagentes sem lugar sentado / conversa)
+  b.spot('stand', 4, 6, 'right');
+  b.spot('stand', 12, 6, 'left');
+  b.spot('stand', 11, 8, 'up', { dy: -2 });
+
   const p = { x: rect.x * TILE, y: rect.y * TILE, w: rect.w * TILE, h: rect.h * TILE };
   area.shade = north ? { x: p.x, y: p.y, w: p.w, h: p.h - TILE } : { x: p.x, y: p.y, w: p.w, h: p.h };
   return b.build();

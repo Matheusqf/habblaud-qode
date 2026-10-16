@@ -1,5 +1,6 @@
 // Gaveta de detalhes (direita): agente ou sala selecionados. Agente do Codex: selo "Codex", textos dele (onde
 // responder, o terminal, a aprovação no lugar do modo de permissão, sem custo) e a dica dos hooks do Codex.
+import { originalNameShown } from '../../../shared/nicknames';
 import type { Activity, AgentInfo, FeedItem, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
 import { roomTheme } from '../art';
 import { createAvatarPlaceholder, updateAvatar } from './avatar';
@@ -190,6 +191,7 @@ class AgentView {
   private avatar: HTMLElement;
   private name: HTMLElement;
   private role: HTMLElement;
+  private realName: HTMLElement;
   private title: HTMLElement;
   private accChip: HTMLElement;
   private accName: HTMLElement;
@@ -258,6 +260,7 @@ class AgentView {
     this.avatar = createAvatarPlaceholder('lg');
     this.name = h('h2', { class: 'ui-hero__name' });
     this.role = h('span', { class: 'ui-role' });
+    this.realName = h('div', { class: 'ui-hero__real', hidden: true });
     this.title = h('p', { class: 'ui-hero__title' });
     this.accChip = createAccountChip('md');
     this.accName = h('span', { class: 'ui-hero__acc-name' });
@@ -270,6 +273,7 @@ class AgentView {
       'div',
       { class: 'ui-hero__text' },
       h('div', { class: 'ui-hero__line' }, this.name, this.character.button, this.role),
+      this.realName,
       h('div', { class: 'ui-hero__acc' }, this.accChip, this.accName, this.accProv, this.accEmail),
       h('div', { class: 'ui-hero__where' }, h('span', { class: 'ui-muted', text: 'Sala' }), this.roomBtn),
     );
@@ -469,6 +473,9 @@ class AgentView {
     updateAvatar(this.avatar, a, 'lg');
     setStyleVar(this.avatar, '--acc', account?.color ?? '#8b98b3');
     setText(this.name, a.name);
+    const real = originalNameShown(a);
+    setText(this.realName, real ? `Nome real: ${real}` : '');
+    setHidden(this.realName, !real);
     this.character.render(a, !!live);
     setText(this.role, roleLabel(a));
     setVariant(this.role, 'ui-role--', a.kind);

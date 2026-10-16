@@ -1,6 +1,7 @@
 // Dica flutuante do personagem sob o cursor: acompanha o personagem quadro a quadro.
 import type { UiComponent, UiContext } from './context';
 import { h, setHidden, setText, setVariant } from './dom';
+import { originalNameShown } from '../../../shared/nicknames';
 import { formatDuration } from './format';
 import { shellStage, shellWaitIn, statusLabel } from './model';
 import { providerOf } from './provider';
@@ -28,10 +29,12 @@ export class HoverTip implements UiComponent {
   private activity: HTMLElement;
   private mood: HTMLElement;
   private task: HTMLElement;
+  private real: HTMLElement;
   private since: HTMLElement;
 
   constructor(private ctx: UiContext) {
     this.name = h('strong', { class: 'ui-tip__name' });
+    this.real = h('div', { class: 'ui-tip__real', hidden: true });
     this.chip = createAccountChip('sm');
     this.prov = createProviderTag('ui-prov--xs');
     this.dot = createStatusDot();
@@ -44,6 +47,7 @@ export class HoverTip implements UiComponent {
       'div',
       { class: 'ui-tip', attrs: { 'aria-hidden': 'true' } },
       h('div', { class: 'ui-tip__top' }, this.name, this.chip, this.prov),
+      this.real,
       this.task,
       h('div', { class: 'ui-tip__line' }, this.dot, this.status, this.since),
       this.activity,
@@ -89,6 +93,9 @@ export class HoverTip implements UiComponent {
       return;
     }
     setText(this.name, a.name);
+    const real = originalNameShown(a);
+    setText(this.real, real ? `Nome real: ${real}` : '');
+    setHidden(this.real, !real);
     updateAccountChip(this.chip, this.ctx.account(a.account), a.account, a.provider);
     updateProviderTag(this.prov, providerOf(a));
     // Esperando um shell: o que ele espera (com o tempo correndo) e o que anda fazendo enquanto isso.

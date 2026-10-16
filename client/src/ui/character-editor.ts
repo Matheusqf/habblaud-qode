@@ -1,6 +1,7 @@
 // Editor do personagem na gaveta do agente: nome, "Sortear" e as peças (pele, cabelo, roupa...) com prévia de corpo
 // inteiro. "Salvar" grava o personagem do projeto (a sala) no servidor; as regras puras (quando aparece, rótulos, o
 // que vai em `parts`) estão em character-model.ts.
+import { canonicalName } from '../../../shared/nicknames';
 import { NAME_MAX, type PartKey } from '../../../shared/appearance';
 import type { AgentInfo } from '../../../shared/types';
 import { appearanceFromSeed, characterSprite, editorConflict, editorOptions, fitToOptions } from '../art';
@@ -99,7 +100,7 @@ export class CharacterEditor {
     this.look = a.look;
     this.base = appearanceFromSeed(a.seed, { look: a.look });
     this.draft = { ...this.base, ...a.parts };
-    this.nameInput.value = a.name;
+    this.nameInput.value = canonicalName(a);
     this.confirmingReset = false;
     setText(this.resetBtn, 'Voltar ao sorteio');
     setHidden(this.resetBtn, !a.custom);

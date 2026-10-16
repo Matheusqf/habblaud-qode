@@ -5,6 +5,7 @@ import { trim, type BufFurniture } from '../core/sprite';
 import * as C from './common';
 import * as O from './office';
 import * as W from './wall';
+import * as D from './decor';
 
 /** Quantas variações de detalhes (seed) cada kind tem; os demais ignoram a seed. */
 export const SEED_VARIATIONS: Partial<Record<FurnitureKind, number>> = {
@@ -125,6 +126,22 @@ function build(kind: FurnitureKind, variant: string | undefined, state: number, 
       return C.receptionDesk(seed);
     case 'bench':
       return C.bench();
+    case 'aquarium':
+      return D.aquarium();
+    case 'globe':
+      return D.globe();
+    case 'pumpkin':
+      return D.pumpkin(variant);
+    case 'cauldron':
+      return D.cauldron();
+    case 'dartboard':
+      return D.dartboard();
+    case 'cobweb':
+      return D.cobweb(variant);
+    case 'bat_frame':
+      return D.batFrame();
+    case 'pumpkin_garland':
+      return D.pumpkinGarland();
   }
 }
 
