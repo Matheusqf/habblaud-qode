@@ -192,7 +192,7 @@ Alinhar tetos B1; ops room **observa** contadores quando API existir:
 ## 12. Stub QODE (esta entrega)
 
 - Capability `ops-room`: `origin: 'unavailable'`, `capabilities: []`, note aponta este doc.
-- `qode.opsRoom`: `{ bot: 'opencode', role: 'observe-only', ready: false, api: 'unavailable', crossRoom: 'denied', vida: 'excluded', note }`.
+- `qode.opsRoom`: `{ bot: 'opencode', role: 'observe-only', ready: false, api: 'unavailable', crossRoom: 'denied', sensitiveTrack: 'excluded', note }`.
 - `hasMisleadingLive` trata `ops-room` como proibido em `live`.
 - **Sem** UI de despacho; **sem** adapter HTTP para OpenCode.
 

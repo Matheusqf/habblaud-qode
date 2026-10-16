@@ -10,15 +10,18 @@ export interface OpsRoomStatus {
   api: 'unavailable';
   /** Cruzar salas é proibido por contrato. */
   crossRoom: 'denied';
-  /** Vida BOT fora deste track. */
-  vida: 'excluded';
+  /**
+   * Track sensível (privacidade estrutural / B3) fora deste pacote.
+   * Nome genérico de propósito: o DTO público de health/status não nomeia projetos privados.
+   */
+  sensitiveTrack: 'excluded';
   /** Depende de B4 para qualquer superfície remota. */
   authDependency: 'b4-required-for-remote';
   note: string;
 }
 
 const NOTE =
-  'B2 stub: bot proposto=OpenCode via floating-flow/flow-bot-relay; sem API live; sem cruzar salas; Vida excluído; remoto só após B4';
+  'B2 stub: bot proposto=OpenCode via floating-flow/flow-bot-relay; sem API live; sem cruzar salas; track sensível excluído; remoto só após B4';
 
 /**
  * Status para /api/health. Sem side-effects, sem chamadas cloud.
@@ -31,7 +34,7 @@ export function qodeOpsRoomStatus(): OpsRoomStatus {
     ready: false,
     api: 'unavailable',
     crossRoom: 'denied',
-    vida: 'excluded',
+    sensitiveTrack: 'excluded',
     authDependency: 'b4-required-for-remote',
     note: NOTE,
   };

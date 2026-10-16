@@ -64,6 +64,7 @@ describe('Q3 capabilities', () => {
     expect(h.opsRoom.bot).toBe('opencode');
     expect(h.opsRoom.ready).toBe(false);
     expect(h.opsRoom.api).toBe('unavailable');
-    expect(h.opsRoom.vida).toBe('excluded');
+    expect(h.opsRoom.sensitiveTrack).toBe('excluded');
+    expect(JSON.stringify(h.opsRoom).toLowerCase()).not.toMatch(/vida|documents|secret|~\//);
   });
 });
