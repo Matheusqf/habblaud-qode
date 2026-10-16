@@ -7771,3 +7771,10 @@ html.is-replay #world {
 .ui-char__reset {
   margin-left: auto;
 }
+
+/* Apelidos: nome real visível junto ao apelido (dica e painel do agente) */
+.ui-tip__real,
+.ui-hero__real {
+  font-size: 11px;
+  opacity: 0.8;
+}

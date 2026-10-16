@@ -292,7 +292,7 @@ describe('apelidos (só exibição)', () => {
     (store as unknown as { applySnapshot(s: OfficeSnapshot): void }).applySnapshot(base);
     const got = store.snapshot!.agents;
     expect(got.map((a) => a.id)).toEqual(base.agents.map((a) => a.id));
-    expect(got.map((a) => (a as { realName?: string }).realName)).toEqual(realNames);
+    expect(got.map((a) => (a as { canonicalName?: string }).canonicalName)).toEqual(realNames);
     expect(base.agents.map((a) => a.name)).toEqual(realNames);
     expect(got.map((a) => a.name)).not.toEqual(realNames);
     expect(new Set(got.map((a) => a.name)).size).toBe(2);
@@ -303,5 +303,26 @@ describe('apelidos (só exibição)', () => {
     const base = snap(1);
     (store as unknown as { applySnapshot(s: OfficeSnapshot): void }).applySnapshot(base);
     expect(store.snapshot).toBe(base);
+  });
+});
+
+describe('apelidos nunca vão para o servidor (regressão #16 P1)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('editar a roupa com o apelido no campo nome envia o nome canônico', async () => {
+    const fetchMock = vi.fn(async () => new Response('{"ok":true}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const store = new OfficeStore();
+    store.nicknames = true;
+    const ag = { id: 'acc:1', name: 'Ana', look: 'f', kind: 'main', roomId: 'r', role: 'x', sessionId: 's', account: '.claude', status: 'idle' } as unknown as AgentInfo;
+    (store as unknown as { applySnapshot(s: OfficeSnapshot): void }).applySnapshot({ ...snap(1), agents: [ag] });
+    const shown = store.snapshot!.agents[0];
+    expect(shown.name).not.toBe('Ana');
+    expect((shown as { canonicalName?: string }).canonicalName).toBe('Ana');
+    await store.saveCharacter('acc:1', { name: shown.name, seed: 3, parts: {} });
+    expect(JSON.parse((fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body).name).toBe('Ana');
+    // renomear de propósito continua possível
+    await store.saveCharacter('acc:1', { name: 'Aninha', seed: 3, parts: {} });
+    expect(JSON.parse((fetchMock.mock.calls[1] as unknown as [string, { body: string }])[1].body).name).toBe('Aninha');
   });
 });

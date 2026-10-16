@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NICKNAME_POOL, assignNicknames, applyNicknames } from './nicknames';
+import { NICKNAME_POOL, assignNicknames, applyNicknames, canonicalName, nicknamesEnabled, originalNameShown } from './nicknames';
 import type { AgentInfo, OfficeSnapshot } from './types';
 
 function sortedEntries(map: Map<string, string>): [string, string][] {
@@ -33,7 +33,7 @@ describe('assignNicknames', () => {
 });
 
 describe('applyNicknames', () => {
-  it('keeps id, sets realName, and does not mutate input', () => {
+  it('keeps id, sets canonicalName, and does not mutate input', () => {
     const snap = {
       agents: [
         { id: 'a', name: 'Alice', look: 'f' },
@@ -48,13 +48,41 @@ describe('applyNicknames', () => {
     expect(result).not.toBe(snap);
     expect(result.agents).not.toBe(snap.agents);
 
-    const first = result.agents[0] as AgentInfo & { realName?: string };
-    const second = result.agents[1] as AgentInfo & { realName?: string };
+    const first = result.agents[0] as AgentInfo & { canonicalName?: string };
+    const second = result.agents[1] as AgentInfo & { canonicalName?: string };
 
     expect(first.id).toBe('a');
-    expect(first.realName).toBe('Alice');
+    expect(first.canonicalName).toBe('Alice');
     expect(second.id).toBe('b');
-    expect(second.realName).toBe('Bob');
+    expect(second.canonicalName).toBe('Bob');
     expect(['f', 'm']).toContain(first.look);
+  });
+});
+
+describe('opções dos apelidos', () => {
+  const store = (v: string | null) => ({ getItem: () => v });
+  it('ligado por padrão', () => {
+    expect(nicknamesEnabled('', store(null))).toBe(true);
+    expect(nicknamesEnabled(undefined, undefined)).toBe(true);
+  });
+  it('?nicknames=0 desliga', () => {
+    expect(nicknamesEnabled('?nicknames=0', store(null))).toBe(false);
+    expect(nicknamesEnabled('?nicknames=1', store(null))).toBe(true);
+  });
+  it("localStorage habblaud:nicknames='0' desliga", () => {
+    expect(nicknamesEnabled('', store('0'))).toBe(false);
+  });
+  it('localStorage que lança: fica no padrão (ligado), e ?nicknames=0 ainda desliga', () => {
+    const boom = { getItem: () => { throw new Error('SecurityError'); } };
+    expect(nicknamesEnabled('', boom)).toBe(true);
+    expect(nicknamesEnabled('?nicknames=0', boom)).toBe(false);
+  });
+  it('canonicalName/originalNameShown separam nome real do exibido', () => {
+    const a = { id: 'x', name: 'Neo', canonicalName: 'Ana' } as unknown as AgentInfo;
+    expect(canonicalName(a)).toBe('Ana');
+    expect(originalNameShown(a)).toBe('Ana');
+    const b = { id: 'y', name: 'Bob' } as unknown as AgentInfo;
+    expect(canonicalName(b)).toBe('Bob');
+    expect(originalNameShown(b)).toBeUndefined();
   });
 });

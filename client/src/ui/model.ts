@@ -1,5 +1,6 @@
 // Modelo de apresentação da UI: agrupamento salas -> agentes -> subagentes, filtros, contadores e rótulos.
 // Funções puras (sem DOM), testadas em ui/model.test.ts.
+import { canonicalName } from '../../../shared/nicknames';
 import type { AccountInfo, Activity, AgentInfo, AgentStatus, OfficeSnapshot, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
 import { formatElapsed, normalizeSearch } from './format';
 
@@ -332,6 +333,7 @@ export function matchesQuery(agent: AgentInfo, room: RoomInfo | undefined, accou
   const hay = normalizeSearch(
     [
       agent.name,
+      canonicalName(agent),
       roleLabel(agent),
       agent.title ?? '',
       room?.name ?? '',
