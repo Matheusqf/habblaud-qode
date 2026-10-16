@@ -365,6 +365,17 @@
   --step: 3px;
 }
 
+/* Conta do OpenCode: chip escuro com letra na cor da conta, borda interna cheia e moldura tracejada por dentro,
+   para diferenciar do vazado em degrau do Codex sem precisar de logotipo. */
+.ui-acc-chip[data-provider='opencode'] {
+  background: #10161d;
+  color: var(--acc);
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 2px var(--acc);
+  outline: 1px dashed var(--acc);
+  outline-offset: -4px;
+}
+
 /* Selo de texto "Codex" ao lado do nome da conta (fonte do sistema: na Pixelify o "C" parece "O"). */
 .ui-prov {
   display: inline-flex;

@@ -15,11 +15,12 @@ setQuiet(true);
 // Pastas reais: a allowlist compara caminhos canônicos (realpath). link -> fora da allowlist.
 const ROOT = realpathSync(mkdtempSync(join(tmpdir(), 'oc-allow-')));
 const P = join(ROOT, 'projetos');
-for (const d of ['projetos/loja', 'projetos/lojaX', 'outro']) mkdirSync(join(ROOT, d), { recursive: true });
+for (const d of ['projetos/loja', 'projetos/lojaX', 'projetos/x', 'outro', 'x']) mkdirSync(join(ROOT, d), { recursive: true });
 symlinkSync(join(ROOT, 'outro'), join(P, 'link'));
 afterAll(() => rmSync(ROOT, { recursive: true, force: true }));
 
 const KEY = '.opencode:ses-1';
+const CHILD = '.opencode:ses-filha';
 
 let cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -163,6 +164,40 @@ describe('fonte do OpenCode', () => {
     expect(ctx.source.sources()[0].sessions).toBe(0);
   });
 
+  it('sessão filha aparece como sub com parentId da raiz e atividade observada', async () => {
+    const ctx = setup();
+    ctx.setRows([row(), row({ id: 'ses-filha', parent_id: 'ses-1', last_role: 'user' })]);
+    await ctx.source.start();
+
+    const child = ctx.agent(CHILD)!;
+    expect(child).toMatchObject({
+      kind: 'sub',
+      parentId: KEY,
+      sessionId: 'ses-filha',
+      role: 'build',
+      status: 'idle',
+      observed: { basis: 'inferred', activity: 'active', at: 999_000, stale: false },
+    });
+  });
+
+  it('filha cujo pai não está na leitura é ignorada', async () => {
+    const ctx = setup();
+    ctx.setRows([row({ id: 'ses-filha', parent_id: 'ses-orfao' })]);
+    await ctx.source.start();
+    expect(ctx.agent(CHILD)).toBeUndefined();
+  });
+
+  it('filha que some numa leitura bem-sucedida é concluída (done)', async () => {
+    const ctx = setup();
+    ctx.setRows([row(), row({ id: 'ses-filha', parent_id: 'ses-1' })]);
+    await ctx.source.start();
+    expect(ctx.agent(CHILD)?.status).toBe('idle');
+
+    ctx.setRows([row()]);
+    await ctx.source.poll();
+    expect(ctx.agent(CHILD)?.status).toBe('done');
+  });
+
   it('revival: presente → ausente → volta antes de 20 s → tick depois do prazo original → continua presente', async () => {
     const ctx = setup();
     ctx.setRows([row()]);
@@ -207,6 +242,10 @@ describe('inAllowlist (caminho canônico)', () => {
     // /permitido/link -> /fora: path.resolve deixaria passar; realpath não.
     expect(inAllowlist(`${P}/link`, [P])).toBe(false);
     expect(inAllowlist(`${P}/nao-existe`, [P])).toBe(false);
+    // '..' depois do symlink: lexicalmente seria ${P}/x (existe e está dentro); de verdade é ${ROOT}/x (fora).
+    expect(inAllowlist(`${P}/link/../x`, [P])).toBe(false);
+    expect(inAllowlist(`${P}/link/../projetos/loja`, [P])).toBe(true);
+    expect(inAllowlist('relativo/loja', [P])).toBe(false);
     // allowlist via symlink para dentro continua valendo pelo destino real
     expect(inAllowlist(`${ROOT}/outro`, [`${P}/link`])).toBe(true);
   });
@@ -217,4 +256,22 @@ describe('inAllowlist (caminho canônico)', () => {
     await ctx.source.start();
     expect(ctx.office.commit().snapshot.agents).toEqual([]);
   });
+
+describe('erro inferido', () => {
+  it('última mensagem com erro: observed.error; leitura falha: some (stale)', async () => {
+    const ctx = setup();
+    ctx.setRows([row({ last_error: 1 })]);
+    await ctx.source.start();
+    expect(ctx.agent()?.observed).toMatchObject({ error: true, stale: false });
+    ctx.setRows([row({ last_error: 0 })]);
+    await ctx.source.poll();
+    expect(ctx.agent()?.observed?.error).toBeUndefined();
+    ctx.setRows([row({ last_error: 1 })]);
+    await ctx.source.poll();
+    ctx.setFailure(new Error('x'));
+    await ctx.source.poll();
+    expect(ctx.agent()?.observed).toMatchObject({ stale: true });
+    expect(ctx.agent()?.observed?.error).toBeUndefined();
+  });
+});
 });

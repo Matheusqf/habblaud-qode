@@ -103,16 +103,15 @@ export class FileTail {
   }
 
   /**
-   * O arquivo foi trocado por outro? O inode diferente basta, mas o sistema de arquivos pode reaproveitar o
-   * número de um arquivo apagado (ext4): por isso, quando os dois lados informam o momento de criação, ele também
-   * conta. Só que no Linux sem statx (WSL1, seccomp antigo) o Node devolve o ctime no lugar dele, e o ctime muda a
-   * cada escrita: a mudança do birthtime só vale se o começo do arquivo também mudou. Um arquivo novo que comece com
-   * os mesmos bytes passa como o mesmo, como antes de o birthtime contar.
+   * O arquivo foi trocado por outro? O inode diferente basta. Com o mesmo inode (o FS reaproveita o número de um
+   * arquivo apagado), o começo do arquivo decide: o birthtime não é confiável (grosso em ext2/ext3, ou o ctime no
+   * Linux sem statx). Um arquivo novo que comece com os mesmos bytes passa como o mesmo.
    */
   private replaced(fd: number, st: { ino: number; birthtimeMs: number }): boolean {
     if (this.ino === undefined) return false;
     if (st.ino !== this.ino) return true;
-    if (!(this.birthtimeMs > 0 && st.birthtimeMs > 0 && st.birthtimeMs !== this.birthtimeMs)) return false;
+    // Mesmo inode: o FS pode tê-lo reaproveitado, e o birthtime não ajuda quando é grosso (ext2/ext3) ou é o ctime
+    // (sem statx). O começo do arquivo decide sempre: acréscimos não mudam os primeiros bytes; outro começo = troca.
     return !!this.head && !readHead(fd, this.head.length).equals(this.head);
   }
 
