@@ -165,7 +165,10 @@ export function sanitize(provider: CloudProvider, raw: RawCloudItem, cfg: Pick<C
   return obs;
 }
 
-/** Observação vencida (coletor parou de confirmar) vira 'stale' — nunca continua "trabalhando" para sempre. */
+/**
+ * Observação vencida (coletor parou de confirmar dentro do TTL) vira 'stale' para QUALQUER estado não terminal —
+ * running, idle ou unknown. Só 'ended' é preservado (já saiu da sala).
+ */
 export function effectiveState(o: CloudObservation, now: number): CloudState {
-  return now > o.expiresAt && o.state === 'running' ? 'stale' : o.state;
+  return now > o.expiresAt && o.state !== 'ended' ? 'stale' : o.state;
 }
