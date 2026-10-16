@@ -232,6 +232,12 @@ export function buildAreaVis(art: ArtModule, layout: AreaLayout, room: RoomState
     }
   }
 
+  // ---- rótulos pintados no chão (open-space: nome do projeto na frente da ilha)
+  for (const l of layout.floorLabels ?? []) {
+    const text = l.text ?? room?.info.name;
+    if (text) drawFloorLabel(fctx, l, text);
+  }
+
   // ---- paredes + itens de parede fixos
   const [walls, wctx] = makeCanvas(px.w, px.h + WALL_MARGIN);
   wctx.translate(-px.x, -px.y + WALL_MARGIN);
@@ -284,6 +290,32 @@ export function toWallVis(it: WallItemPlacement, areaId: string): WallVis {
 }
 
 /** Desenha paredes e piso de um conjunto de segmentos/pisos num contexto já transformado (camada base). */
+/** Rio e pontes decorativos do jardim (G5), desenhados só em código. */
+export function paintGardenDecor(ctx: CanvasRenderingContext2D, decor: readonly { kind: 'water' | 'bridge'; x: number; y: number; w: number; h: number; seed: number }[]): void {
+  for (const d of decor) {
+    if (d.kind === 'water') {
+      ctx.fillStyle = '#6f9e4f';
+      ctx.fillRect(d.x, d.y - 2, d.w, d.h + 4); // margem
+      ctx.fillStyle = '#3f86b8';
+      ctx.fillRect(d.x, d.y, d.w, d.h);
+      ctx.fillStyle = '#2f6f9e';
+      ctx.fillRect(d.x, d.y + d.h - 3, d.w, 3);
+      ctx.fillStyle = 'rgba(220,240,255,0.55)';
+      for (let x = d.x + (d.seed % 7); x < d.x + d.w - 6; x += 13) ctx.fillRect(x, d.y + 4 + ((x >> 3) % 3) * 9, 6, 1);
+    } else {
+      ctx.fillStyle = '#7a5532';
+      ctx.fillRect(d.x - 1, d.y, 1, d.h);
+      ctx.fillRect(d.x + d.w, d.y, 1, d.h);
+      for (let y = d.y; y < d.y + d.h; y += 4) {
+        ctx.fillStyle = (y >> 2) % 2 ? '#b98a57' : '#a87a4a';
+        ctx.fillRect(d.x, y, d.w, 3);
+        ctx.fillStyle = '#5e4026';
+        ctx.fillRect(d.x, y + 3, d.w, 1);
+      }
+    }
+  }
+}
+
 export function paintShell(art: ArtModule, ctx: CanvasRenderingContext2D, floors: AreaLayout['floors'], walls: WallSegment[]): void {
   for (const f of floors) {
     try {
@@ -294,4 +326,32 @@ export function paintShell(art: ArtModule, ctx: CanvasRenderingContext2D, floors
     }
   }
   for (const w of walls) drawWallSegment(art, ctx, w);
+}
+
+/** Pinta um texto no chão como faixa de sinalização (sem assets externos; só canvas). */
+export function drawFloorLabel(ctx: CanvasRenderingContext2D, l: { x: number; y: number; w: number; h: number; color: string }, text: string): void {
+  const label = text.toUpperCase().slice(0, 28);
+  const x = Math.round(l.x);
+  const y = Math.round(l.y);
+  const w = Math.round(l.w);
+  const h = Math.round(l.h);
+  ctx.save();
+  // faixa pintada no chão (cor de destaque da sala) com o nome em claro
+  ctx.globalAlpha = 0.78;
+  ctx.fillStyle = l.color;
+  ctx.fillRect(x, y, w, h);
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(x, y + h - 1, w, 1);
+  let size = Math.max(5, h - 2);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (; size > 4; size--) {
+    ctx.font = `bold ${size}px monospace`;
+    if (ctx.measureText(label).width <= w - 4) break;
+  }
+  ctx.globalAlpha = 0.95;
+  ctx.fillStyle = '#fffaf0';
+  ctx.fillText(label, x + w / 2, y + h / 2 + 0.5, w - 4);
+  ctx.restore();
 }

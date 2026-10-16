@@ -5,6 +5,7 @@
 //                      edições não salvas do CharacterEditor): a virada do mês vale no próximo carregamento.
 //   ?season=off        desliga
 //   sem parâmetro      = auto
+import type { GardenStyle } from './layout/exterior';
 import type { RoomStyle, Season } from './layout/room';
 
 export function resolveSeason(search: string, now: Date = new Date()): Season | undefined {
@@ -25,19 +26,53 @@ export function currentSeason(): Season | undefined {
   return resolveSeason(location.search);
 }
 
-/** ?rooms=gather | island força o estilo de todas as salas; sem parâmetro (ou mix) a semente sorteia. */
-export function resolveRoomStyle(search: string): RoomStyle | undefined {
-  let v: string | null = null;
+/**
+ * G7 — preset do escritório por configuração de build: `VITE_HABBLAUD_OFFICE=gather` (ex.: no
+ * build do QODE Office) liga open-space + jardim com rio. Sem a variável, nada muda. A URL
+ * (`?office=gather|classic`, `?rooms=...`, `?garden=river|off`) sempre tem precedência.
+ */
+export type OfficePreset = 'gather' | 'classic';
+
+function param(search: string, key: string): string | null {
   try {
-    v = new URLSearchParams(search).get('rooms');
+    return new URLSearchParams(search).get(key);
   } catch {
-    return undefined;
+    return null;
   }
-  return v === 'gather' || v === 'island' ? v : undefined;
+}
+
+export function buildOfficePreset(): OfficePreset | undefined {
+  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+  const v = env?.VITE_HABBLAUD_OFFICE;
+  return v === 'gather' || v === 'classic' ? v : undefined;
+}
+
+function resolvePreset(search: string, fallback: OfficePreset | undefined): OfficePreset | undefined {
+  const v = param(search, 'office');
+  return v === 'gather' || v === 'classic' ? v : fallback;
+}
+
+/** ?rooms=gather | island | openspace força o estilo de todas as salas; sem parâmetro (ou mix) a semente sorteia. */
+export function resolveRoomStyle(search: string, preset?: OfficePreset): RoomStyle | undefined {
+  const v = param(search, 'rooms');
+  if (v === 'gather' || v === 'island' || v === 'openspace') return v;
+  return resolvePreset(search, preset) === 'gather' ? 'openspace' : undefined;
 }
 
 export function currentRoomStyle(): RoomStyle | undefined {
   if (typeof location === 'undefined') return undefined;
-  return resolveRoomStyle(location.search);
+  return resolveRoomStyle(location.search, buildOfficePreset());
 }
 
+/** Jardim decorativo: ?garden=river liga, ?garden=off desliga; senão segue o preset. */
+export function resolveGarden(search: string, preset?: OfficePreset): GardenStyle | undefined {
+  const v = param(search, 'garden');
+  if (v === 'river') return 'river';
+  if (v === 'off') return undefined;
+  return resolvePreset(search, preset) === 'gather' ? 'river' : undefined;
+}
+
+export function currentGarden(): GardenStyle | undefined {
+  if (typeof location === 'undefined') return undefined;
+  return resolveGarden(location.search, buildOfficePreset());
+}

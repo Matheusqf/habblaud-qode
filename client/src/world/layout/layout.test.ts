@@ -4,10 +4,11 @@ import { BUILDING_H, COL_W, CORRIDOR_Y, SOUTH_Y } from '../constants';
 import { assembleBuilding, coreAreas } from './building';
 import { columnsFor, slotAt, slotColumn, slotRect, slotSide } from './geometry';
 import { WALL_IGNORED, layoutProjectRoom, occludesWall, roomStyle, roomVariant } from './room';
-import { resolveRoomStyle, resolveSeason } from '../season';
-import { layoutExterior, slotShell } from './exterior';
+import { resolveGarden, resolveRoomStyle, resolveSeason } from '../season';
+import { RIVER_ROWS, layoutExterior, slotShell } from './exterior';
 import { RECEPTION_ID } from './core';
 import type { AreaLayout } from './types';
+import { validateZones } from './zones';
 
 const theme: RoomTheme = {
   carpet: '#4f6d8f',
@@ -185,7 +186,7 @@ describe('variações das salas de projeto', () => {
   it('toda variação é válida: sem sobreposição, tudo alcançável, lugares suficientes', () => {
     for (const slot of [0, 1]) {
       for (const seed of seeds) {
-        for (const style of ['gather', 'island'] as const) {
+        for (const style of ['gather', 'island', 'openspace'] as const) {
         const room = layoutProjectRoom({ id: `/v/${seed}`, slot, seed, style }, theme);
         const b = assembleBuilding(columnsFor([slot]), [room]);
         const used = new Map<string, string>();
@@ -333,5 +334,120 @@ describe('composição das paredes (regressão #16)', () => {
         expect(desks.filter((d) => d.side === 'N')).toHaveLength(3);
       }
     }
+  });
+});
+
+describe('open-space (G1 zonas + G2 ilha rotulada)', () => {
+  const seeds = Array.from({ length: 90 }, (_, i) => (i * 7919 + 13) >>> 0);
+
+  it('mesmos móveis, spots e caminhos da ilha clássica (só piso, zonas e rótulo mudam)', () => {
+    for (const slot of [0, 1]) for (const seed of seeds.filter((s) => roomVariant(s).meeting === 'table')) {
+      const a = layoutProjectRoom({ id: `/o/${seed}`, slot, seed, style: 'island' }, theme);
+      const o = layoutProjectRoom({ id: `/o/${seed}`, slot, seed, style: 'openspace' }, theme);
+      expect(o.spots).toEqual(a.spots);
+      expect(o.furniture).toEqual(a.furniture);
+      expect(o.walkable).toEqual(a.walkable);
+      expect(o.door).toEqual(a.door);
+      const ga = assembleBuilding(columnsFor([slot]), [a]).grid;
+      const go = assembleBuilding(columnsFor([slot]), [o]).grid;
+      expect(Array.from(go.reachableFrom(o.door!.x, o.door!.y))).toEqual(Array.from(ga.reachableFrom(a.door!.x, a.door!.y)));
+    }
+  });
+
+  it('zonas válidas: dentro da sala, sem sobreposição, alcançáveis; ilha contém as 6 mesas e tem rótulo', () => {
+    for (const slot of [0, 1]) for (const seed of seeds) for (const season of [undefined, 'halloween'] as const) {
+      const o = layoutProjectRoom({ id: `/z/${seed}`, slot, seed, style: 'openspace', season }, theme);
+      const grid = assembleBuilding(columnsFor([slot]), [o]).grid;
+      expect(validateZones(o, grid), `semente ${seed}`).toEqual([]);
+      const island = o.zones!.find((z) => z.kind === 'island')!;
+      expect(island.label).toBe('project');
+      for (const sp of o.spots.filter((s) => s.kind === 'desk')) {
+        expect(sp.tx >= island.rect.x && sp.tx < island.rect.x + island.rect.w && sp.ty >= island.rect.y && sp.ty < island.rect.y + island.rect.h, sp.id).toBe(true);
+      }
+      const l = o.floorLabels![0];
+      expect(l.zoneId).toBe(island.id);
+      expect(l.x >= island.rect.x * TILE && l.x + l.w <= (island.rect.x + island.rect.w) * TILE).toBe(true);
+      expect(hiddenWallItems(o)).toEqual([]);
+    }
+  });
+
+  it('validateZones acusa sobreposição, fora da área e zona inalcançável', () => {
+    const o = layoutProjectRoom({ id: '/bad', slot: 0, seed: 7, style: 'openspace' }, theme);
+    const r = o.rect;
+    o.zones = [
+      { id: 'a', kind: 'island', rect: { x: r.x + 1, y: r.y + 3, w: 4, h: 4 } },
+      { id: 'b', kind: 'meeting', rect: { x: r.x + 3, y: r.y + 3, w: 4, h: 4 } },
+      { id: 'c', kind: 'garden', rect: { x: r.x - 2, y: r.y, w: 3, h: 3 } },
+      { id: 'd', kind: 'lounge', rect: { x: r.x, y: r.y, w: 1, h: 1 } },
+    ];
+    o.floorLabels = [];
+    const errs = validateZones(o, assembleBuilding(columnsFor([0]), [o]).grid);
+    expect(errs).toContain('a sobrepõe b');
+    expect(errs).toContain('c: fora da área');
+    expect(errs).toContain('d: inalcançável a partir da porta');
+  });
+
+  it('?rooms=openspace é opcional e o padrão não muda', () => {
+    expect(resolveRoomStyle('?rooms=openspace')).toBe('openspace');
+    expect(resolveRoomStyle('')).toBeUndefined();
+    for (const seed of seeds) expect(roomStyle(seed)).not.toBe('openspace');
+  });
+});
+
+describe('G3–G7: corredor, reunião grande, jardim e preset', () => {
+  const seeds = Array.from({ length: 30 }, (_, i) => (i * 104729 + 5) >>> 0);
+
+  it('G3: prédio inteiro em open-space — toda sala, spot e zona alcançável a partir da recepção pelo corredor', () => {
+    const slots = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    for (const seed of seeds) {
+      const rooms = slots.map((slot) => layoutProjectRoom({ id: `/g3/${slot}`, slot, seed: seed + slot, style: 'openspace' }, theme));
+      const b = assembleBuilding(columnsFor(slots), rooms);
+      const rec = b.core.find((a) => a.id === RECEPTION_ID)!;
+      const start = rec.spots.find((sp) => b.grid.walkable(sp.tx, sp.ty))!;
+      const reach = b.grid.reachableFrom(start.tx, start.ty);
+      for (const sp of b.spots) expect(reach[sp.ty * b.grid.w + sp.tx], `${sp.id} inalcançável`).toBe(1);
+      for (const r of rooms) expect(validateZones(r, b.grid), r.id).toEqual([]);
+    }
+  });
+
+  it('G4: a reunião do open-space é sempre a mesa grande com 4 banquetas e rótulo próprio', () => {
+    for (const seed of seeds) {
+      const o = layoutProjectRoom({ id: `/g4/${seed}`, slot: 1, seed, style: 'openspace' }, theme);
+      expect(o.furniture.some((f) => f.kind === 'meeting_table')).toBe(true);
+      expect(o.spots.filter((sp) => sp.kind === 'stool')).toHaveLength(4);
+      const meeting = o.zones!.find((z) => z.kind === 'meeting')!;
+      for (const sp of o.spots.filter((s) => s.kind === 'stool'))
+        expect(sp.tx >= meeting.rect.x && sp.tx < meeting.rect.x + meeting.rect.w, sp.id).toBe(true);
+      expect(o.floorLabels!.find((l) => l.zoneId === meeting.id)?.text).toBe('REUNIÃO');
+    }
+  });
+
+  it('G5: o rio é só decoração — fora do prédio, sem árvores dentro, pontes sobre a água; desligado por padrão', () => {
+    expect(layoutExterior(4).decor).toEqual([]);
+    const ext = layoutExterior(4, { garden: 'river' });
+    const water = ext.decor.filter((d) => d.kind === 'water');
+    const bridges = ext.decor.filter((d) => d.kind === 'bridge');
+    expect(water).toHaveLength(1);
+    expect(bridges.length).toBeGreaterThan(1);
+    expect(water[0].y + water[0].h).toBeLessThanOrEqual(0); // acima da linha 0 do prédio
+    for (const br of bridges) expect(br.y <= water[0].y && br.y + br.h >= water[0].y + water[0].h).toBe(true);
+    for (const p of ext.props) expect(p.y >= RIVER_ROWS.y * TILE - 2 && p.y <= (RIVER_ROWS.y + RIVER_ROWS.h + 1) * TILE, `${p.kind} no rio`).toBe(false);
+    // a grade de caminhos do prédio não depende do jardim
+    const rooms = [layoutProjectRoom({ id: '/g5', slot: 0, seed: 3, style: 'openspace' }, theme)];
+    expect(Array.from(assembleBuilding(columnsFor([0]), rooms).grid.reachableFrom(rooms[0].door!.x, rooms[0].door!.y)).length).toBeGreaterThan(0);
+  });
+
+  it('G7: preset por config é opt-in e a URL tem precedência', () => {
+    expect(resolveRoomStyle('')).toBeUndefined();
+    expect(resolveGarden('')).toBeUndefined();
+    expect(resolveRoomStyle('', 'gather')).toBe('openspace');
+    expect(resolveGarden('', 'gather')).toBe('river');
+    expect(resolveRoomStyle('', 'classic')).toBeUndefined();
+    expect(resolveRoomStyle('?office=gather')).toBe('openspace');
+    expect(resolveGarden('?office=gather')).toBe('river');
+    expect(resolveRoomStyle('?office=classic', 'gather')).toBeUndefined();
+    expect(resolveGarden('?garden=off', 'gather')).toBeUndefined();
+    expect(resolveRoomStyle('?rooms=island', 'gather')).toBe('island');
+    expect(resolveGarden('?garden=river')).toBe('river');
   });
 });
