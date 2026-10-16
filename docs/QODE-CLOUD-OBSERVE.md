@@ -24,3 +24,6 @@ Cada agente entra como principal com cwd `/cloud/<provedor>/<projeto>` e conta `
 
 ## Claude Code web
 Sem interface pública oficial de listagem/status: **observação automática indisponível**. Não extrair cookies nem chamar endpoints privados.
+
+## Codex cloud (fatia 3)
+`codex cloud list --json --limit 20` via execFile (sem shell), timeout 15 s, saída ≤ 512 KB, stderr não ecoado. Usa a sessão já existente do CLI; o Office nunca lê `~/.codex/auth.json`. Projeto = `environment_label` (tem de estar na allowlist). `HABBLAUD_CLOUD_CODEX_VERSION` fixa o prefixo de `codex --version`. Cobertura cloud novo vs Legacy por validar.
