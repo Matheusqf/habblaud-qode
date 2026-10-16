@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isDevflowReady, probeDevflow, qodeOrchestrateStatus, resolveDevflowRoot } from './orchestrate-status';
+import { MAX_ARTIFACT_BYTES, isDevflowReady, probeDevflow, readSmall, qodeOrchestrateStatus, resolveDevflowRoot } from './orchestrate-status';
 
 const CANARY = '/tmp/QODE_CANARY_PRIVATE_B1_PATH/dev-flow-secret-xyz';
 
@@ -111,5 +111,45 @@ describe('B1 orchestrate-status', () => {
     expect(h.orchestrate.configured).toBe(false);
     expect(h.orchestrate.artifactsPresent).toBe(false);
     expect(h.orchestrate.ready).toBe(false);
+  });
+
+  it('P2: ficheiro > limite com JSON válido no prefixo + lixo após o corte → ready/artifactsPresent false', () => {
+    const root = mkdtempSync(join(tmpdir(), 'qode-b1-big-'));
+    writeValidFixture(root);
+    const json = JSON.stringify({ project: { name: 'dev-flow' } });
+    const big = json + ' '.repeat(MAX_ARTIFACT_BYTES - json.length) + 'GARBAGE{{{not json';
+    writeFileSync(join(root, 'flow.config.json'), big);
+    expect(readSmall(join(root, 'flow.config.json'))).toBeUndefined();
+    const st = qodeOrchestrateStatus({ QODE_DEVFLOW_ROOT: root }, '/tmp');
+    expect(st.artifactsPresent).toBe(false);
+    expect(st.ready).toBe(false);
+    // SKILL/AGENTS grandes também falham fechados
+    writeValidFixture(root);
+    writeFileSync(join(root, 'AGENTS.md'), '# ok\n' + 'x'.repeat(MAX_ARTIFACT_BYTES));
+    expect(probeDevflow(root).artifactsPresent).toBe(false);
+    // exatamente no limite continua aceite
+    writeValidFixture(root);
+    writeFileSync(join(root, 'flow.config.json'), json + ' '.repeat(MAX_ARTIFACT_BYTES - json.length));
+    expect(readSmall(join(root, 'flow.config.json'))?.length).toBe(MAX_ARTIFACT_BYTES);
+    expect(isDevflowReady(root)).toBe(true);
+  });
+
+  it('config QODE presente mas inválida → health invalida, orchestrate não vaza canary', async () => {
+    const { setupQode } = await import('./index');
+    const { RoomAliases } = await import('../model/room-aliases');
+    const dataDir = mkdtempSync(join(tmpdir(), 'qode-b1-badcfg-'));
+    writeFileSync(join(dataDir, 'qode.config.json'), '{"projects": [ nope');
+    const qode = setupQode({
+      env: { QODE_DEVFLOW_ROOT: CANARY },
+      dataDir,
+      home: '/tmp',
+      roomAliases: new RoomAliases(null),
+      office: () => ({ get: () => undefined, demoAgent: () => undefined, list: () => [], markDirty: () => {} }) as never,
+    });
+    const h = qode.health();
+    expect(h.config).toBe('invalida');
+    expect(h.projetos).toBe(0);
+    expect(h.orchestrate.ready).toBe(false);
+    expect(JSON.stringify(h)).not.toContain(CANARY);
   });
 });

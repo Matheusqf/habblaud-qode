@@ -1,7 +1,7 @@
 /** B1: estado observe-only do coordenador floating-flow (dev-flow). QODE não despacha.
  *  DTO público: opaco — sem root, sem valor de QODE_DEVFLOW_ROOT, sem paths absolutos.
  */
-import { readFileSync, statSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 export interface OrchestrateStatus {
@@ -40,11 +40,38 @@ function isNonEmptyFile(path: string): boolean {
   }
 }
 
-function readText(path: string, max = 64_000): string | undefined {
+/** Limite real de leitura (bytes). Ficheiro maior = artefacto não comprovado (fail closed). */
+export const MAX_ARTIFACT_BYTES = 64_000;
+
+/**
+ * Lê no máximo `max` bytes de um ficheiro regular. Nunca lê o ficheiro inteiro.
+ * Tamanho > max (no stat ou detetado ao ler max+1 bytes) → undefined (truncado = inválido).
+ */
+export function readSmall(path: string, max = MAX_ARTIFACT_BYTES): string | undefined {
+  let fd: number | undefined;
   try {
-    return readFileSync(path, { encoding: 'utf8' }).slice(0, max);
+    fd = openSync(path, 'r');
+    const st = fstatSync(fd);
+    if (!st.isFile() || st.size > max) return undefined;
+    const buf = Buffer.alloc(max + 1);
+    let off = 0;
+    while (off < buf.length) {
+      const n = readSync(fd, buf, off, buf.length - off, off);
+      if (n === 0) break;
+      off += n;
+    }
+    if (off > max) return undefined; // cresceu entre stat e leitura
+    return buf.subarray(0, off).toString('utf8');
   } catch {
     return undefined;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        /* ignore */
+      }
+    }
   }
 }
 
@@ -75,9 +102,9 @@ export function probeDevflow(root: string): DevflowProbe {
     return { configured: false, artifactsPresent: false };
   }
 
-  const agents = readText(agentsPath);
-  const skill = readText(skillPath);
-  const rawConfig = readText(configPath);
+  const agents = readSmall(agentsPath);
+  const skill = readSmall(skillPath);
+  const rawConfig = readSmall(configPath);
 
   let configOk = false;
   if (rawConfig) {
