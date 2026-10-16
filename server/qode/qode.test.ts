@@ -713,6 +713,7 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
     ['aspas simples', () => "cat '~/Documents/Vida/a.md'"],
     ['glob no nome', () => 'rg senha ~/Documents/Vi*'],
     ['maiúsculas', (e) => `cat ${e.home}/DOCUMENTS/vida/a.md`],
+    ['caminho relativo (B3: segmento de nome)', () => 'cat ../../Documents/Vida/a.md'],
   ];
   it.each(forms)('contamina pela forma %s', (_why, text) => {
     const e = setup();
@@ -724,7 +725,6 @@ describe('revisões de 11/10/2026 (Grok e DeepSeek)', () => {
   it.each([
     ['pasta vizinha com nome parecido', (e: Env) => `cat ${e.home}/Documents/Vidal/a.md`],
     ['projeto público', (e: Env) => `cat ${clinicas(e)}/a.md`],
-    ['caminho relativo (limite documentado)', () => 'cat ../../Documents/Vida/a.md'],
   ])('não contamina: %s', (_why, text) => {
     const e = setup();
     main(e, 'c', clinicas(e));

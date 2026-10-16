@@ -216,18 +216,18 @@ describe('Q4 matriz canário — proteções atuais', () => {
 });
 
 describe('Q4 gaps conhecidos (reproduzidos; NÃO corrigidos neste ciclo)', () => {
-  it('caminho relativo: mentionsPrivate NÃO deteta (gap documentado)', () => {
+  it('caminho relativo: B3 fecha via segmento de nome (antes gap)', () => {
     const e = setup();
     const cfg = e.qode.config!;
     // Relativo a partir de outra pasta — README já lista como limite.
-    expect(mentionsPrivate(cfg, `cat ../../Documents/PrivadoSintetico/${CANARY}.md`)).toBe(false);
+    expect(mentionsPrivate(cfg, `cat ../../Documents/PrivadoSintetico/${CANARY}.md`)).toBe(true);
   });
 
-  it('variável que não é HOME: mentionsPrivate NÃO deteta (gap documentado)', () => {
+  it('variável que não é HOME: B3 fecha via segmento de nome (antes gap)', () => {
     const e = setup();
     const cfg = e.qode.config!;
     // Forma do README: D=~/Documents; cat $D/PrivadoSintetico/… (sem expandir HOME no token).
-    expect(mentionsPrivate(cfg, `D=~/Documents; cat $D/PrivadoSintetico/${CANARY}.md`)).toBe(false);
+    expect(mentionsPrivate(cfg, `D=~/Documents; cat $D/PrivadoSintetico/${CANARY}.md`)).toBe(true);
   });
 
   it('paste sem caminho: título com canário em projeto público NÃO contamina sozinho (gap documentado)', () => {
