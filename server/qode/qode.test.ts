@@ -466,7 +466,7 @@ describe('allowlist: campo novo do upstream não passa sem decisão', () => {
   it('as tabelas cobrem exatamente os campos dos tipos (Required<> quebra o typecheck se faltar um)', () => {
     const activity: Required<Activity> = { id: 'a', kind: 'read', icon: 'i', text: 't', detail: 'd', tool: 't', at: 0, durationMs: 0, error: false, questions: [] };
     const agent: Required<AgentInfo> = {
-      id: 'a', kind: 'main', provider: 'claude', parentId: 'p', roomId: 'r', name: 'n', look: 'f', role: 'r', title: 't', sessionId: 's', account: 'a',
+      id: 'a', kind: 'main', provider: 'claude', parentId: 'p', roomId: 'r', name: 'n', look: 'f', role: 'r', title: 't', cloud: { provider: 'cursor', state: 'stale', nativeState: 'ACTIVE', updatedAt: 0 }, sessionId: 's', account: 'a',
       status: 'working', waitingFor: 'w', activity, recent: [], tasks: [], shells: [], model: 'm', gitBranch: 'g', permissionMode: 'p', startedAt: 0,
       lastEventAt: 0, statusSince: 0, stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }, seed: 0, parts: {}, custom: true, background: true,
       permission: { id: 'p', tool: 't', title: 't', text: 't', icon: 'i', createdAt: 0, expiresAt: 0 }, canMessage: true,
