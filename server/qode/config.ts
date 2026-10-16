@@ -1416,8 +1416,6 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
   const tokens = shell.tokens;
   if (tokens.length > MENTIONS_TOKENS_MAX) return true;
   if (tokens.some((t) => isPrivateToken(cfg, t))) return true;
-  // B3/Zika 1792108553: tail só depois dos tokens, para isPrivateToken continuar a aprender privateAliases.
-  if (mentionsPrivateTail(cfg, lower)) return true;
   // Prose can mention an unquoted path whose alias contains spaces. Try only
   // a small bounded window after each absolute-looking fragment; this keeps
   // `I'm reading /tmp/qode alias/secret.txt` observable without treating every
@@ -1486,10 +1484,12 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
         bytes += s.length;
         if (bytes > MENTIONS_BYTES_MAX) return true;
       }
-      return inner.some((s) => mentionsPrivate(cfg, s, depth + 1));
+      if (inner.some((s) => mentionsPrivate(cfg, s, depth + 1))) return true;
     }
   }
-  return false;
+  // B3/Zika: tail (segmento de nome) só DEPOIS de todos os caminhos de aprendizado (tokens, prosa multi-palavra,
+  // JSON), para isPrivateToken continuar a aprender privateAliases mesmo quando o tail também casaria.
+  return mentionsPrivateTail(cfg, lower);
 }
 
 const tailCache = new WeakMap<QodeConfig, RegExp | null>();
