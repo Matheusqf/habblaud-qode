@@ -16,14 +16,17 @@ Host nunca é identidade. Bearer fora de loopback = 401.
 
 ## 2. Token de hooks
 
-- Resolução (servidor e **todos** os clientes suportados, mesma regra): `HABBLAUD_HOOKS_TOKEN` (≥32; mais curto = inválido,
-  não cai no ficheiro) **senão** `<HABBLAUD_DATA_DIR | $HOME/.habblaud>/hooks.token` (ficheiro regular, ≥32 chars).
-- Clientes: `mod/habblaud-permissoes` (hook de permissão), `mod/habblaud` (summary), `mod/habblaud-mensagens`
-  (inbox/ack), `scripts/codex-bridge.ts` (poll/ack). O setup padrão (`npm run auth:set-password`) só grava o ficheiro;
-  env é opcional. Teste: `server/test/hooks-token-file.test.ts` (só ficheiro, sem env → 200; sem token → 401).
-- Mods do Claude Code: o ficheiro só é lido se o engine expuser `$.fs.read`; sem isso o mod usa só a env.
-  **Pendente de verificação com `claude plugin test`/Claude Code real** — não alegar integração completa dos mods
-  sem env até isso ser confirmado.
+- Resolução (mesma **ordem** em todos os clientes): `HABBLAUD_HOOKS_TOKEN` (≥32; mais curto = inválido, não cai no
+  ficheiro) **senão** `<HABBLAUD_DATA_DIR | $HOME/.habblaud>/hooks.token` (≥32 chars).
+- **Clientes Node** (servidor `resolveHooksToken` / `auth.ts`, `mod/habblaud-permissoes/hooks/permission-hook.mjs`,
+  `mod/habblaud-codex/hook.mjs`, `scripts/codex-bridge.ts`): exigem ficheiro **regular** via `lstat` (symlink/dir =
+  ausente).
+- **Mods Claude Code** (`mod/habblaud` summary, `mod/habblaud-mensagens` inbox/ack): leem via leitor do engine
+  (`$.fs.read` / `engineReader`) **sem** `lstat` — **não** alegar verificação de ficheiro regular nesses clientes.
+  Sem `$.fs.read` no engine → só env. **Pendente de verificação com Claude Code real** — não alegar integração
+  completa dos mods sem env até confirmar.
+- Setup padrão (`npm run auth:set-password`) só grava o ficheiro; env é opcional. Teste Node:
+  `server/test/hooks-token-file.test.ts` (só ficheiro, sem env → 200; sem token → 401).
 - Confiança: o token vale para **a máquina inteira** (qualquer processo do mesmo utilizador que o leia). Sem vínculo
   account/session/task. **Não é identidade** e nunca é reutilizado como credencial B2/cloudbot/ops-room.
 
