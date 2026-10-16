@@ -22,10 +22,10 @@ async function listen(s: http.Server): Promise<number> {
   return (s.address() as AddressInfo).port;
 }
 
-async function setup(ttlMs = 60_000): Promise<Env> {
+async function setup(ttlMs = 60_000, onPassword?: () => void): Promise<Env> {
   const innerHits: string[] = [];
   const ro = createReadOnlyRouter({
-    password: () => rec,
+    password: () => (onPassword?.(), rec),
     ttlMs,
     expectedOrigin: 'office.example.ts.net',
     inner: (req, res, url) => {
@@ -184,5 +184,64 @@ describe('C9 entrada remota só-leitura', () => {
     expect(env.ro.openStreams()).toBe(0);
     // reconexão com cookie expirado é recusada
     expect((await req(env.proxyPort, 'GET', '/api/stream', { cookie: c })).status).toBe(401);
+  });
+
+  it('limitador B4: 5 falhas → 429 mesmo com senha certa, sem correr scrypt', async () => {
+    let checks = 0;
+    env = await setup(60_000, () => checks++);
+    const h = { origin: 'https://office.example.ts.net', 'content-type': 'application/json' };
+    for (let i = 0; i < 5; i++) expect((await req(env.proxyPort, 'POST', '/ro/login', h, '{"password":"errada-errada"}')).status).toBe(401);
+    const before = checks;
+    expect((await req(env.proxyPort, 'POST', '/ro/login', h, JSON.stringify({ password: PASSWORD }))).status).toBe(429);
+    expect(checks).toBe(before);
+  });
+
+  it('limitador B4 concorrente: bodies suspensos reservam tentativas antes do scrypt', async () => {
+    let checks = 0;
+    env = await setup(60_000, () => checks++);
+    const pending: http.ClientRequest[] = [];
+    const statuses: Promise<number>[] = [];
+    for (let i = 0; i < 8; i++) {
+      statuses.push(
+        new Promise((resolve) => {
+          const r = http.request({ host: '127.0.0.1', port: env!.directPort, method: 'POST', path: '/ro/login', headers: { origin: 'https://office.example.ts.net', 'content-type': 'application/json' } }, (res) => {
+            res.resume();
+            resolve(res.statusCode ?? 0);
+          });
+          r.on('error', () => resolve(-1));
+          r.write('{"password":'); // body suspenso
+          pending.push(r);
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    await new Promise((r) => setTimeout(r, 100));
+    expect(checks).toBe(0); // ninguém chegou ao scrypt
+    for (const r of pending) r.end('"errada-errada"}');
+    const st = await Promise.all(statuses);
+    expect(st.filter((x) => x === 429).length).toBe(3);
+    expect(st.filter((x) => x === 401).length).toBe(5);
+    expect(checks).toBe(5);
+  });
+
+  it('logout revoga no servidor: cookie copiado deixa de valer e SSE aberto fecha', async () => {
+    env = await setup();
+    const c = await login(env.proxyPort);
+    const other = await login(env.proxyPort);
+    const closed = new Promise<void>((resolve) => {
+      http.get({ host: '127.0.0.1', port: env!.proxyPort, path: '/api/stream', headers: { cookie: c } }, (res) => {
+        res.on('data', () => undefined);
+        res.on('end', () => resolve());
+        res.on('close', () => resolve());
+      });
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    expect(env.ro.openStreams()).toBe(1);
+    expect((await req(env.proxyPort, 'POST', '/ro/logout', { cookie: c })).status).toBe(204);
+    await closed;
+    expect(env.ro.openStreams()).toBe(0);
+    expect((await req(env.proxyPort, 'GET', '/api/snapshot', { cookie: c })).status).toBe(401);
+    // a outra sessão continua válida
+    expect((await req(env.proxyPort, 'GET', '/api/snapshot', { cookie: other })).status).toBe(200);
   });
 });

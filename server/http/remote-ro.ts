@@ -16,6 +16,9 @@ export const RO_COOKIE = 'qode_ro';
 export const RO_AUD = 'qode-ro';
 export const RO_TTL_MS = 12 * 3_600_000;
 const MAX_LOGIN_BODY = 4096;
+/** Mesmos limites do B4 (auth.ts): 5 falhas / 15 min; logins em curso contam (reserva antes de ler o body). */
+export const RO_RL_MAX = 5;
+export const RO_RL_WINDOW_MS = 15 * 60_000;
 
 const READ_API = [/^\/api\/snapshot$/, /^\/api\/stream$/, /^\/api\/updates$/, /^\/api\/stats(\/[a-z0-9-]+)?$/];
 
@@ -68,15 +71,30 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
   const ttl = opts.ttlMs ?? RO_TTL_MS;
   const now = () => opts.now?.() ?? Date.now();
   let gen = 1;
-  const streams = new Set<{ res: ServerResponse; timer: NodeJS.Timeout }>();
+  type Stream = { res: ServerResponse; timer: NodeJS.Timeout; sid: string };
+  const streams = new Set<Stream>();
+  /** Sessões vivas no servidor (nonce -> exp): logout/revogação apagam aqui, cookie copiado deixa de valer. */
+  const live = new Map<string, number>();
+  // Limitador (semântica B4). Atrás do proxy todos chegam como loopback: o limite é efetivamente global.
+  const failures = new Map<string, number[]>();
+  const inflight = new Map<string, number>();
+  const limited = (ip: string): boolean => {
+    const t = now();
+    const list = (failures.get(ip) ?? []).filter((x) => t - x < RO_RL_WINDOW_MS);
+    failures.set(ip, list);
+    return list.length + (inflight.get(ip) ?? 0) >= RO_RL_MAX;
+  };
 
   const sign = (payload: string) => createHmac('sha256', secret).update(payload).digest('base64url');
   const mint = (): { value: string; exp: number } => {
     const exp = now() + ttl;
-    const body = b64(JSON.stringify({ aud: RO_AUD, exp, gen, n: randomBytes(8).toString('hex') }));
+    const n = randomBytes(16).toString('hex');
+    for (const [k, e] of live) if (e <= now()) live.delete(k);
+    live.set(n, exp);
+    const body = b64(JSON.stringify({ aud: RO_AUD, exp, gen, n }));
     return { value: `${body}.${sign(body)}`, exp };
   };
-  const verify = (v: string | undefined): { exp: number } | undefined => {
+  const verify = (v: string | undefined): { exp: number; sid: string } | undefined => {
     if (!v) return undefined;
     const [body, mac] = v.split('.');
     if (!body || !mac) return undefined;
@@ -84,9 +102,10 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
     const got = Buffer.from(mac);
     if (want.length !== got.length || !timingSafeEqual(want, got)) return undefined;
     try {
-      const p = JSON.parse(Buffer.from(body, 'base64url').toString()) as { aud?: unknown; exp?: unknown; gen?: unknown };
+      const p = JSON.parse(Buffer.from(body, 'base64url').toString()) as { aud?: unknown; exp?: unknown; gen?: unknown; n?: unknown };
       if (p.aud !== RO_AUD || p.gen !== gen || typeof p.exp !== 'number' || p.exp <= now()) return undefined;
-      return { exp: p.exp };
+      if (typeof p.n !== 'string' || !live.has(p.n)) return undefined;
+      return { exp: p.exp, sid: p.n };
     } catch {
       return undefined;
     }
@@ -95,7 +114,7 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ error }));
   };
-  const closeStream = (s: { res: ServerResponse; timer: NodeJS.Timeout }) => {
+  const closeStream = (s: Stream) => {
     clearTimeout(s.timer);
     streams.delete(s);
     s.res.end();
@@ -113,6 +132,22 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
     }
     if (!okOrigin) return deny(res, 403, 'origem recusada');
     if (!/^application\/json\b/i.test(req.headers['content-type'] ?? '')) return deny(res, 415, 'json');
+    const ip = req.socket.remoteAddress ?? '?';
+    // Limitador ANTES de ler o body ou correr scrypt; reserva a tentativa (bodies suspensos contam).
+    if (limited(ip)) {
+      res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8', 'Retry-After': String(RO_RL_WINDOW_MS / 1000), 'Cache-Control': 'no-store' });
+      return void res.end(JSON.stringify({ error: 'muitas tentativas; tente mais tarde' }));
+    }
+    inflight.set(ip, (inflight.get(ip) ?? 0) + 1);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      const k = (inflight.get(ip) ?? 1) - 1;
+      if (k > 0) inflight.set(ip, k);
+      else inflight.delete(ip);
+    };
+    req.on('close', release);
     let size = 0;
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => {
@@ -121,6 +156,7 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
       else chunks.push(c);
     });
     req.on('end', () => {
+      release();
       const rec = opts.password();
       let pw: unknown;
       try {
@@ -128,7 +164,13 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
       } catch {
         /* inválido */
       }
-      if (!rec || typeof pw !== 'string' || !verifyPassword(pw, rec)) return deny(res, 401, 'credenciais inválidas');
+      if (!rec || typeof pw !== 'string' || !verifyPassword(pw, rec)) {
+        const l = failures.get(ip);
+        if (l) l.push(now());
+        else failures.set(ip, [now()]);
+        return deny(res, 401, 'credenciais inválidas');
+      }
+      failures.delete(ip);
       const { value } = mint();
       const attrs = ['Path=/', 'HttpOnly', 'SameSite=Strict', `Max-Age=${Math.floor(ttl / 1000)}`];
       if (opts.secureCookie) attrs.push('Secure');
@@ -149,6 +191,12 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
       if (req.headers.authorization) return deny(res, 401, 'authorization não aceito nesta entrada');
       if (path === '/ro/login' && req.method === 'POST') return login(req, res);
       if (path === '/ro/logout' && req.method === 'POST') {
+        // Revoga no servidor: o nonce sai de `live` e os streams desta sessão fecham.
+        const sess = verify(parseCookies(req.headers.cookie).get(RO_COOKIE));
+        if (sess) {
+          live.delete(sess.sid);
+          for (const st of [...streams]) if (st.sid === sess.sid) closeStream(st);
+        }
         res.writeHead(204, { 'Set-Cookie': `${RO_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict` });
         return void res.end();
       }
@@ -159,7 +207,7 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
       // Nada do proxy chega ao handler interno como identidade.
       for (const h of Object.keys(req.headers)) if (h.startsWith('x-forwarded-') || h === 'forwarded' || h === 'x-real-ip') delete req.headers[h];
       if (path === '/api/stream') {
-        const s = { res, timer: setTimeout(() => closeStream(s), Math.max(0, session.exp - now())) };
+        const s: Stream = { res, sid: session.sid, timer: setTimeout(() => closeStream(s), Math.max(0, session.exp - now())) };
         s.timer.unref?.();
         streams.add(s);
         res.on('close', () => {
@@ -171,6 +219,7 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
     },
     revokeAll() {
       gen++;
+      live.clear();
       for (const s of [...streams]) closeStream(s);
     },
     openStreams: () => streams.size,

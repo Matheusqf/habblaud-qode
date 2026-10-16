@@ -12,3 +12,7 @@
 - Testes C9: `server/http/remote-ro.c9.test.ts` (servidor + proxy reais, Host reescrito, headers forjados, cookie/CSRF, negação de hooks/ops, canários, SSE revogação/expiração/cliente lento/reconexão).
 
 Limitação conhecida: o cliente web atual ainda chama rotas de operação (renomear sala etc.) — na entrada só-leitura elas falham com 403/405 por desenho.
+
+## Review ZikaBOT (16/10)
+- `/ro/login` passa pelo limitador com a semântica do B4 (5 falhas / 15 min → 429; tentativas em curso reservadas antes de ler o body e antes do scrypt). Atrás do proxy todos chegam em loopback: o limite é efetivamente global.
+- `/ro/logout` revoga a sessão no servidor (o nonce sai do registo vivo, por isso um cookie copiado deixa de valer) e fecha os SSE abertos dessa sessão.
