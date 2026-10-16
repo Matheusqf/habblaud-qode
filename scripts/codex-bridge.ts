@@ -13,7 +13,9 @@
 // confere cada mensagem antes (id de thread, pasta do Codex que existe). O texto das mensagens nunca vai para a tela.
 // Ctrl+C para parar.
 import { statSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { resolveHooksToken } from '../server/http/auth';
 import { pathToFileURL } from 'node:url';
 import { isClaudeDir } from '../server/accounts/detect';
 import { createCodexQueueRunner, findCodexBin, THREAD_ID, type CodexQueueResult, type CodexQueueRunner } from '../server/messages/codex';
@@ -98,13 +100,22 @@ export function checkMessage(raw: unknown): BridgeMessage | { id?: string; error
 /** POST JSON ao QODE Office local; null = fora do ar, tempo esgotado ou resposta ilegível. */
 export type Post = (path: string, body: unknown) => Promise<{ status: number; json: unknown } | null>;
 
-export function httpPost(port: number): Post {
+/** B4: token Bearer da bridge = HABBLAUD_HOOKS_TOKEN ou <HABBLAUD_DATA_DIR|~/.habblaud>/hooks.token (o ficheiro do setup). */
+export function bridgeToken(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const dataDir = resolve(env.HABBLAUD_DATA_DIR?.trim() || join(env.HOME?.trim() || env.USERPROFILE?.trim() || homedir(), '.habblaud'));
+  return resolveHooksToken(dataDir, env.HABBLAUD_HOOKS_TOKEN);
+}
+
+export function httpPost(port: number, token: string | undefined = bridgeToken()): Post {
   return async (path, body) => {
     try {
+      // O guard do QODE Office exige JSON em todo POST da API (mesmo o corpo vazio da rodada).
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      // B4: com HABBLAUD_AUTH=1 poll/ack exigem Bearer (loopback). Nunca logado.
+      if (token) headers.Authorization = `Bearer ${token}`;
       const res = await fetch(`http://127.0.0.1:${port}${path}`, {
         method: 'POST',
-        // O guard do QODE Office exige JSON em todo POST da API (mesmo o corpo vazio da rodada).
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });

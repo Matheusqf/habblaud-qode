@@ -9,6 +9,8 @@ import { AccountsService } from './accounts/service';
 import { loadConfig, messagesOffReason, terminalOffReason } from './config';
 import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard } from './http/guard';
+import { authEnabled, createAuth, loadAuthFile, remoteEnabled } from './http/auth';
+import { securityPreflight } from './http/security-preflight';
 import { Hub } from './http/sse';
 import { createStaticHandler } from './http/static';
 import { TerminalStreams } from './http/terminal';
@@ -58,6 +60,21 @@ names.load();
 // Nomes de sala escolhidos pelo usuário (botão direito > Renomear).
 const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
+// B4: auth/remoto/ALLOWED_HOSTS — fail-closed antes de Vite, ingestão ou listen (não depende de QODE_REQUIRED).
+{
+  const problems = securityPreflight({
+    env: process.env,
+    dataDir: config.dataDir,
+    host: config.host,
+    inDocker: config.inDocker,
+    dev: config.dev,
+    allowedHosts: config.allowedHosts,
+  });
+  if (problems.length) {
+    log.error(`Preflight de segurança recusou iniciar:\n  - ${problems.join('\n  - ')}`);
+    process.exit(1);
+  }
+}
 // Fork QODE: com HABBLAUD_QODE_REQUIRED=1, recusa iniciar a ingestão se a config/bind não forem seguros.
 if (qodeRequired(process.env)) {
   const problems = qodePreflight({ env: process.env, dataDir: config.dataDir, home: config.home, host: config.host, inDocker: config.inDocker, allowedHosts: config.allowedHosts });
@@ -251,11 +268,24 @@ if (config.dev) {
 
 // Host/Origin/Content-Type: barra DNS rebinding e CSRF antes de qualquer rota (inclusive o Vite).
 const guard = createRequestGuard({ allowedHosts: config.allowedHosts });
+// B4 L1: auth opt-in (HABBLAUD_AUTH=1 ou HABBLAUD_REMOTE=1). Sem a variável, comportamento atual.
+const auth = createAuth({
+  enabled: authEnabled(process.env),
+  dataDir: config.dataDir,
+  hooksToken: process.env.HABBLAUD_HOOKS_TOKEN,
+  // Secure/__Host pelo perfil canónico (remoto) ou TLS real — nunca X-Forwarded-Proto.
+  secureCookies: remoteEnabled(process.env),
+});
+if (auth.enabled && !loadAuthFile(config.dataDir)) {
+  // securityPreflight já recusou na ausência de senha; este ramo é defesa em profundidade.
+  log.warn('HABBLAUD_AUTH ligado mas sem auth.json válido (fail-closed): rode `npm run auth:set-password`. Login recusado até lá.');
+}
 
 server.on('request', (req, res) => {
   const url = parseUrl(req);
   try {
     if (guard(req, res)) return;
+    if (auth.handle(req, res, url.pathname)) return;
     if (!api(req, res, url)) fallback(req, res, url);
   } catch (err) {
     log.warn(`Erro ao responder ${req.method} ${url.pathname}: ${errMsg(err)}`);

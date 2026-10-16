@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { isLoopbackBind } from '../config';
+import { authEnabled } from '../http/auth';
 import { configPath, parseConfig } from './config';
 
 export function qodeRequired(env: NodeJS.ProcessEnv): boolean {
@@ -31,6 +32,12 @@ export function qodePreflight(input: PreflightInput): string[] {
     errors.push(`bind externo: ${input.inDocker ? 'HABBLAUD_BIND' : 'HABBLAUD_HOST'} precisa ser loopback (127.0.0.1, ::1 ou localhost)`);
   }
   if (input.allowedHosts.size > 0) errors.push('HABBLAUD_ALLOWED_HOSTS precisa estar vazio no perfil local (proxy/túnel não permitido)');
+
+  // B4 (C8): perfil remoto é fail-closed — exige auth ligada.
+  const remote = ['1', 'true', 'sim', 'on'].includes(env.HABBLAUD_REMOTE?.trim().toLowerCase() ?? '');
+  if (remote && !['1', 'true', 'sim', 'on'].includes(env.HABBLAUD_AUTH?.trim().toLowerCase() ?? '')) {
+    errors.push('HABBLAUD_REMOTE=1 exige HABBLAUD_AUTH=1 (remoto sem auth é recusado)');
+  }
 
   const explicit = env.HABBLAUD_QODE_CONFIG?.trim();
   if (explicit !== undefined && explicit !== '' && !isAbsolute(explicit)) errors.push('HABBLAUD_QODE_CONFIG precisa ser um caminho absoluto');

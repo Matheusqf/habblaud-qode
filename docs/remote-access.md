@@ -1,0 +1,50 @@
+# Acesso remoto ao QODE Office — estado
+
+> **Remoto NÃO está pronto.** Nenhum túnel está ligado. **Funnel: NÃO** (nunca expor à internet pública).
+> **Tailscale Serve: TBD** — só depois de C9 revisto e com ok explícito do Matheus (C10).
+> Desenho completo: `docs/QODE-B4-REMOTE-AUTH.md` (PR #6).
+
+## Fase L1 — auth local (opt-in, esta branch)
+
+```bash
+npm run auth:set-password      # senha ≥12, stdin SEM eco → <dataDir>/auth.json (scrypt+generation, 0600) + hooks.token
+HABBLAUD_AUTH=1 npm start      # bind continua 127.0.0.1; preflight de segurança corre sempre (não só QODE_REQUIRED)
+```
+
+- Sem `HABBLAUD_AUTH` o comportamento é o de antes (compat), **excepto** `HABBLAUD_ALLOWED_HOSTS` sem auth → preflight recusa (não fica aberto).
+- Com auth: todas as `/api/*` exigem sessão (cookie `HttpOnly; SameSite=Strict; Path=/`)
+  excepto `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/status`.
+- **Secure / `__Host-`**: só com perfil canónico (`HABBLAUD_REMOTE=1` → `secureCookies`) ou TLS real do socket.
+  **Nunca** se confia em `X-Forwarded-Proto` arbitrário.
+- Hooks/bridge locais: `Authorization: Bearer <hooks.token>` **só** em rotas+métodos de hook
+  (`POST /api/permissions`, `GET …/wait`, `POST /api/codex/events`, inbox/bridge).
+  Bearer **não** abre UI/operate (snapshot, stream, terminal, `…/decision`, messages, tasks).
+  Aceite só com `remoteAddress` loopback. Host nunca é identidade.
+- Logout / revogação / **rotação de senha** (`auth.json.generation`) / expiração (timer) fecham **todos** os SSE
+  (`/api/stream` e `*/terminal`) sem esperar o próximo pedido. Idle 8h, absoluto 7d. Login: 5 falhas/15 min → 429.
+- `HABBLAUD_REMOTE=1` sem `HABBLAUD_AUTH=1` → preflight recusa. Remoto também recusa Vite/dev, bind externo e senha ausente.
+
+## Contrato efetivo
+
+Matriz, token, epoch/revogação, fail-closed, rate-limit e pendências: **`docs/QODE-B4-AUTH-CONTRACT.md`** (fonte de
+verdade alinhada ao código). Hooks/mod/bridge já enviam o Bearer resolvido de env **ou** `hooks.token`
+(mods: leitura do ficheiro depende de `$.fs.read` no engine — pendente de verificação no Claude Code real).
+
+## Próximos passos (não feitos)
+
+1. Confirmar no Claude Code real que os mods leem `hooks.token` sem env.
+2. C9 com proxy real (caddy/socat) contra o servidor completo.
+3. L2 perfil remote + runbook `tailscale serve` (sem Funnel) — só com ok do Matheus.
+
+## Confiança local do token de hooks (B4 L1, rodada 3)
+
+- O token Bearer (`HABBLAUD_HOOKS_TOKEN` ou `<dataDir>/hooks.token`, 0600) vale para **a máquina inteira**: qualquer
+  processo do mesmo utilizador que o consiga ler pode falar como "hook". Não há vínculo a account/session/task.
+- É aceito **só** em loopback e **só** nas rotas de ingest: `POST /api/permissions`, `GET /api/permissions/:id/wait`,
+  `POST /api/codex/events`, `POST /api/mod/inbox[/ack]`, `POST /api/codex/bridge/{poll,ack}` e `GET /api/mod/summary`
+  (resumo só-leitura do mod do Claude Code, que agora envia o Bearer). Não abre UI/operate.
+- Cookie de sessão do operador abre UI/operate e **não** abre as rotas de ingest (matriz por principal).
+- Este token **não é identidade** e **nunca** é reutilizado como credencial do B2 / cloudbot / ops-room; um canal
+  remoto ou cloud precisa de identidade própria, escopada e revogável.
+- `auth.json` ausente, corrompido, não-regular (symlink/dir) ou com parâmetros inválidos = fail-closed: preflight
+  recusa o boot e, com o servidor vivo, todas as sessões/SSE são revogadas e o login é recusado.
