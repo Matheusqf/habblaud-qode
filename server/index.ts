@@ -11,6 +11,7 @@ import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard } from './http/guard';
 import { authEnabled, createAuth, loadAuthFile, remoteEnabled } from './http/auth';
 import { securityPreflight } from './http/security-preflight';
+import { createReadOnlyRouter, loadRemoteRoConfig, RO_HOST } from './http/remote-ro';
 import { Hub } from './http/sse';
 import { createStaticHandler } from './http/static';
 import { TerminalStreams } from './http/terminal';
@@ -303,6 +304,40 @@ server.on('request', (req, res) => {
     else res.destroy();
   }
 });
+
+// Entrada remota só-leitura (fatia 4): desligada por padrão; porta própria SEMPRE em 127.0.0.1 (para um proxy
+// privado como Tailscale Serve à frente — nunca Funnel/0.0.0.0). Ver docs/QODE-REMOTE-RO.md.
+const roConfig = loadRemoteRoConfig(process.env);
+if (roConfig.enabled && roConfig.port) {
+  let roGeneration = loadAuthFile(config.dataDir)?.generation;
+  const ro = createReadOnlyRouter({
+    password: () => loadAuthFile(config.dataDir)?.password,
+    inner: (req, res, url) => {
+      if (!api(req, res, url)) fallback(req, res, url);
+    },
+    expectedOrigin: process.env.HABBLAUD_REMOTE_RO_ORIGIN?.trim() || undefined,
+    secureCookie: true,
+  });
+  // Senha trocada (auth:set-password) = revoga sessões e fecha streams abertos.
+  setInterval(() => {
+    const g = loadAuthFile(config.dataDir)?.generation;
+    if (g !== roGeneration) {
+      roGeneration = g;
+      ro.revokeAll();
+    }
+  }, 5_000).unref();
+  process.on('SIGUSR2', () => ro.revokeAll());
+  const roServer = http.createServer((req, res) => {
+    try {
+      ro.handle(req, res);
+    } catch (err) {
+      log.warn(`Entrada só-leitura: erro (${errMsg(err)}).`);
+      if (!res.headersSent) sendJson(res, 500, { error: 'erro interno' });
+      else res.destroy();
+    }
+  });
+  roServer.listen(roConfig.port, RO_HOST, () => log.info(`   Entrada só-leitura: http://${RO_HOST}:${roConfig.port} (atrás de proxy privado; sem Funnel).`));
+}
 
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') log.error(`A porta ${config.port} já está em uso (defina HABBLAUD_PORT para usar outra).`);
