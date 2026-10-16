@@ -3,6 +3,7 @@
 //   npm run dev    -> tsx server/index.ts --dev (Vite em middleware mode, HMR no mesmo servidor)
 //   npm start      -> node dist/server/index.js (serve dist/client)
 import http from 'node:http';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { codexDirsRefused } from './accounts/detect';
 import { AccountsService } from './accounts/service';
@@ -35,6 +36,7 @@ import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
+import { defaultRunner, OpenCodeSource } from './sources/opencode/source';
 import { createBuildReader } from './build';
 import { setupQode } from './qode';
 import { qodePreflight, qodeRequired } from './qode/preflight';
@@ -130,6 +132,11 @@ const agents = new SourceSet([claude]);
 const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
 const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;
 if (codex) agents.add(codex);
+// OpenCode (sources/opencode/): só metadados das sessões (modelo, estado, tokens, custo) via `opencode db`, sem conteúdo.
+const opencodeBin = process.env.HABBLAUD_OPENCODE_BIN?.trim() || join(config.home, '.local', 'bin', 'opencode');
+if (config.opencode && existsSync(opencodeBin)) {
+  agents.add(new OpenCodeSource({ accounts, office, dataDir: join(config.home, '.local', 'share', 'opencode'), run: defaultRunner(opencodeBin) }));
+}
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.
 const codexLive: CodexLive | undefined = codex;
