@@ -132,6 +132,11 @@ describe('middleware HTTP', () => {
   it('default OFF: tudo passa como antes', async () => {
     const { base } = await startAuthServer(false);
     expect((await fetch(`${base}/api/snapshot`)).status).toBe(200);
+
+    // Sem 404 na consola: status responde 200 e diz que não há auth.
+    const st = await fetch(`${base}/api/auth/status`);
+    expect(st.status).toBe(200);
+    expect(await st.json()).toEqual({ authRequired: false, authenticated: true });
   });
 
   it('C1: sem credencial snapshot/stream → 401; status diz authRequired', async () => {
