@@ -305,3 +305,7 @@ Esta PR é **só documentação**; nenhum código de auth/túnel incluído.
 3. **SSE:** `/api/stream` exige sessão; após logout/revogação a ligação SSE aberta é **fechada** pelo servidor (não basta recusar novos pedidos).
 4. **Modos:** auth **opt-in em local** (`HABBLAUD_AUTH=1`) é aceitável na transição; **perfil remoto é fail-closed** — `HABBLAUD_REMOTE=1` (ou `HABBLAUD_ALLOWED_HOSTS` não vazio) com auth off → servidor recusa arrancar.
 5. Nenhum passo de túnel/Funnel é "ready" até C9 passar e Matheus validar C10.
+
+## Contrato efetivo (sincronizado com PR #8)
+
+O contrato implementado está em `docs/QODE-B4-AUTH-CONTRACT.md` (cópia idêntica à da PR #8). Onde este desenho divergir do contrato, vale o contrato/código da #8.
