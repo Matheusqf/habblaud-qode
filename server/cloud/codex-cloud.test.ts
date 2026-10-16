@@ -44,4 +44,13 @@ describe('CodexCloudCollector', () => {
     const c = new CodexCloudCollector({ bin: '/x/codex', cfg, envs, run: async () => '{"tasks":[],"cursor":null}' });
     expect(await c.poll(FIX_NOW)).toEqual([]);
   });
+  it('environment_id null/ausente/não mapeado: falha fechada (não mostra), mesmo com label permitido', async () => {
+    const tasks = [
+      { id: 'task_e_null01', status: 'in_progress', updated_at: '2026-10-16T12:59:00Z', environment_id: null, environment_label: 'Matheusqf/habblaud-qode' },
+      { id: 'task_e_none01', status: 'in_progress', updated_at: '2026-10-16T12:59:00Z', environment_label: 'Matheusqf/habblaud-qode' },
+      { id: 'task_e_unmp01', status: 'in_progress', updated_at: '2026-10-16T12:59:00Z', environment_id: 'env-desconhecido' },
+    ];
+    const c = new CodexCloudCollector({ bin: '/x/codex', cfg, envs, run: async () => JSON.stringify({ tasks, cursor: null }) });
+    expect(await c.poll(FIX_NOW)).toEqual([]);
+  });
 });
