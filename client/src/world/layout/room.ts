@@ -15,6 +15,7 @@ import { DOOR_W, DOOR_X, TILE } from '../constants';
 import { AreaBuilder, type SpotOpts } from './builder';
 import { slotRect, slotSide } from './geometry';
 import type { AreaLayout, SpotDef, SpotKind } from './types';
+import type { ZoneDef } from './zones';
 
 export interface RoomInput {
   id: string;
@@ -30,7 +31,7 @@ export interface RoomInput {
 export type Season = 'halloween';
 
 /** Estilo de planta da sala: ilha face a face (clássico) ou "gather" (estações nas paredes e mesa de reunião central). */
-export type RoomStyle = 'island' | 'gather';
+export type RoomStyle = 'island' | 'gather' | 'openspace';
 
 /** Sorteio do estilo da sala (rng próprio, para não mexer nas outras variações). */
 export function roomStyle(seed: number): RoomStyle {
@@ -82,7 +83,8 @@ export function roomVariant(seed: number): RoomVariant {
 }
 
 export function layoutProjectRoom(room: RoomInput, theme: RoomTheme): AreaLayout {
-  const area = (room.style ?? roomStyle(room.seed)) === 'gather' ? layoutGatherRoom(room, theme) : layoutIslandRoom(room, theme);
+  const style = room.style ?? roomStyle(room.seed);
+  const area = style === 'gather' ? layoutGatherRoom(room, theme) : style === 'openspace' ? layoutOpenspaceRoom(room, theme) : layoutIslandRoom(room, theme);
   if (room.season === 'halloween') applyHalloween(area, room.slot);
   return area;
 }
@@ -450,4 +452,32 @@ function layoutGatherRoom(room: RoomInput, theme: RoomTheme): AreaLayout {
   const p = { x: rect.x * TILE, y: rect.y * TILE, w: rect.w * TILE, h: rect.h * TILE };
   area.shade = north ? { x: p.x, y: p.y, w: p.w, h: p.h - TILE } : { x: p.x, y: p.y, w: p.w, h: p.h };
   return b.build();
+}
+
+/**
+ * G2 — "open-space": a mesma planta da ilha clássica (mesmos móveis, spots, ranks e caminhos),
+ * mas com piso de madeira corrido, a ilha do projeto marcada como zona e o nome do projeto
+ * pintado no chão na frente dela. Só via ?rooms=openspace (a semente nunca sorteia este estilo).
+ */
+function layoutOpenspaceRoom(room: RoomInput, theme: RoomTheme): AreaLayout {
+  const area = layoutIslandRoom(room, theme);
+  const r = area.rect;
+  for (const f of area.floors) f.kind = 'wood';
+  const desks = area.furniture.filter((f) => f.kind === 'desk' || f.kind === 'desk_back');
+  const minX = Math.min(...desks.map((f) => f.tx));
+  const maxX = Math.max(...desks.map((f) => f.tx + FURNITURE[f.kind].footprint.w));
+  const left = minX - r.x < 8;
+  const island = { x: minX - 1, y: r.y + 3, w: maxX - minX + 2, h: 6 };
+  const meeting = left ? { x: island.x + island.w, y: r.y + 3, w: r.x + 15 - (island.x + island.w), h: 6 } : { x: r.x + 1, y: r.y + 3, w: island.x - (r.x + 1), h: 6 };
+  const entryY = area.side === 'north' ? r.y + 10 : r.y + 2;
+  const zones: ZoneDef[] = [
+    { id: `${area.id}#zone:island`, kind: 'island', rect: island, label: 'project' },
+    { id: `${area.id}#zone:meeting`, kind: 'meeting', rect: meeting },
+    { id: `${area.id}#zone:entry`, kind: 'entry', rect: { x: r.x + DOOR_X, y: entryY, w: DOOR_W, h: 1 } },
+  ];
+  area.zones = zones;
+  area.floorLabels = [
+    { zoneId: zones[0].id, x: island.x * TILE + 4, y: (r.y + 8) * TILE + 3, w: island.w * TILE - 8, h: TILE - 5, color: theme.accent },
+  ];
+  return area;
 }

@@ -232,6 +232,12 @@ export function buildAreaVis(art: ArtModule, layout: AreaLayout, room: RoomState
     }
   }
 
+  // ---- rótulos pintados no chão (open-space: nome do projeto na frente da ilha)
+  for (const l of layout.floorLabels ?? []) {
+    const text = room?.info.name;
+    if (text) drawFloorLabel(fctx, l, text);
+  }
+
   // ---- paredes + itens de parede fixos
   const [walls, wctx] = makeCanvas(px.w, px.h + WALL_MARGIN);
   wctx.translate(-px.x, -px.y + WALL_MARGIN);
@@ -294,4 +300,24 @@ export function paintShell(art: ArtModule, ctx: CanvasRenderingContext2D, floors
     }
   }
   for (const w of walls) drawWallSegment(art, ctx, w);
+}
+
+/** Pinta um texto no chão como faixa de sinalização (sem assets externos; só canvas). */
+export function drawFloorLabel(ctx: CanvasRenderingContext2D, l: { x: number; y: number; w: number; h: number; color: string }, text: string): void {
+  const label = text.toUpperCase().slice(0, 28);
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  ctx.fillStyle = l.color;
+  ctx.fillRect(Math.round(l.x), Math.round(l.y), Math.round(l.w), 1);
+  ctx.fillRect(Math.round(l.x), Math.round(l.y + l.h - 1), Math.round(l.w), 1);
+  let size = Math.max(5, Math.floor(l.h - 3));
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (; size > 4; size--) {
+    ctx.font = `bold ${size}px monospace`;
+    if (ctx.measureText(label).width <= l.w - 4) break;
+  }
+  ctx.globalAlpha = 0.7;
+  ctx.fillText(label, Math.round(l.x + l.w / 2), Math.round(l.y + l.h / 2) + 0.5, l.w - 4);
+  ctx.restore();
 }

@@ -25,7 +25,7 @@ export function currentSeason(): Season | undefined {
   return resolveSeason(location.search);
 }
 
-/** ?rooms=gather | island força o estilo de todas as salas; sem parâmetro (ou mix) a semente sorteia. */
+/** ?rooms=gather | island | openspace força o estilo de todas as salas; sem parâmetro (ou mix) a semente sorteia. */
 export function resolveRoomStyle(search: string): RoomStyle | undefined {
   let v: string | null = null;
   try {
@@ -33,7 +33,7 @@ export function resolveRoomStyle(search: string): RoomStyle | undefined {
   } catch {
     return undefined;
   }
-  return v === 'gather' || v === 'island' ? v : undefined;
+  return v === 'gather' || v === 'island' || v === 'openspace' ? v : undefined;
 }
 
 export function currentRoomStyle(): RoomStyle | undefined {

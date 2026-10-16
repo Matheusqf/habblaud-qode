@@ -8,6 +8,7 @@ import { resolveRoomStyle, resolveSeason } from '../season';
 import { layoutExterior, slotShell } from './exterior';
 import { RECEPTION_ID } from './core';
 import type { AreaLayout } from './types';
+import { validateZones } from './zones';
 
 const theme: RoomTheme = {
   carpet: '#4f6d8f',
@@ -185,7 +186,7 @@ describe('variações das salas de projeto', () => {
   it('toda variação é válida: sem sobreposição, tudo alcançável, lugares suficientes', () => {
     for (const slot of [0, 1]) {
       for (const seed of seeds) {
-        for (const style of ['gather', 'island'] as const) {
+        for (const style of ['gather', 'island', 'openspace'] as const) {
         const room = layoutProjectRoom({ id: `/v/${seed}`, slot, seed, style }, theme);
         const b = assembleBuilding(columnsFor([slot]), [room]);
         const used = new Map<string, string>();
@@ -333,5 +334,62 @@ describe('composição das paredes (regressão #16)', () => {
         expect(desks.filter((d) => d.side === 'N')).toHaveLength(3);
       }
     }
+  });
+});
+
+describe('open-space (G1 zonas + G2 ilha rotulada)', () => {
+  const seeds = Array.from({ length: 90 }, (_, i) => (i * 7919 + 13) >>> 0);
+
+  it('mesmos móveis, spots e caminhos da ilha clássica (só piso, zonas e rótulo mudam)', () => {
+    for (const slot of [0, 1]) for (const seed of seeds) {
+      const a = layoutProjectRoom({ id: `/o/${seed}`, slot, seed, style: 'island' }, theme);
+      const o = layoutProjectRoom({ id: `/o/${seed}`, slot, seed, style: 'openspace' }, theme);
+      expect(o.spots).toEqual(a.spots);
+      expect(o.furniture).toEqual(a.furniture);
+      expect(o.walkable).toEqual(a.walkable);
+      expect(o.door).toEqual(a.door);
+      const ga = assembleBuilding(columnsFor([slot]), [a]).grid;
+      const go = assembleBuilding(columnsFor([slot]), [o]).grid;
+      expect(Array.from(go.reachableFrom(o.door!.x, o.door!.y))).toEqual(Array.from(ga.reachableFrom(a.door!.x, a.door!.y)));
+    }
+  });
+
+  it('zonas válidas: dentro da sala, sem sobreposição, alcançáveis; ilha contém as 6 mesas e tem rótulo', () => {
+    for (const slot of [0, 1]) for (const seed of seeds) for (const season of [undefined, 'halloween'] as const) {
+      const o = layoutProjectRoom({ id: `/z/${seed}`, slot, seed, style: 'openspace', season }, theme);
+      const grid = assembleBuilding(columnsFor([slot]), [o]).grid;
+      expect(validateZones(o, grid), `semente ${seed}`).toEqual([]);
+      const island = o.zones!.find((z) => z.kind === 'island')!;
+      expect(island.label).toBe('project');
+      for (const sp of o.spots.filter((s) => s.kind === 'desk')) {
+        expect(sp.tx >= island.rect.x && sp.tx < island.rect.x + island.rect.w && sp.ty >= island.rect.y && sp.ty < island.rect.y + island.rect.h, sp.id).toBe(true);
+      }
+      const l = o.floorLabels![0];
+      expect(l.zoneId).toBe(island.id);
+      expect(l.x >= island.rect.x * TILE && l.x + l.w <= (island.rect.x + island.rect.w) * TILE).toBe(true);
+      expect(hiddenWallItems(o)).toEqual([]);
+    }
+  });
+
+  it('validateZones acusa sobreposição, fora da área e zona inalcançável', () => {
+    const o = layoutProjectRoom({ id: '/bad', slot: 0, seed: 7, style: 'openspace' }, theme);
+    const r = o.rect;
+    o.zones = [
+      { id: 'a', kind: 'island', rect: { x: r.x + 1, y: r.y + 3, w: 4, h: 4 } },
+      { id: 'b', kind: 'meeting', rect: { x: r.x + 3, y: r.y + 3, w: 4, h: 4 } },
+      { id: 'c', kind: 'garden', rect: { x: r.x - 2, y: r.y, w: 3, h: 3 } },
+      { id: 'd', kind: 'lounge', rect: { x: r.x, y: r.y, w: 1, h: 1 } },
+    ];
+    o.floorLabels = [];
+    const errs = validateZones(o, assembleBuilding(columnsFor([0]), [o]).grid);
+    expect(errs).toContain('a sobrepõe b');
+    expect(errs).toContain('c: fora da área');
+    expect(errs).toContain('d: inalcançável a partir da porta');
+  });
+
+  it('?rooms=openspace é opcional e o padrão não muda', () => {
+    expect(resolveRoomStyle('?rooms=openspace')).toBe('openspace');
+    expect(resolveRoomStyle('')).toBeUndefined();
+    for (const seed of seeds) expect(roomStyle(seed)).not.toBe('openspace');
   });
 });
