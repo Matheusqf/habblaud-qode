@@ -93,20 +93,64 @@ function pausedLogin(port: number, password: string) {
   return { done, finish: () => req.end(body.slice(3)) };
 }
 
+/**
+ * true só se o SERVIDOR fechar o stream (read() → done) dentro de `ms`.
+ * Timeout → false (nunca conta o nosso próprio cancel como fecho). Cancel apenas no finally, para limpeza.
+ */
 async function streamClosed(reader: ReadableStreamDefaultReader<Uint8Array>, ms = 2000): Promise<boolean> {
-  const t = setTimeout(() => reader.cancel().catch(() => {}), ms);
-  try {
-    for (;;) {
-      const r = await reader.read();
-      if (r.done) return true;
+  let t: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<'timeout'>((r) => { t = setTimeout(() => r('timeout'), ms); });
+  const closed = (async () => {
+    try {
+      for (;;) {
+        const r = await reader.read();
+        if (r.done) return 'closed' as const;
+      }
+    } catch {
+      return 'error' as const;
     }
-  } catch {
-    return false;
+  })();
+  try {
+    return (await Promise.race([closed, timeout])) === 'closed';
   } finally {
     clearTimeout(t);
+    await reader.cancel().catch(() => {});
   }
 }
 const tick = (ms = 50) => new Promise((r) => setTimeout(r, ms));
+
+describe('helper streamClosed: controle negativo', () => {
+  it('servidor mantém o SSE aberto → helper devolve false (timeout não é fecho)', async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(': ok\n\n');
+      const iv = setInterval(() => res.write(': ping\n\n'), 20); // mantém aberto e ativo
+      res.on('close', () => clearInterval(iv));
+    });
+    servers.push(server);
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as AddressInfo).port;
+    const sse = await fetch(`http://127.0.0.1:${port}/`);
+    const reader = sse.body!.getReader();
+    await reader.read();
+    const t0 = Date.now();
+    expect(await streamClosed(reader, 300)).toBe(false);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(290);
+  });
+  it('controle positivo: servidor fecha o SSE → helper devolve true', async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(': ok\n\n');
+      setTimeout(() => res.end(), 50);
+    });
+    servers.push(server);
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as AddressInfo).port;
+    const reader = (await fetch(`http://127.0.0.1:${port}/`)).body!.getReader();
+    await reader.read();
+    expect(await streamClosed(reader, 1000)).toBe(true);
+  });
+});
 
 describe('race 1: login concorrente × rotação (epoch por sessão)', () => {
   it('body pausado → rotacionar → concluir login (senha nova) → cookie antigo 401 e SSE cortado', async () => {
