@@ -99,4 +99,21 @@ describe('CloudSource', () => {
     await Promise.all([t1, t2, t3]);
     expect(calls).toBe(1);
   });
+  it('inventário parcial: ausência não encerra o agente', async () => {
+    const { office, agents } = fakeOffice();
+    let list = [obs('bc-aaaaaa01', 'ACTIVE'), obs('bc-aaaaaa02', 'ACTIVE')];
+    const col = { provider: 'cursor' as const, lastPartial: false, poll: async () => list };
+    let now = FIX_NOW;
+    const s = new CloudSource({ office, collectors: [col], now: () => now });
+    await s.tick();
+    col.lastPartial = true;
+    list = [obs('bc-aaaaaa01', 'ACTIVE', FIX_NOW + 31_000)];
+    now += 31_000;
+    await s.tick();
+    expect(agents.has('cloud:cursor:bc-aaaaaa02')).toBe(true);
+    col.lastPartial = false;
+    now += 31_000;
+    await s.tick();
+    expect(agents.has('cloud:cursor:bc-aaaaaa02')).toBe(false);
+  });
 });

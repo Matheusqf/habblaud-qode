@@ -9,6 +9,8 @@ import { effectiveState, type CloudObservation, type CloudProvider } from './con
 export interface CloudCollector {
   readonly provider: CloudProvider;
   poll(now: number): Promise<CloudObservation[]>;
+  /** true = a última consulta foi parcial (teto de páginas): ausência não significa encerramento. */
+  readonly lastPartial?: boolean;
 }
 
 /** O pedaço do Office que a fonte usa (facilita testes). */
@@ -97,7 +99,10 @@ export class CloudSource {
       this.busy.add(s);
       try {
         const list = await s.c.poll(now);
-        s.seen = new Map(list.slice(0, MAX_AGENTS).map((o) => [o.id, o]));
+        const next = new Map(list.map((o) => [o.id, o]));
+        // Inventário parcial: quem não veio nesta página continua com a observação anterior (vence pelo TTL → stale).
+        if (s.c.lastPartial) for (const [id, o] of s.seen) if (!next.has(id)) next.set(id, o);
+        s.seen = new Map([...next].slice(0, MAX_AGENTS));
         s.failures = 0;
         s.lastOk = now;
         delete s.error;

@@ -45,4 +45,51 @@ describe('CursorCollector', () => {
     expect(buildCloudCollectors(loadCloudConfig({ HABBLAUD_CLOUD: '1' }), { CURSOR_API_KEY: 'k' })).toEqual([]);
     expect(buildCloudCollectors(loadCloudConfig({ HABBLAUD_CLOUD: '1', HABBLAUD_CLOUD_CURSOR: '1' }), { CURSOR_API_KEY: 'k' })).toHaveLength(1);
   });
+  it('fora de ordem: item antigo no fim da página 1 não interrompe a paginação', async () => {
+    const p1 = { items: [{ id: 'bc-old0000001', status: 'IDLE', updatedAt: '2026-10-01T00:00:00Z' }], nextCursor: 'c2' };
+    const p2 = { items: [{ id: 'bc-new0000001', status: 'ACTIVE', updatedAt: '2026-10-16T12:59:00Z', url: 'https://cursor.com/agents/bc-new0000001' }] };
+    const f: FetchLike = async (url) => {
+      const u = new URL(url);
+      const body = u.pathname === '/v1/agents' ? (u.searchParams.get('cursor') ? p2 : p1) : { repos: [{ url: 'https://github.com/Matheusqf/habblaud-qode' }] };
+      return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+    };
+    const c = new CursorCollector({ apiKey: 'k', cfg, fetch: f });
+    expect((await c.poll(FIX_NOW)).map((o) => o.id)).toEqual(['bc-new0000001']);
+    expect(c.lastPartial).toBe(false);
+  });
+  it('teto de páginas sinaliza inventário parcial', async () => {
+    let n = 0;
+    const f: FetchLike = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ items: [], nextCursor: `c${++n}` }) });
+    const c = new CursorCollector({ apiKey: 'k', cfg, fetch: f });
+    await c.poll(FIX_NOW);
+    expect(c.lastPartial).toBe(true);
+    expect(n).toBe(10);
+  });
+  it('redirect é recusado e a chave não segue', async () => {
+    const seen: string[] = [];
+    const f: FetchLike = async (url, init) => (seen.push(`${url} ${init.redirect}`), { ok: false, status: 302, text: async () => '' });
+    await expect(new CursorCollector({ apiKey: 'k', cfg, fetch: f }).poll(FIX_NOW)).rejects.toThrow(/redirect/);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatch(/ manual$/);
+  });
+  it('limite de bytes durante a leitura (cancela o stream)', async () => {
+    let cancelled = false;
+    let reads = 0;
+    const chunk = new Uint8Array(200 * 1024);
+    const f: FetchLike = async () => ({
+      ok: true, status: 200, text: async () => { throw new Error('não devia ler tudo'); },
+      body: { getReader: () => ({ read: async () => (reads++ < 100 ? { done: false, value: chunk } : { done: true }), cancel: async () => void (cancelled = true) }) },
+    });
+    await expect(new CursorCollector({ apiKey: 'k', cfg, fetch: f }).poll(FIX_NOW)).rejects.toThrow(/grande/);
+    expect(cancelled).toBe(true);
+    expect(reads).toBeLessThan(5);
+  });
+  it('cache guarda só o projeto permitido, nunca a URL do repo', async () => {
+    const { f } = fakeFetch();
+    const c = new CursorCollector({ apiKey: 'k', cfg, fetch: f });
+    await c.poll(FIX_NOW);
+    const cache = [...(c as unknown as { projectOf: Map<string, string | null> }).projectOf.values()];
+    expect(cache.some((v) => v && /https?:|github\.com/.test(v))).toBe(false);
+    expect(cache).toContain(null); // repo fora da allowlist
+  });
 });
