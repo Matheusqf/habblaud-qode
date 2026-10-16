@@ -26,4 +26,4 @@ Cada agente entra como principal com cwd `/cloud/<provedor>/<projeto>` e conta `
 Sem interface pública oficial de listagem/status: **observação automática indisponível**. Não extrair cookies nem chamar endpoints privados.
 
 ## Codex cloud (fatia 3)
-`codex cloud list --json --limit 20` via execFile (sem shell), timeout 15 s, saída ≤ 512 KB, stderr não ecoado. Usa a sessão já existente do CLI; o Office nunca lê `~/.codex/auth.json`. Projeto = `environment_label` (tem de estar na allowlist). `HABBLAUD_CLOUD_CODEX_VERSION` fixa o prefixo de `codex --version`. Cobertura cloud novo vs Legacy por validar.
+`codex cloud list --json --limit 20` via execFile (sem shell), timeout 15 s, saída ≤ 512 KB, stderr não ecoado. Usa a sessão já existente do CLI; o Office nunca lê `~/.codex/auth.json`. Projeto = mapeamento explícito `HABBLAUD_CLOUD_CODEX_ENVS=env_id=dono/repo,...` (environment_label NÃO é usado; sem mapa → nada passa), depois allowlist. Pagina com `--cursor` (teto 10 → inventário parcial, ausência ≠ encerramento). `HABBLAUD_CLOUD_CODEX_VERSION` = saída exata de `codex --version`. PENDING/QUEUED = unknown (não trabalha). Cobertura cloud novo vs Legacy por validar.

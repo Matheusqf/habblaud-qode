@@ -20,7 +20,9 @@ describe('cloud contract', () => {
     expect(normalizeState('cursor', 'IDLE')).toBe('idle');
     expect(normalizeState('cursor', 'ACTIVE')).toBe('running');
     expect(normalizeState('cursor', 'WHATEVER')).toBe('unknown');
-    expect(normalizeState('codex-cloud', 'pending')).toBe('running');
+    expect(normalizeState('codex-cloud', 'pending')).toBe('unknown');
+    expect(normalizeState('codex-cloud', 'queued')).toBe('unknown');
+    expect(normalizeState('codex-cloud', 'in_progress')).toBe('running');
   });
   it('allowlist antes de tudo e só campos do contrato', () => {
     const raw = { id: 'bc-abcdef12', project: 'https://github.com/Matheusqf/habblaud-qode', nativeState: 'ACTIVE', updatedAt: FIX_NOW - 1000, link: 'https://cursor.com/agents/bc-abcdef12?token=x#y', name: CANARY, prompt: CANARY } as RawCloudItem;
