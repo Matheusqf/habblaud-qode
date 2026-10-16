@@ -44,6 +44,12 @@ describe('cloud contract', () => {
     const o = sanitize('cursor', { id: 'bc-abcdef12', project: 'matheusqf/habblaud-qode', nativeState: 'ACTIVE', updatedAt: FIX_NOW }, cfg, FIX_NOW)!;
     expect(effectiveState(o, FIX_NOW + 1)).toBe('running');
     expect(effectiveState(o, o.expiresAt + 1)).toBe('stale');
+    const idle = sanitize('cursor', { id: 'bc-abcdef12', project: 'matheusqf/habblaud-qode', nativeState: 'IDLE', updatedAt: FIX_NOW }, cfg, FIX_NOW)!;
+    expect(effectiveState(idle, idle.expiresAt + 1)).toBe('stale');
+    const unk = sanitize('cursor', { id: 'bc-abcdef12', project: 'matheusqf/habblaud-qode', nativeState: 'XYZ', updatedAt: FIX_NOW }, cfg, FIX_NOW)!;
+    expect(effectiveState(unk, unk.expiresAt + 1)).toBe('stale');
+    const end = sanitize('cursor', { id: 'bc-abcdef12', project: 'matheusqf/habblaud-qode', nativeState: 'ARCHIVED', updatedAt: FIX_NOW }, cfg, FIX_NOW)!;
+    expect(effectiveState(end, end.expiresAt + 1)).toBe('ended');
     const old = sanitize('cursor', { id: 'bc-abcdef12', project: 'matheusqf/habblaud-qode', nativeState: 'ACTIVE', updatedAt: FIX_NOW - 86_400_000 }, cfg, FIX_NOW)!;
     expect(old.state).toBe('stale');
   });

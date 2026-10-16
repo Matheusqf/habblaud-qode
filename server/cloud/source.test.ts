@@ -120,8 +120,10 @@ describe('CloudSource', () => {
     expect(adds).toHaveLength(20);
     expect([...agents.keys()].sort()).toEqual(first);
   });
-  it('página parcial com 20 ids novos: nenhum antigo fecha', async () => {
-    const { office, agents } = fakeOffice();
+  it('página parcial com 20 ids novos: nenhum antigo fecha (nenhum evento de encerramento)', async () => {
+    const { office: base, agents } = fakeOffice();
+    const closes: string[] = [];
+    const office = { ...base, closeMain: (id: string) => (closes.push(id), base.closeMain(id)) };
     const col = { provider: 'cursor' as const, lastPartial: false, poll: async () => list };
     let list = Array.from({ length: 5 }, (_, i) => obs(`bc-old0000${i}`, 'IDLE'));
     let now = FIX_NOW;
@@ -134,5 +136,21 @@ describe('CloudSource', () => {
     for (let i = 0; i < 5; i++) expect(agents.has(`cloud:cursor:bc-old0000${i}`)).toBe(true);
     expect(agents.size).toBe(20);
     expect(s.sources()[0].path).toMatch(/parcial/);
+    expect(closes).toEqual([]);
+  });
+  it('falha prolongada de polling: IDLE também envelhece para stale (não fica "parado" como verdade)', async () => {
+    const { office, agents } = fakeOffice();
+    let fail = false;
+    let now = FIX_NOW;
+    const s = new CloudSource({ office, collectors: [{ provider: 'cursor', poll: async () => { if (fail) throw new Error('x'); return [obs('bc-aaaaaa02', 'IDLE')]; } }], now: () => now });
+    await s.tick();
+    expect(agents.get('cloud:cursor:bc-aaaaaa02')?.cloud?.state).toBe('idle');
+    fail = true;
+    for (let i = 0; i < 5; i++) {
+      now += 15 * 60_000;
+      await s.tick();
+    }
+    expect(agents.get('cloud:cursor:bc-aaaaaa02')?.cloud?.state).toBe('stale');
+    expect(agents.has('cloud:cursor:bc-aaaaaa02')).toBe(true);
   });
 });
