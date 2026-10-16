@@ -6,10 +6,15 @@
 // sessão que estava sendo acompanhada e some de uma leitura BEM-SUCEDIDA é encerrada (closeMain); uma leitura que
 // falha só marca a fonte como não-ok e mantém os agentes como estavam (nada de sumiço por erro de leitura).
 //
-// A leitura do banco é injetada (run) e, por padrão, sai de `opencode db <sql> --format json` via execFile, sem
-// shell e sem nunca registrar a saída. Boot assíncrono: beginBoot antes e endBoot num `finally`.
-import { execFile } from 'node:child_process';
-import type { SourceInfo } from '../../../shared/types';
+// A leitura do banco é injetada (run); em produção é readOnlyRunner (reader.ts): SQLite somente leitura, sem o
+// inicializador/migrações do OpenCode. Estado: o banco não prova processo vivo, então o personagem fica 'idle' e a
+// atividade sai como INFERIDA (AgentInfo.observed, com horário; stale quando a leitura falha). Só entram sessões de
+// projetos da allowlist (`projects`, caminhos canônicos). Limite: a seleção acontece ANTES de inserir no Office, mas
+// DEPOIS da consulta de metadados ao banco (o SELECT traz as sessões da janela de todos os projetos; as de fora da
+// allowlist são descartadas em memória, sem ir para Office, snapshot, cache ou log). Boot assíncrono: beginBoot antes e endBoot num `finally`.
+import { realpathSync } from 'node:fs';
+import { resolve, sep } from 'node:path';
+import type { ObservedActivity, SourceInfo } from '../../../shared/types';
 import { ACCOUNT_COLORS } from '../../accounts/detect';
 import type { AccountsService } from '../../accounts/service';
 import { errMsg } from '../../log';
@@ -20,6 +25,7 @@ import { parseSessions, sessionsSql, type OpenCodeSession } from './sessions';
 const PROVIDER = 'opencode' as const;
 const DEFAULT_POLL_MS = 5_000;
 const DEFAULT_WINDOW_MS = 30 * 60_000;
+const DEFAULT_ACTIVE_STALE_MS = 5 * 60_000;
 
 export interface OpenCodeSourceOptions {
   accounts: AccountsService;
@@ -32,24 +38,33 @@ export interface OpenCodeSourceOptions {
   pollMs?: number;
   /** Janela de sessões mexidas que a query considera (padrão 30 min). */
   windowMs?: number;
+  /** Allowlist de projetos (pastas absolutas): só sessões nelas ou abaixo delas entram. Vazia = nada entra. */
+  projects: readonly string[];
+  /** 'active' inferido mais velho que isto (desde a última gravação) vira 'unknown' (padrão 5 min). */
+  activeStaleMs?: number;
+}
+
+/** Caminho canônico (symlinks resolvidos); undefined se não existe ou não dá para resolver (= fora da allowlist). */
+function canonical(p: string): string | undefined {
+  try {
+    return realpathSync(p);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
- * Runner padrão: `opencode db <sql> --format json`, sem shell, com prazo e teto de saída. Nunca registra a saída.
+ * A pasta está na allowlist (igual ou abaixo de uma das pastas), comparando caminhos CANÔNICOS (realpath): um
+ * /permitido/link que aponta para fora não passa. Pasta que não existe mais não passa.
  */
-export function defaultRunner(bin: string): (sql: string) => Promise<string> {
-  return (sql: string) =>
-    new Promise<string>((resolve, reject) => {
-      execFile(
-        bin,
-        ['db', sql, '--format', 'json'],
-        { timeout: 15_000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' },
-        (err, stdout) => {
-          if (err) reject(err);
-          else resolve(stdout);
-        },
-      );
-    });
+export function inAllowlist(dir: string, projects: readonly string[]): boolean {
+  const d = canonical(resolve(dir));
+  if (!d) return false;
+  return projects.some((p) => {
+    const root = canonical(resolve(p));
+    if (!root) return false;
+    return d === root || d.startsWith(root.endsWith(sep) ? root : root + sep);
+  });
 }
 
 export class OpenCodeSource implements AgentSource {
@@ -65,11 +80,13 @@ export class OpenCodeSource implements AgentSource {
   private readonly now: () => number;
   private readonly pollMs: number;
   private readonly windowMs: number;
+  private readonly activeStaleMs: number;
 
   constructor(private readonly opts: OpenCodeSourceOptions) {
     this.now = opts.now ?? Date.now;
     this.pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
     this.windowMs = opts.windowMs ?? DEFAULT_WINDOW_MS;
+    this.activeStaleMs = opts.activeStaleMs ?? DEFAULT_ACTIVE_STALE_MS;
   }
 
   async start(): Promise<void> {
@@ -111,6 +128,7 @@ export class OpenCodeSource implements AgentSource {
   }
 
   private async cycle(): Promise<void> {
+    const office = this.opts.office;
     let sessions: OpenCodeSession[];
     try {
       sessions = parseSessions(await this.opts.run(sessionsSql(this.now() - this.windowMs)));
@@ -119,38 +137,46 @@ export class OpenCodeSource implements AgentSource {
     } catch (err) {
       this.ok = false;
       this.error = errMsg(err).slice(0, 200);
+      // Leitura falhou: o que se sabe é velho. Marca stale (mantém o horário do último dado) e atividade unknown.
+      for (const key of this.tracked) {
+        const prev = office.get(key)?.observed;
+        office.setObserved(key, { basis: 'inferred', activity: 'unknown', at: prev?.at ?? this.now(), stale: true });
+      }
       return;
     }
+    const now = this.now();
     const seen = new Set<string>();
     for (const session of sessions) {
+      // Allowlist antes de inserir no Office (depois da consulta ao banco; ver o topo).
+      if (!inAllowlist(session.directory, this.opts.projects)) continue;
       const key = `${this.account}:${session.id}`;
       seen.add(key);
-      if (!this.opts.office.has(key)) {
-        this.opts.office.addMain({
-          id: key,
-          provider: PROVIDER,
-          account: this.account,
-          sessionId: session.id,
-          cwd: session.directory,
-          role: session.agent ?? PROVIDER,
-          startedAt: session.startedAt,
-          status: session.status,
-        });
-      } else {
-        this.opts.office.setStatus(key, session.status);
-      }
+      // addMain também é o caminho de volta (revival): limpa o removeAt de um closeMain recente (ZikaBOT #24, P2).
+      office.addMain({
+        id: key,
+        provider: PROVIDER,
+        account: this.account,
+        sessionId: session.id,
+        cwd: session.directory,
+        role: session.agent ?? PROVIDER,
+        startedAt: session.startedAt,
+        status: 'idle',
+      });
       const summary: TranscriptSummary = {
         tasks: [],
         stats: { toolCalls: 0, tokensIn: session.tokensIn, tokensOut: session.tokensOut, costUSD: session.costUSD, subagents: 0 },
         lastAt: session.updatedAt,
       };
       if (session.model) summary.model = session.model;
-      this.opts.office.applyTranscript(key, summary);
+      office.applyTranscript(key, summary);
+      const activity: ObservedActivity['activity'] =
+        session.inferred === 'active' && now - session.updatedAt > this.activeStaleMs ? 'unknown' : session.inferred;
+      office.setObserved(key, { basis: 'inferred', activity, at: session.updatedAt, stale: false });
       this.tracked.add(key);
     }
     for (const key of [...this.tracked]) {
       if (seen.has(key)) continue;
-      this.opts.office.closeMain(key);
+      office.closeMain(key);
       this.tracked.delete(key);
     }
   }

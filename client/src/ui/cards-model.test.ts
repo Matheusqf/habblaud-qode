@@ -20,12 +20,26 @@ describe('buildCards', () => {
     const r = buildCards({ rooms: [room('r1', 0)], agents: [ag('s', { kind: 'sub', parentId: 'sumiu' })] });
     expect(r[0]!.cards[0]!.agent.id).toBe('s');
   });
-  it('soma tokens e custo por projeto; sem custo = indisponível', () => {
+  it('soma tokens e custo por projeto; misto conhecido/desconhecido = parcial com cobertura', () => {
     const r = buildCards({ rooms: [room('r1', 0)], agents: [ag('a'), ag('b', { kind: 'sub', parentId: 'a', stats: { toolCalls: 0, tokensIn: 1, tokensOut: 1, subagents: 0, costUSD: 0.5 } })] });
-    expect(r[0]!.usage).toEqual({ tokens: 17, costUSD: 0.5 });
-    expect(r[0]!.cards[0]!.usage.costUSD).toBeNull();
-    expect(costLabel(null, String)).toBe('indisponível');
-    expect(sumUsage([{ tokens: 1, costUSD: null }])).toEqual({ tokens: 1, costUSD: null });
+    expect(r[0]!.usage).toEqual({ tokens: 17, costUSD: 0.5, costKnown: 1, costTotal: 2 });
+    expect(r[0]!.cards[0]!.usage).toEqual({ tokens: 15, costUSD: null, costKnown: 0, costTotal: 1 });
+    expect(costLabel(r[0]!.usage, String)).toBe('parcial 0.5 (1/2 agentes)');
+    expect(costLabel({ tokens: 0, costUSD: null, costKnown: 0, costTotal: 1 }, String)).toBe('indisponível');
+    expect(sumUsage([{ tokens: 1, costUSD: null, costKnown: 0, costTotal: 1 }, { tokens: 2, costUSD: 0.5, costKnown: 1, costTotal: 1 }])).toEqual({ tokens: 3, costUSD: 0.5, costKnown: 1, costTotal: 2 });
+  });
+  it('todos sem custo = indisponível (não zero)', () => {
+    const r = buildCards({ rooms: [room('r1', 0)], agents: [ag('a'), ag('b', { kind: 'sub', parentId: 'a' })] });
+    expect(r[0]!.usage).toEqual({ tokens: 30, costUSD: null, costKnown: 0, costTotal: 2 });
+    expect(costLabel(r[0]!.usage, String)).toBe('indisponível');
+  });
+  it('custo real zero em todos = fmt(0), não indisponível', () => {
+    const r = buildCards({ rooms: [room('r1', 0)], agents: [
+      ag('a', { stats: { toolCalls: 0, tokensIn: 1, tokensOut: 1, subagents: 0, costUSD: 0 } }),
+      ag('b', { kind: 'sub', parentId: 'a', stats: { toolCalls: 0, tokensIn: 1, tokensOut: 1, subagents: 0, costUSD: 0 } }),
+    ] });
+    expect(r[0]!.usage).toEqual({ tokens: 4, costUSD: 0, costKnown: 2, costTotal: 2 });
+    expect(costLabel(r[0]!.usage, String)).toBe('0');
   });
   it('snapshot nulo', () => expect(buildCards(null)).toEqual([]));
 });

@@ -85,18 +85,18 @@ describe('parseSessions', () => {
   });
 
   it('working: última mensagem do usuário, ou assistente ainda sem completed', () => {
-    expect(parse([row({ last_role: 'user' })])[0].status).toBe('working');
+    expect(parse([row({ last_role: 'user' })])[0].inferred).toBe('active');
     // Usuário com completed também: a sessão segue trabalhando.
-    expect(parse([row({ last_role: 'user', last_completed: 1999 })])[0].status).toBe('working');
-    expect(parse([row({ last_role: 'assistant', last_completed: null })])[0].status).toBe('working');
+    expect(parse([row({ last_role: 'user', last_completed: 1999 })])[0].inferred).toBe('active');
+    expect(parse([row({ last_role: 'assistant', last_completed: null })])[0].inferred).toBe('active');
   });
 
   it('idle: assistente com completed, ou sessão sem mensagem', () => {
-    expect(parse([row()])[0].status).toBe('idle');
+    expect(parse([row()])[0].inferred).toBe('idle');
     // Completed falsy mas presente (0) não é null: a resposta acabou.
-    expect(parse([row({ last_role: 'assistant', last_completed: 0 })])[0].status).toBe('idle');
+    expect(parse([row({ last_role: 'assistant', last_completed: 0 })])[0].inferred).toBe('idle');
     const semMensagem = row({ last_role: null, last_model: null, last_provider: null, last_completed: null });
-    expect(parse([semMensagem])[0].status).toBe('idle');
+    expect(parse([semMensagem])[0].inferred).toBe('idle');
   });
 
   it('error só quando a última mensagem tem erro (1/true)', () => {

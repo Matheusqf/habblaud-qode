@@ -5,8 +5,14 @@ import { currentFile, UNIFIED_LABEL, UNIFIED_STATES, unifiedState } from './unif
 const act = (kind: ActivityKind, extra: Partial<Activity> = {}): Activity => ({ id: 'x', kind, icon: '', text: '', at: 0, ...extra });
 
 describe('unifiedState', () => {
-  it('tem os 6 estados com rótulo', () => {
-    expect(UNIFIED_STATES.map((s) => UNIFIED_LABEL[s])).toEqual(['Lendo', 'Editando', 'Rodando comando', 'Esperando', 'Erro', 'Feito']);
+  it('tem os 7 estados com rótulo', () => {
+    expect(UNIFIED_STATES.map((s) => UNIFIED_LABEL[s])).toEqual(['Lendo', 'Editando', 'Rodando comando', 'Esperando', 'Erro', 'Feito', 'Inferido (sem estado ao vivo)']);
+  });
+  it('atividade só inferida (observed) nunca vira Feito, nem ociosa', () => {
+    for (const activity of ['active', 'idle', 'unknown'] as const)
+      for (const stale of [false, true])
+        expect(unifiedState({ status: 'idle', provider: 'opencode', observed: { basis: 'inferred', activity, at: 0, stale } })).toBe('inferred');
+    expect(unifiedState({ status: 'idle' })).toBe('done');
   });
   it('Claude: mapeia atividade e status', () => {
     expect(unifiedState({ status: 'working', activity: act('read') })).toBe('reading');
