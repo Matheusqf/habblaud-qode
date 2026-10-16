@@ -1,7 +1,7 @@
 // Fonte "cloud" do Office: junta coletores observe-only (Cursor, Codex cloud) e põe os agentes nas salas.
 // Desligada por padrão (HABBLAUD_CLOUD). Nunca despacha, responde ou opera nada nos provedores.
 import type { SourceInfo } from '../../shared/types';
-import { errMsg, log } from '../log';
+import { log } from '../log';
 import type { MainInput } from '../model/office';
 import { effectiveState, type CloudObservation, type CloudProvider } from './contract';
 
@@ -59,7 +59,7 @@ export class CloudSource {
 
   start(): void {
     if (!this.states.length) return;
-    const tick = () => void this.tick().catch((err) => log.warn(`Cloud: tick falhou (${errMsg(err)}).`));
+    const tick = () => void this.tick().catch(() => log.warn('Cloud: tick falhou (categoria=tick_failed).'));
     tick();
     this.timer = setInterval(tick, this.deps.pollMs ?? 5_000);
     this.timer.unref?.();
@@ -95,12 +95,13 @@ export class CloudSource {
         s.lastOk = now;
         delete s.error;
         s.nextAt = now + (this.deps.pollMs ?? POLL_MS);
-      } catch (err) {
+      } catch {
         s.failures++;
         // Mensagem genérica: nunca ecoar corpo/headers de resposta (podem conter dados ou tokens).
         s.error = `coletor indisponível (${s.failures}x)`;
         s.nextAt = now + Math.min(MAX_BACKOFF_MS, POLL_MS * 2 ** Math.min(s.failures, 6));
-        log.warnOnce(`cloud:${s.c.provider}:${s.failures > 1}`, `Cloud ${s.c.provider}: ${s.error}; ${errMsg(err).slice(0, 80)}`);
+        // Só provedor + categoria controlada: nunca o texto do erro (pode trazer corpo, headers ou tokens).
+        log.warnOnce(`cloud:${s.c.provider}:${s.failures > 1}`, `Cloud ${s.c.provider}: coletor indisponível (categoria=poll_failed, falhas=${s.failures}).`);
       }
     }
     this.reconcile(now);
