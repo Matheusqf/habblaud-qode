@@ -3,7 +3,8 @@ import { FURNITURE, TILE, type FurnitureKind, type RoomTheme } from '../../art/a
 import { BUILDING_H, COL_W, CORRIDOR_Y, SOUTH_Y } from '../constants';
 import { assembleBuilding, coreAreas } from './building';
 import { columnsFor, slotAt, slotColumn, slotRect, slotSide } from './geometry';
-import { layoutProjectRoom, roomVariant } from './room';
+import { layoutProjectRoom, roomStyle, roomVariant } from './room';
+import { resolveRoomStyle, resolveSeason } from '../season';
 import { layoutExterior, slotShell } from './exterior';
 import { RECEPTION_ID } from './core';
 import type { AreaLayout } from './types';
@@ -234,5 +235,50 @@ describe('itens de parede', () => {
     const restroom = coreAreas().find((a) => a.kind === 'restroom')!;
     expect(restroom.wallItems.some((w) => w.kind === 'door_frame')).toBe(true);
     for (const room of roomsFor([1, 3, 7])) expect(room.wallItems.some((w) => w.kind === 'door_frame'), room.id).toBe(true);
+  });
+});
+
+describe('estilos de sala e tema sazonal', () => {
+  const seeds = Array.from({ length: 90 }, (_, i) => (i * 7919 + 13) >>> 0);
+
+  it('há salas "gather" (madeira, reunião central com sofás) e salas clássicas', () => {
+    const styles = new Set(seeds.map(roomStyle));
+    expect(styles).toEqual(new Set(['gather', 'island']));
+    const seed = seeds.find((s) => roomStyle(s) === 'gather')!;
+    const room = layoutProjectRoom({ id: '/g', slot: 0, seed }, theme);
+    expect(room.floors.some((f) => f.kind === 'wood')).toBe(true);
+    expect(room.furniture.some((f) => f.kind === 'meeting_table')).toBe(true);
+    expect(room.furniture.filter((f) => f.kind === 'sofa')).toHaveLength(2);
+    expect(room.wallItems.some((w) => w.kind === 'sign')).toBe(true);
+  });
+
+  it('Halloween só troca decoração: mesmos spots, mesmos bloqueios', () => {
+    for (const slot of [0, 1]) {
+      for (const seed of seeds.slice(0, 30)) {
+        const a = layoutProjectRoom({ id: '/h', slot, seed }, theme);
+        const h = layoutProjectRoom({ id: '/h', slot, seed, season: 'halloween' }, theme);
+        expect(h.spots).toEqual(a.spots);
+        expect(h.furniture.map((f) => [f.tx, f.ty, FURNITURE[f.kind].footprint, FURNITURE[f.kind].blocks])).toEqual(
+          a.furniture.map((f) => [f.tx, f.ty, FURNITURE[f.kind].footprint, FURNITURE[f.kind].blocks]),
+        );
+        expect(h.furniture.some((f) => f.kind === 'pumpkin')).toBe(true);
+        expect(h.wallItems.some((w) => w.kind === 'cobweb')).toBe(true);
+        expect(a.furniture.some((f) => f.kind === 'pumpkin')).toBe(false);
+      }
+    }
+  });
+
+  it('tema sazonal: desligado por padrão; ?season=halloween liga; ?season=auto só em outubro', () => {
+    const oct = new Date(2026, 9, 16);
+    const nov = new Date(2026, 10, 2);
+    expect(resolveSeason('', oct)).toBeUndefined();
+    expect(resolveSeason('?season=off', oct)).toBeUndefined();
+    expect(resolveSeason('?season=halloween', nov)).toBe('halloween');
+    expect(resolveSeason('?season=auto', oct)).toBe('halloween');
+    expect(resolveSeason('?season=auto', nov)).toBeUndefined();
+    expect(resolveRoomStyle('')).toBeUndefined();
+    expect(resolveRoomStyle('?rooms=gather')).toBe('gather');
+    const forced = layoutProjectRoom({ id: '/f', slot: 1, seed: seeds.find((s) => roomStyle(s) === 'island')!, style: 'gather' }, theme);
+    expect(forced.furniture.filter((f) => f.kind === 'sofa')).toHaveLength(2);
   });
 });

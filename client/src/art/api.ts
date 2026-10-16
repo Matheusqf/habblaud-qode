@@ -187,7 +187,16 @@ export type FurnitureKind =
   | 'sink' // 1x1 pia com gabinete (encostada na parede norte; use 'mirror' na parede acima).
   // --- recepção
   | 'reception_desk' // 3x1 balcão de recepção.
-  | 'bench'; // 2x1 banco de espera (assento, olhando para baixo).
+  | 'bench' // 2x1 banco de espera (assento, olhando para baixo).
+  // --- decoração extra (estilo Gather) e tema sazonal de Halloween (aditivo)
+  | 'aquarium' // 1x1 aquário redondo sobre móvel baixo.
+  | 'globe' // 1x1 globo terrestre sobre banquinho.
+  | 'pumpkin' // 1x1 abóbora. variants: 'single' (jack-o'-lantern) | 'stack' (pilha)
+  | 'cauldron' // 1x1 caldeirão com poção verde.
+  | 'dartboard' // 1 tile (parede). Alvo de dardos.
+  | 'cobweb' // 1 tile (parede). Teia no canto. variants: 'left' | 'right'
+  | 'bat_frame' // 1 tile (parede). Quadro com morcego.
+  | 'pumpkin_garland'; // 3 tiles (parede). Guirlanda de abóboras.
 
 export interface FurnitureDef {
   mount: 'floor' | 'wall';
@@ -261,6 +270,14 @@ export const FURNITURE: Readonly<Record<FurnitureKind, FurnitureDef>> = {
   sink: { mount: 'floor', footprint: { w: 1, h: 1 }, blocks: true },
   reception_desk: { mount: 'floor', footprint: { w: 3, h: 1 }, blocks: true },
   bench: { mount: 'floor', footprint: { w: 2, h: 1 }, blocks: false, seat: true },
+  aquarium: { mount: 'floor', footprint: { w: 1, h: 1 }, blocks: true },
+  globe: { mount: 'floor', footprint: { w: 1, h: 1 }, blocks: true },
+  pumpkin: { mount: 'floor', footprint: { w: 1, h: 1 }, blocks: true, variants: ['single', 'stack'] },
+  cauldron: { mount: 'floor', footprint: { w: 1, h: 1 }, blocks: true },
+  dartboard: { mount: 'wall', footprint: { w: 1, h: 0 }, blocks: false },
+  cobweb: { mount: 'wall', footprint: { w: 1, h: 0 }, blocks: false, variants: ['left', 'right'] },
+  bat_frame: { mount: 'wall', footprint: { w: 1, h: 0 }, blocks: false },
+  pumpkin_garland: { mount: 'wall', footprint: { w: 3, h: 0 }, blocks: false },
 };
 
 export type FloorKind =
