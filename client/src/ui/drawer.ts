@@ -666,7 +666,7 @@ class AgentView {
     st.set('tools', formatInt(s.toolCalls));
     st.set('tokensIn', formatTokens(s.tokensIn));
     st.set('tokensOut', formatTokens(s.tokensOut));
-    st.set('cost', s.costUSD !== undefined ? formatUSD(s.costUSD) : null);
+    st.set('cost', s.costUSD !== undefined ? formatUSD(s.costUSD) : 'indisponível');
     const codex = providerOf(a) === 'codex';
     const hasLines = s.linesAdded !== undefined || s.linesRemoved !== undefined;
     st.show('lines', hasLines);

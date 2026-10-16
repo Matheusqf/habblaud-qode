@@ -25,3 +25,7 @@ qualquer redistribuição (inclusive versões whitelabel).
 - **pixel-agents** — https://github.com/pixel-agents-hq/pixel-agents — MIT, Copyright (c) 2026 Pablo De
   Lucca. Inspiração para `shared/areas.ts` (áreas nomeadas mapeadas a pastas).
   Os personagens do pixel-agents (baseados em JIK-A-4 "Metro City") **não** são usados.
+
+- Estados unificados e vista em cartões: ideia do ClaudeVille (honorstudio/claude-ville; sem LICENSE no repo, nenhum código copiado).
+- Modo kiosk/TV e vista mobile: ideia do Cubicle (caglarutkuguler/cubicle, MIT); código próprio.
+- Tokens/custo por agente e projeto: ideia do vibeoffice (acost1a/vibeoffice, MIT); código próprio.

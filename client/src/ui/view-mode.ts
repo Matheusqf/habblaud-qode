@@ -1,13 +1,15 @@
 // Modos de vista (opt-in pela URL): kiosk/TV e mobile. Ideia do Cubicle (caglarutkuguler/cubicle, MIT), código próprio.
 // - ?view=kiosk (ou ?kiosk=1): ecrã de TV — esconde painéis e controlos, letra maior, cursor some quando parado.
+// - ?view=cards: vista em cartões por projeto (ver cards.ts).
 // - ?view=mobile: força a vista compacta de telemóvel (que também liga sozinha abaixo de 600 px, via CSS).
-export type ViewMode = 'normal' | 'kiosk' | 'mobile';
+export type ViewMode = 'normal' | 'kiosk' | 'mobile' | 'cards';
 
 export function resolveViewMode(search: string): ViewMode {
   const p = new URLSearchParams(search);
   const v = (p.get('view') ?? '').toLowerCase();
   if (v === 'kiosk' || v === 'tv' || p.get('kiosk') === '1') return 'kiosk';
   if (v === 'mobile') return 'mobile';
+  if (v === 'cards') return 'cards';
   return 'normal';
 }
 
@@ -17,6 +19,7 @@ export function applyViewMode(doc: Document, search: string, idleMs = 3_000): Vi
   const root = doc.documentElement;
   root.classList.toggle('qode-kiosk', mode === 'kiosk');
   root.classList.toggle('qode-mobile', mode === 'mobile');
+  root.classList.toggle('qode-cards-on', mode === 'cards');
   if (mode === 'kiosk') {
     let t: ReturnType<typeof setTimeout> | undefined;
     const wake = (): void => {
