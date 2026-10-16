@@ -67,3 +67,20 @@ Tilesets (`client/public/assets/tileset/*`, `map/FloorAndGround.png`, `archive/R
 5. **Workspaces privados por cliente** (ideia das salas custom) para a versão whitelabel.
 
 Fora: controlar agentes, vídeo/voz/screen-share (futuro). Atribuição: código copiado leva cabeçalho `Adapted from SkyOffice (MIT) © 2021 Kuan-Hsuan Shen` e entrada no `NOTICE.md`.
+
+## Status das features candidatas (16/10/2026, ~20:10 PT)
+
+| # | Feature | Status | Onde |
+|---|---|---|---|
+| 4 | Estados unificados (Lendo/Editando/Rodando comando/Esperando/Erro/Feito), adaptador por ferramenta | ✅ PR #21 | `shared/unified-state.ts` (Claude, Codex; Cursor preparado sem fonte ainda) |
+| 8 | Modo kiosk/TV + vista mobile | ✅ PR #22 | `?view=kiosk` / `?view=mobile` (auto < 600 px) |
+| 1 | Balão de atenção + som opcional | ✅ já existia (✋ + sino "Avisos", som OFF por padrão); teste de contrato na PR #23 | `overlay.ts`, `notify.ts` |
+| 2 | Painel ao clicar (ação, ficheiro, modelo, últimas chamadas) | ✅ gaveta já tinha modelo/linha do tempo; PR #21 juntou Estado + Ficheiro atual (detalhe já mascarado pelo servidor/privacidade QODE) | `drawer.ts` |
+| 3 | Sub-agentes ligados ao principal | ✅ já existia no mundo/gaveta; PR #23 aninha subs sob o pai na vista em cartões | `cards-model.ts` |
+| 5 | Vista em cartões | ✅ PR #23 | `?view=cards` |
+| 6 | Tokens/custo por agente e projeto | ✅ PR #23 (soma por projeto; "indisponível" quando a fonte não dá custo, ex. Codex) | `cards-model.ts`, `drawer.ts` |
+| SkyOffice | Monitor clicável na mesa → painel read-only | ⏳ pendente (o clique no personagem/cartão já abre a gaveta read-only) | — |
+| SkyOffice | Balão temporário com última ação/commit | ✅ já coberto pelos balões de atividade + faixas de PR/release (`github-fx.ts`) | — |
+| 7, 9–13 | Feed JSON, KPI board, sinais PR, editor, etc. | backlog (rotina de quarta) | — |
+
+Acompanhar com prioridade (pontual, barato): **pixel-agents** (mais ativo, sub-agents/sons/áreas), **Cubicle** (feed JSON, kiosk, KPI), **vibeoffice** (painel/tokens). ClaudeVille só ideias até ter LICENSE.

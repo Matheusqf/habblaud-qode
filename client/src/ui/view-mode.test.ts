@@ -8,6 +8,7 @@ describe('resolveViewMode', () => {
     expect(resolveViewMode('?view=TV')).toBe('kiosk');
     expect(resolveViewMode('?kiosk=1')).toBe('kiosk');
   });
+  it('cards', () => expect(resolveViewMode('?view=cards')).toBe('cards'));
   it('mobile forçado', () => expect(resolveViewMode('?view=mobile')).toBe('mobile'));
   it('valor desconhecido cai no normal', () => expect(resolveViewMode('?view=xyz')).toBe('normal'));
 });

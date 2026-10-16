@@ -5,6 +5,7 @@ import { createUI } from './ui';
 import { migrateLegacyKeys, safeLocalStorage } from './ui/prefs';
 import { ensureAuthenticated } from './net/auth-gate';
 import { applyViewMode } from './ui/view-mode';
+import { mountCards } from './ui/cards';
 
 // Antes de tudo: o mundo (carteiras) e a UI (preferências) leem o localStorage ao serem criados.
 migrateLegacyKeys(safeLocalStorage());
@@ -13,10 +14,11 @@ migrateLegacyKeys(safeLocalStorage());
 await ensureAuthenticated(document.body);
 
 const params = new URLSearchParams(location.search);
-applyViewMode(document, location.search);
+const viewMode = applyViewMode(document, location.search);
 const store = new OfficeStore({ mock: params.has('mock') });
 const world = createWorld(document.getElementById('world') as HTMLCanvasElement, store);
 createUI(document.getElementById('ui') as HTMLElement, store, world);
+if (viewMode === 'cards') mountCards(document.getElementById('ui') as HTMLElement, store, world);
 store.connect();
 
 // Facilita a depuração pelo console do navegador.
