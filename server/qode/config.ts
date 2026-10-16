@@ -1411,12 +1411,13 @@ export function mentionsPrivate(cfg: QodeConfig, text: string | undefined, depth
   if (text.length > MENTIONS_BYTES_MAX) return true;
   const lower = text.toLowerCase();
   if (cfg.needles.some((n) => lower.includes(n))) return true;
-  if (mentionsPrivateTail(cfg, lower)) return true;
   const shell = shellPathAnalysis(text, cfg.home);
   if (shell.unsafe) return true;
   const tokens = shell.tokens;
   if (tokens.length > MENTIONS_TOKENS_MAX) return true;
   if (tokens.some((t) => isPrivateToken(cfg, t))) return true;
+  // B3/Zika 1792108553: tail só depois dos tokens, para isPrivateToken continuar a aprender privateAliases.
+  if (mentionsPrivateTail(cfg, lower)) return true;
   // Prose can mention an unquoted path whose alias contains spaces. Try only
   // a small bounded window after each absolute-looking fragment; this keeps
   // `I'm reading /tmp/qode alias/secret.txt` observable without treating every

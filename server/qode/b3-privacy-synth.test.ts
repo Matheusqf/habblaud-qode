@@ -1,5 +1,6 @@
 // B3 — suite sintética de privacidade (fixtures only; nada de Vida/UBOTS/Wellhub reais).
-// Mede: relativo, variáveis, paste sem caminho, symlink, delegação, persistência cross-restart, SSE/logs.
+// Mede: relativo, variáveis, paste sem caminho, symlink, delegação, persistência (restart simulado), logs.
+// NÃO cobre SSE nem isolamento remoto; ver docs/QODE-B3-LIMITACOES.md.
 // `it` = proteção verificada; `it.fails` = gap reproduzido (passa enquanto o gap existir; quando corrigido, vira `it`).
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -113,15 +114,27 @@ describe('B3 delegação', () => {
   });
 });
 
-describe('B3 persistência cross-restart', () => {
-  it.fails('gap: taint vive só na memória; após restart o mesmo agente/sessão volta público', () => {
+describe('B3 persistência — invariante atual (mesmo processo)', () => {
+  it('taint inicial: agente que lê pasta privada fica privado', () => {
     const tmp = tempDir('habblaud-qode-b3-restart-');
     cleanups.push(tmp.cleanup);
     const a = world(tmp.dir);
     mainAt(a, 'm', a.pub, 'sess');
     a.office.addActivity('m', act({ detail: join(a.priv, 'x') }), true);
     expect(a.qode.privacy!.isPrivate('m')).toBe(true);
-    const b = world(tmp.dir); // "restart": mesmo dataDir, processo novo
+  });
+});
+
+// LIMITE: isto NÃO é um restart real (sem novo processo nem replay de transcript/hooks). Só prova que o taint não
+// está em disco: um segundo setupQode no mesmo dataDir começa limpo. Restart/replay real fica em aberto (ver doc).
+describe('B3 persistência — gap (restart simulado no mesmo processo)', () => {
+  it.fails('gap: novo setupQode no mesmo dataDir não herda o taint da sessão', () => {
+    const tmp = tempDir('habblaud-qode-b3-restart-');
+    cleanups.push(tmp.cleanup);
+    const a = world(tmp.dir);
+    mainAt(a, 'm', a.pub, 'sess');
+    a.office.addActivity('m', act({ detail: join(a.priv, 'x') }), true);
+    const b = world(tmp.dir);
     mainAt(b, 'm', b.pub, 'sess');
     expect(b.qode.privacy!.isPrivate('m')).toBe(true);
   });
