@@ -8,7 +8,7 @@ Estado: **inerte**. Nada aqui é executado por scripts. Ativação real só com 
 - Senha B4 definida: `npm run auth:set-password`.
 
 ## Checklist de ativação
-1. Política do tailnet: aplicar `deploy/tailscale/acl.inert.hujson` (só `autogroup:member` → `tag:qode-office:443`), correr os `tests` da política no admin; confirmar que a regra padrão "allow all" foi removida.
+1. Política do tailnet: aplicar `deploy/tailscale/acl.inert.hujson` (só `group:qode-owner` = login Tailscale do Matheus → `tag:qode-office:443`; trocar o placeholder `MATHEUS_TAILSCALE_LOGIN@example.com`; outro membro do tailnet é negado por teste), correr os `tests` da política no admin; confirmar que a regra padrão "allow all" foi removida.
 2. Tag do dispositivo: `tag:qode-office`.
 3. Office: `HABBLAUD_REMOTE_RO=1 HABBLAUD_REMOTE_RO_PORT=4320 HABBLAUD_REMOTE_RO_ORIGIN=<device>.<tailnet>.ts.net` (operador continua em 127.0.0.1:4319, **não** é servido).
 4. `tailscale serve --bg --https=443 http://127.0.0.1:4320` (equivale a `deploy/tailscale/serve.inert.json`).

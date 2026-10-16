@@ -14,4 +14,15 @@ describe('config Tailscale inerte', () => {
     const pkg = readFileSync(join(root, 'package.json'), 'utf8');
     expect(pkg).not.toMatch(/tailscale|funnel/i);
   });
+  it('ACL: só identidade/grupo explícito do Matheus na 443 e teste negativo de outro membro', () => {
+    const raw = readFileSync(join(root, 'deploy/tailscale/acl.inert.hujson'), 'utf8');
+    const acl = JSON.parse(raw.replace(/^\s*\/\/.*$/gm, ''));
+    expect(raw).not.toMatch(/autogroup:member|autogroup:tagged|"\*"/);
+    expect(acl.acls).toEqual([{ action: 'accept', src: ['group:qode-owner'], dst: ['tag:qode-office:443'] }]);
+    expect(acl.groups['group:qode-owner']).toHaveLength(1);
+    const owner = acl.groups['group:qode-owner'][0];
+    const neg = acl.tests.find((t: any) => t.src !== owner);
+    expect(neg.accept).toBeUndefined();
+    expect(neg.deny).toContain('tag:qode-office:443');
+  });
 });
