@@ -4,7 +4,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { hashPassword } from './auth';
-import { createReadOnlyRouter, loadRemoteRoConfig, roPathAllowed, RO_COOKIE, RO_HOST, type RoRouter } from './remote-ro';
+import { createReadOnlyRouter, loadRemoteRoConfig, remoteRoPreflight, roPathAllowed, RO_COOKIE, RO_HOST, type RoRouter } from './remote-ro';
 
 const PASSWORD = 'senha-de-teste-c9-123';
 const CANARY = 'CANARIO-PRIVADO-C9';
@@ -243,5 +243,15 @@ describe('C9 entrada remota só-leitura', () => {
     expect((await req(env.proxyPort, 'GET', '/api/snapshot', { cookie: c })).status).toBe(401);
     // a outra sessão continua válida
     expect((await req(env.proxyPort, 'GET', '/api/snapshot', { cookie: other })).status).toBe(200);
+  });
+  it('preflight: produção, origem HTTPS canónica e bind seguro', () => {
+    const ok = { HABBLAUD_REMOTE_RO: '1', HABBLAUD_REMOTE_RO_PORT: '4320', HABBLAUD_REMOTE_RO_ORIGIN: 'office.tail1234.ts.net' };
+    expect(remoteRoPreflight({ env: {}, dev: true, host: '0.0.0.0' })).toEqual([]); // desligado: nada a verificar
+    expect(remoteRoPreflight({ env: ok, dev: false, host: '127.0.0.1' })).toEqual([]);
+    expect(remoteRoPreflight({ env: ok, dev: true, host: '127.0.0.1' }).join()).toMatch(/produção/);
+    expect(remoteRoPreflight({ env: ok, dev: false, host: '0.0.0.0' }).join()).toMatch(/loopback/);
+    for (const bad of ['https://office.tail1234.ts.net', 'office.tail1234.ts.net:443', 'localhost', '', 'a/b.ts.net'])
+      expect(remoteRoPreflight({ env: { ...ok, HABBLAUD_REMOTE_RO_ORIGIN: bad }, dev: false, host: '127.0.0.1' }).join(), bad).toMatch(/canónico/);
+    expect(remoteRoPreflight({ env: { ...ok, HABBLAUD_PORT: '4320' }, dev: false, host: '127.0.0.1' }).join()).toMatch(/operador/);
   });
 });
