@@ -172,6 +172,7 @@ export class OpenCodeSource implements AgentSource {
         startedAt: session.startedAt,
         status: 'idle',
       });
+      office.observePrivacy(key, [canonical(session.directory) ?? session.directory]);
       const summary: TranscriptSummary = {
         tasks: [],
         stats: { toolCalls: 0, tokensIn: session.tokensIn, tokensOut: session.tokensOut, costUSD: session.costUSD, subagents: 0 },
@@ -198,9 +199,13 @@ export class OpenCodeSource implements AgentSource {
       if (!inAllowlist(session.directory, this.opts.projects)) continue;
       const key = `${this.account}:${session.id}`;
       seenChildren.add(key);
-      if (office.has(key) && office.isSubDone(key)) {
-        office.reactivateSub(key);
-      } else if (!office.has(key)) {
+      const activity: ObservedActivity['activity'] =
+        session.inferred === 'active' && now - session.updatedAt > this.activeStaleMs ? 'unknown' : session.inferred;
+      const observed: ObservedActivity = { basis: 'inferred', activity, at: session.updatedAt, stale: false, ...(session.error ? { error: true } : {}) };
+      // Privacidade (ZikaBOT #26 P1): a filha herda a sala do pai, mas a pasta REAL dela vai ao filtro na criação;
+      // pasta privada contamina a família inteira antes de qualquer publicação (snapshot, feed, avisos, estatísticas).
+      // Status 'idle' + observed já na criação/reativação: sem 'working' nem «Concluiu» falsos (P2).
+      if (!office.has(key) || office.isSubDone(key)) {
         office.addSub({
           id: key,
           parentId: parentKey,
@@ -208,9 +213,11 @@ export class OpenCodeSource implements AgentSource {
           role: session.agent ?? PROVIDER,
           background: false,
           startedAt: session.startedAt,
+          status: 'idle',
+          observed,
+          privacyTexts: [canonical(session.directory) ?? session.directory],
         });
       }
-      office.setStatus(key, 'idle');
       const summary: TranscriptSummary = {
         tasks: [],
         stats: { toolCalls: 0, tokensIn: session.tokensIn, tokensOut: session.tokensOut, costUSD: session.costUSD, subagents: 0 },
@@ -218,14 +225,15 @@ export class OpenCodeSource implements AgentSource {
       };
       if (session.model) summary.model = session.model;
       office.applyTranscript(key, summary);
-      const activity: ObservedActivity['activity'] =
-        session.inferred === 'active' && now - session.updatedAt > this.activeStaleMs ? 'unknown' : session.inferred;
-      office.setObserved(key, { basis: 'inferred', activity, at: session.updatedAt, stale: false, ...(session.error ? { error: true } : {}) });
+      office.setObserved(key, observed);
       this.children.add(key);
     }
     for (const key of [...this.children]) {
       if (seenChildren.has(key)) continue;
-      if (!office.isSubDone(key)) office.completeSub(key);
+      // Sumiu da janela: não prova entrega. Sai em silêncio e invalida a observação (sem erro antigo, stale).
+      const prev = office.get(key)?.observed;
+      office.setObserved(key, { basis: 'inferred', activity: 'unknown', at: prev?.at ?? now, stale: true });
+      if (!office.isSubDone(key)) office.completeSub(key, { silent: true });
       this.children.delete(key);
     }
   }
