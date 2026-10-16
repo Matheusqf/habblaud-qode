@@ -39,6 +39,7 @@ import {
   taskProgress,
   visibleShells,
 } from './model';
+import { UNIFIED_ICON, UNIFIED_LABEL, currentFile, unifiedState } from '../../../shared/unified-state';
 import { isLocalHostname, PermissionCard } from './permission';
 import { canRenameRoom } from './roomrename';
 import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, providerOf } from './provider';
@@ -370,6 +371,8 @@ class AgentView {
     this.linesPlus = h('span', { class: 'ui-plus' });
     this.linesMinus = h('span', { class: 'ui-minus' });
     this.stats = new KvList<StatKey>([
+      ['ustate', 'Estado'],
+      ['file', 'Ficheiro atual'],
       ['tools', 'Chamadas de ferramenta'],
       ['tokensIn', 'Tokens de entrada'],
       ['tokensOut', 'Tokens de saída'],
@@ -657,6 +660,9 @@ class AgentView {
   private renderStats(a: AgentInfo, now: number): void {
     const s = a.stats;
     const st = this.stats;
+    const us = unifiedState(a);
+    st.set('ustate', `${UNIFIED_ICON[us]} ${UNIFIED_LABEL[us]}`);
+    st.set('file', currentFile(a));
     st.set('tools', formatInt(s.toolCalls));
     st.set('tokensIn', formatTokens(s.tokensIn));
     st.set('tokensOut', formatTokens(s.tokensOut));
@@ -681,7 +687,7 @@ class AgentView {
   }
 }
 
-type StatKey = 'tools' | 'tokensIn' | 'tokensOut' | 'cost' | 'lines' | 'subs' | 'model' | 'branch' | 'perm' | 'session' | 'start' | 'duration' | 'bg';
+type StatKey = 'ustate' | 'file' | 'tools' | 'tokensIn' | 'tokensOut' | 'cost' | 'lines' | 'subs' | 'model' | 'branch' | 'perm' | 'session' | 'start' | 'duration' | 'bg';
 
 /** Lista chave/valor de linhas fixas: cada linha é criada uma vez e só tem o texto/visibilidade atualizados. */
 class KvList<K extends string> {
