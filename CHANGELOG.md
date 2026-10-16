@@ -10,6 +10,11 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Monitor da mesa clicável:** clique (ou toque) no monitor de uma mesa abre um painel **só leitura** de quem está sentado ali — estado, modelo, ficheiro/atividade atual e tokens/custo. Mesa vazia mostra só a dica “Mesa livre”. Sem botões de ação: aprovar, recusar e responder continuam na gaveta do agente. `Esc` fecha e devolve o foco ao escritório.
+- **Filtro “precisa de atenção” na vista em cartões** (`?view=cards`): um chip deixa só os agentes com pedido de permissão pendente de verdade ou erro com evidência válida; espera genérica, erro velho e estado inferido (desconhecido/desatualizado) não contam e continuam distinguíveis à vista.
+
 ### Alterado
 
 - A marca visível passou a ser **QODE Office** (título da página, header, Sobre, avisos e título do README). Pacote, caminhos, `HABBLAUD_*` e identificadores de protocolo continuam iguais.

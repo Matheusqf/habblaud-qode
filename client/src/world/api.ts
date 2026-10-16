@@ -64,6 +64,12 @@ export interface WorldApi {
   social?(agentId: string): AgentSocial | null;
   /** (Opcional, aditivo) Botão direito numa sala do escritório: id da sala e o ponto do clique (px da janela). */
   onRoomContextMenu?(cb: (roomId: string, at: { x: number; y: number }) => void): () => void;
+  /**
+   * (Opcional, aditivo) Clique no monitor de uma mesa (desk/desk_back; hit-test em world/desks.ts,
+   * computado só no clique): quem está sentado ali, resolvido pelo id do agente dono do lugar no
+   * estado das mesas (null = mesa livre), e o ponto do clique (px CSS, relativos ao canvas).
+   */
+  onDeskClick?(cb: (e: DeskClick) => void): () => void;
   /** (Opcional, aditivo) Acontecimentos sociais (partidas e apostas) para o feed. */
   onSocialEvent?(cb: (e: SocialEvent) => void): () => void;
   /**
@@ -123,6 +129,14 @@ export interface ViewInsets {
   right: number;
   bottom: number;
   left: number;
+}
+
+/** Clique no monitor de uma mesa (ver WorldApi.onDeskClick). */
+export interface DeskClick {
+  /** Agente sentado na mesa (id, resolvido pelo estado das mesas no clique); null = mesa livre. */
+  agentId: string | null;
+  /** Ponto do clique em px CSS, relativos ao canvas. */
+  at: { x: number; y: number };
 }
 
 export const DEFAULT_WORLD_OPTIONS: WorldOptions = {

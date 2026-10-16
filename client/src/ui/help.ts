@@ -89,7 +89,7 @@ const SHORTCUTS: [string[], string][] = [
   [['P'], 'Ir até o próximo pedido de permissão ou pergunta para responder pelo escritório'],
   [['M'], 'Meu dia: para onde foi o tempo (trabalhando, esperando você...)'],
   [['O', '0'], 'Visão geral do prédio'],
-  [['Esc'], 'Fechar a busca do terminal, depois o terminal; depois, a gaveta e a seleção'],
+  [['Esc'], 'Fechar o painel da mesa, a busca do terminal, depois o terminal; depois, a gaveta e a seleção'],
   [['['], 'Mostrar ou ocultar o painel lateral'],
   [[']'], 'Mostrar ou ocultar o feed de atividade'],
   [['?'], 'Abrir esta ajuda'],
@@ -143,6 +143,9 @@ export class HelpDialog {
             { class: 'ui-help__list' },
             h('li', { text: 'Arraste o escritório para mover a câmera e use a rolagem do mouse (ou pinça) para dar zoom.' }),
             h('li', { text: 'Clique em um personagem ou sala para ver os detalhes; duplo clique aproxima a câmera.' }),
+            h('li', {
+              text: 'Clique no monitor de uma mesa para ver, só de leitura, quem está sentado ali (estado, atividade e uso); mesa vazia mostra a dica “Mesa livre”. Aprovar, recusar e responder continuam na gaveta do agente.',
+            }),
             h('li', { text: 'Passe o mouse sobre um personagem para ver o que ele está fazendo.' }),
             h('li', {
               text: 'Nos detalhes de um agente, “Abrir terminal” mostra a conversa da sessão como no Claude Code (ou no Codex), ao vivo (precisa do acesso local, bind 127.0.0.1).',

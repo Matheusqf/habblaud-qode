@@ -1,5 +1,6 @@
 // Vista em cartões (opt-in ?view=cards): modelo puro. Ideia do ClaudeVille (sem LICENSE: código próprio).
 // Agrupa por projeto (sala), sub-agentes dentro do principal e soma tokens/custo quando a fonte os fornece.
+// Filtro "precisa de atenção": pedido de permissão pendente de verdade ou erro com evidência válida.
 import type { AgentInfo, OfficeSnapshot } from '../../../shared/types';
 import { unifiedState, type UnifiedState } from '../../../shared/unified-state';
 
@@ -11,6 +12,27 @@ export interface Usage {
   costKnown: number;
   /** Agentes contados na soma (cobertura = costKnown/costTotal). */
   costTotal: number;
+}
+
+/** Agente como a política de atenção o vê (o resto é da política do unifiedState). */
+type AttentionLike = Pick<AgentInfo, 'status' | 'activity' | 'permission'> & { provider?: string; observed?: AgentInfo['observed'] };
+
+/**
+ * Precisa de atenção: pedido de permissão PENDENTE de verdade (a mesma política da gaveta,
+ * ui/permission.ts `permissionAgents`) ou erro com evidência válida (a política do unifiedState:
+ * inferido/stale não vira erro). Espera genérica (sem pedido), erro velho/desatualizado e estado
+ * inferido (desconhecido) NÃO contam — e continuam distinguíveis à vista no cartão.
+ */
+export function needsAttention(a: AttentionLike): boolean {
+  const pending = !!a.permission && a.status !== 'offline' && a.status !== 'done';
+  return pending || unifiedState(a) === 'error';
+}
+
+/** Quantos agentes presentes precisam de atenção (o contador do chip do filtro). */
+export function attentionCount(agents: readonly AgentInfo[]): number {
+  let n = 0;
+  for (const a of agents) if (a.status !== 'offline' && needsAttention(a)) n++;
+  return n;
 }
 
 export interface AgentCard {
@@ -57,7 +79,17 @@ export function costLabel(u: Usage, fmt: (n: number) => string): string {
   return `parcial ${fmt(u.costUSD ?? 0)} (${u.costKnown}/${u.costTotal} agentes)`;
 }
 
-export function buildCards(snap: Pick<OfficeSnapshot, 'agents' | 'rooms'> | null): RoomCards[] {
+/** Cartões que precisam de atenção: só quem precisa; sub que precisa vira raiz no lugar do principal que não precisa. */
+function attentionCards(cards: readonly AgentCard[]): AgentCard[] {
+  const out: AgentCard[] = [];
+  for (const c of cards) {
+    if (needsAttention(c.agent)) out.push({ ...c, subs: attentionCards(c.subs) });
+    else out.push(...attentionCards(c.subs));
+  }
+  return out;
+}
+
+export function buildCards(snap: Pick<OfficeSnapshot, 'agents' | 'rooms'> | null, opts: { attentionOnly?: boolean } = {}): RoomCards[] {
   if (!snap) return [];
   const live = snap.agents.filter((a) => a.status !== 'offline');
   const ids = new Set(live.map((a) => a.id));
@@ -70,7 +102,9 @@ export function buildCards(snap: Pick<OfficeSnapshot, 'agents' | 'rooms'> | null
   const out: RoomCards[] = [];
   for (const r of [...snap.rooms].sort((x, y) => x.slot - y.slot)) {
     // raiz = principal, ou sub cujo pai não está no escritório
-    const roots = live.filter((a) => a.roomId === r.id && (!a.parentId || !ids.has(a.parentId))).map(card);
+    let roots = live.filter((a) => a.roomId === r.id && (!a.parentId || !ids.has(a.parentId))).map(card);
+    // filtro no modelo (não no DOM): só quem precisa de atenção
+    if (opts.attentionOnly) roots = attentionCards(roots);
     if (!roots.length) continue;
     const flat: Usage[] = [];
     const walk = (c: AgentCard): void => {
