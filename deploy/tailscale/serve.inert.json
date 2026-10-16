@@ -1,0 +1,10 @@
+{
+  "_comment": "INERTE. Não é aplicado por nenhum script. Referência para `tailscale serve` depois da aprovação do Matheus. Sem Funnel (AllowFunnel ausente/false).",
+  "TCP": { "443": { "HTTPS": true } },
+  "Web": {
+    "${TS_CERT_DOMAIN}:443": {
+      "Handlers": { "/": { "Proxy": "http://127.0.0.1:4320" } }
+    }
+  },
+  "AllowFunnel": {}
+}
