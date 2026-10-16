@@ -42,11 +42,12 @@ function connectedOrigin(sources: readonly SourceInfo[] | undefined, provider: '
 
 /** Capability do coordenador: never live (sem adapter de sessão no QODE). */
 export function floatingFlowCapability(status: OrchestrateStatus): SourceCapability {
+  // observe só com ready (configured && artifactsPresent). Sem root no DTO.
   if (!status.ready) {
     return {
       id: 'floating-flow',
       label: 'floating-flow (dev-flow)',
-      origin: status.root ? 'unknown' : 'unavailable',
+      origin: status.configured ? 'unknown' : 'unavailable',
       capabilities: [],
       note: status.note,
     };
@@ -79,6 +80,8 @@ export function qodeCapabilities(opts: QodeCapabilitiesOptions = {}): SourceCapa
       coordinator: 'floating-flow',
       role: 'observe-only',
       ready: false,
+      configured: false,
+      artifactsPresent: false,
       note: 'status não passado; trate como unavailable',
     } satisfies OrchestrateStatus);
 

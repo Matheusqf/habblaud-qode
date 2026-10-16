@@ -54,7 +54,7 @@
 
 ## 3. Tarefa mecânica sugerida (primeira rodada)
 
-Escolher **uma** (orquestrador mede e fixa no grill):
+Escolher **uma** (orquestrador mede e **fixa no grill antes de qualquer `run`** — tarefa + lista exacta de ficheiros; não improvisar mid-flight):
 
 | Opção | Escopo | Evitar |
 |---|---|---|
@@ -62,7 +62,7 @@ Escolher **uma** (orquestrador mede e fixa no grill):
 | **B** | Docs/README do SaaS alinhado a comportamento já existente | Copy de pricing / compliance |
 | **C** | Small a11y/label em componente já coberto por typecheck | Redesign, deps novas |
 
-Se o grill não achar fatia segura em &lt;30 min → **EM ABERTO**: Matheus escolhe ficheiros; não improvisar no Stripe.
+**Regra:** a allowlist de ficheiros fica fechada no despacho; qualquer path novo = parar e escalar. Se o grill não achar fatia segura em &lt;30 min → **EM ABERTO**: Matheus escolhe ficheiros; não improvisar no Stripe.
 
 ---
 
@@ -96,10 +96,10 @@ Se o grill não achar fatia segura em &lt;30 min → **EM ABERTO**: Matheus esco
 | Teto | Valor piloto |
 |---|---|
 | Ficheiros tocados | ≤ 12 paths (allowlist explícita) |
-| Diff líquido | ≤ ~400 linhas (acima → parar e escalar ao dono) |
+| Diff líquido | ≤ **400** linhas totais alteradas (acima → parar e escalar ao dono) |
 | Tempo wall | ≤ 90 min por rodada executor; ≤ 30 min revisor |
 | Rodadas Cascata | ≤ 2 escalas (económico → forte); depois EM ABERTO |
-| Rede | Sem novas deps / sem `pnpm add` sem aprovação |
+| Rede | Só provedores/canais **já aprovados** com o executor (git push/PR + CLIs do par); sem novas deps / sem `pnpm add` / sem alargar permissões de rede |
 | Gasto LLM | Preferir económico no executor (`opencode-go` / free); revisor noutra família na assinatura nativa |
 | Writers | 1 escritor por projeto (lock do dispatch) |
 | Replay | Cada `run` exige frase de aprovação daquele par; não reutilizar |
@@ -140,10 +140,11 @@ QODE Office = UI
 
 **Objetivo:** declarar honestamente no `/api/health` que o coordenador é floating-flow e que QODE só observa.
 
-- Entrada `capabilities[]`: `id: floating-flow`, `capabilities: ['observe']` quando `QODE_DEVFLOW_ROOT` (ou path default) existe; senão `unavailable` / `unknown`
-- Campo `qode.orchestrate`: `{ coordinator: 'floating-flow', role: 'observe-only', ready: boolean, note }`
+- Entrada `capabilities[]`: `id: floating-flow`, `capabilities: ['observe']` **só** quando `ready` (configured ∧ artifactsPresent); senão `unavailable` / `unknown` sem alegar observe comprovado
+- Campo `qode.orchestrate` (opaco): `{ coordinator, role: 'observe-only', ready, configured, artifactsPresent, note }` — **sem** `root`, **sem** valor de `QODE_DEVFLOW_ROOT`, **sem** paths absolutos
+- Contrato mínimo: ficheiros reais (não dirs) `AGENTS.md` + `flow.config.json` + `flow-orchestrate/SKILL.md`; JSON com `project`/`$schema`; SKILL menciona `flow-orchestrate`
 - **Sem** UI de “Run dispatch”; **sem** adapter que execute
-- Testes: origem nunca `live`; OpenCode/Cursor/manual/floating-flow sem live enganoso
+- Testes: origem nunca `live`; canário de path ausente do DTO/health; dirs-com-nome-de-ficheiro falham
 
 Se o patch ultrapassar ~pequeno → só stubs + este plano (não forçar).
 
@@ -197,7 +198,7 @@ Se o patch ultrapassar ~pequeno → só stubs + este plano (não forçar).
 
 ## Entrega desta sessão
 
-- Draft PR gancho: https://github.com/Matheusqf/habblaud-qode/pull/7 (`8f9dec7`)
+- Draft PR gancho: https://github.com/Matheusqf/habblaud-qode/pull/7 (ver tip actual da branch)
 
 ---
 
@@ -225,19 +226,19 @@ Cada artefacto (despacho, relatório, parecer, linha ledger) regista o ator e o 
 | Custo LLM | Worker só canal económico/free; reviewer na assinatura nativa; **0 € pay-per-token** (`opencode:` Claude/GPT/Grok → exit 13) | Bloqueio do dispatch |
 | Retries gate | ≤ 2 com a mesma virada | CORRIGIR + parar |
 | Escalas Cascata | ≤ 2 (económico → forte) | EM ABERTO |
-| Ficheiros / diff | ≤ 12 paths / ≤ ~400 linhas | Parar, escalar |
-| Rede | sem novas deps, sem chamadas externas além de git push/PR | Parar |
+| Ficheiros / diff | ≤ 12 paths / ≤ **400** linhas totais alteradas | Parar, escalar |
+| Rede | só provedores/canais já aprovados com o executor; sem novas deps; sem alargar permissões | Parar |
 
 ### 11.3 Condições de parada (qualquer uma → parar, sem loop)
 
 1. Gate vermelho 2× com a mesma virada.
 2. Qualquer teto de §11.2 excedido.
-3. Diff toca path fora da allowlist ou da deny list (Stripe, RLS, `supabase/migrations/**`, `.env*`, deploy).
+3. Diff toca path **fora da allowlist OU dentro da denylist** (Stripe, RLS, `supabase/migrations/**`, `.env*`, deploy).
 4. Reviewer devolve CORRIGIR duas vezes ou NÃO VERIFICADO.
 5. SHA revisto ≠ head da branch (ver §11.4).
-6. Lock de escritor ocupado / aprovação do par ausente ou reutilizada.
+6. Lock de escritor ocupado / aprovação do par ausente ou reutilizada (prova: artefacto de teste de lock/idempotência — ver §11.6).
 7. Pedido de mensagem externa, merge ou `--force`.
-8. Ordem do dono para parar (kill do `dispatch.sh`; testado em replay).
+8. Ordem do dono para parar (kill do `dispatch.sh`; prova: artefacto de teste de kill/replay — ver §11.6).
 
 ### 11.4 Vínculo revisão ↔ SHA
 
@@ -245,6 +246,20 @@ Cada artefacto (despacho, relatório, parecer, linha ledger) regista o ator e o 
 - Qualquer commit novo após o parecer **invalida** o ACEITE; nova revisão obrigatória.
 - Draft PR e linha do ledger registam o mesmo SHA; divergência = NÃO VERIFICADO.
 - Merge (só pelo dono) apenas se head da PR == SHA do último ACEITE.
+
+
+### 11.6 Lock / idempotência / kill — artefacto de teste (obrigatório antes da cascata)
+
+Antes da primeira Cascata real, o floating-flow deve produzir **artefacto de teste** (ficheiro no hub ou output de `tests/` do dispatch) que demonstre:
+
+| Cenário | Esperado | Artefacto |
+|---|---|---|
+| Dois `run` concorrentes no mesmo project id | Um adquire lock; o outro falha/espera sem corromper ledger | log + exit codes |
+| Replay do mesmo id+rodada | Recusado (idempotência); sem segunda escrita | linha ledger + exit |
+| Kill / SIGTERM a meio do `run` | Lock libertado (trap); estado consistente; sem half-write | log + inspeção do dir de estado |
+| Ordem invertida / claim duplicado | Sem double-claim; UI/ledger reflectem um escritor | relatório |
+
+QODE **não** implementa este lock — só observa. Sem estes artefactos, Cascata = **adiada** (NO-GO).
 
 ### 11.5 NO-GOs
 

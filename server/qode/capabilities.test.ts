@@ -8,13 +8,16 @@ const flowDown: OrchestrateStatus = {
   coordinator: 'floating-flow',
   role: 'observe-only',
   ready: false,
+  configured: false,
+  artifactsPresent: false,
   note: 'down',
 };
 const flowUp: OrchestrateStatus = {
   coordinator: 'floating-flow',
   role: 'observe-only',
   ready: true,
-  root: '/tmp/dev-flow',
+  configured: true,
+  artifactsPresent: true,
   note: 'up',
 };
 
@@ -53,8 +56,10 @@ describe('Q3 capabilities', () => {
     expect(hasMisleadingLive(caps)).toBe(false);
   });
 
-  it('floatingFlowCapability: root sem ready → unknown; sem root → unavailable', () => {
-    expect(floatingFlowCapability({ ...flowDown, root: '/missing' }).origin).toBe('unknown');
+  it('floatingFlowCapability: configured sem ready → unknown; sem configured → unavailable', () => {
+    expect(
+      floatingFlowCapability({ ...flowDown, configured: true, artifactsPresent: false }).origin,
+    ).toBe('unknown');
     expect(floatingFlowCapability(flowDown).origin).toBe('unavailable');
   });
 
@@ -78,5 +83,8 @@ describe('Q3 capabilities', () => {
     expect(h.orchestrate.coordinator).toBe('floating-flow');
     expect(h.orchestrate.role).toBe('observe-only');
     expect(h.orchestrate.ready).toBe(false);
+    expect(h.orchestrate.configured).toBe(false);
+    expect(h.orchestrate.artifactsPresent).toBe(false);
+    expect(h.orchestrate).not.toHaveProperty('root');
   });
 });
