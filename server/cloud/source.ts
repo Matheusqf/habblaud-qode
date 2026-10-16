@@ -9,6 +9,8 @@ import { effectiveState, type CloudObservation, type CloudProvider } from './con
 export interface CloudCollector {
   readonly provider: CloudProvider;
   poll(now: number): Promise<CloudObservation[]>;
+  /** true = a última consulta foi parcial (teto de páginas/limite): ausência NÃO significa encerramento. */
+  readonly lastPartial?: boolean;
 }
 
 /** O pedaço do Office que a fonte usa (facilita testes). */
@@ -42,6 +44,8 @@ interface CollectorState {
   lastOk?: number;
   error?: string;
   seen: Map<string, CloudObservation>;
+  /** A última consulta bem-sucedida foi um inventário completo. */
+  complete: boolean;
 }
 
 export class CloudSource {
@@ -55,7 +59,7 @@ export class CloudSource {
   constructor(
     private readonly deps: { office: CloudOffice; collectors: readonly CloudCollector[]; now?: () => number; pollMs?: number },
   ) {
-    this.states = deps.collectors.map((c) => ({ c, failures: 0, nextAt: 0, seen: new Map() }));
+    this.states = deps.collectors.map((c) => ({ c, failures: 0, nextAt: 0, seen: new Map(), complete: false }));
   }
 
   private now(): number {
@@ -79,6 +83,8 @@ export class CloudSource {
       label: `cloud-${s.c.provider}`,
       path: `cloud:${s.c.provider}`,
       sessions: [...s.seen.values()].filter((o) => this.present.has(officeId(o))).length,
+      // Inventário maior que a sala (teto visual) ou parcial: sinalizado sem expor ids.
+      ...(s.seen.size > MAX_AGENTS || !s.complete ? { path: `cloud:${s.c.provider} (vistos ${s.seen.size}${s.complete ? '' : ', parcial'}; sala até ${MAX_AGENTS})` } : {}),
       ok: !s.error,
       ...(s.error ? { error: s.error } : {}),
     }));
@@ -97,7 +103,12 @@ export class CloudSource {
       this.busy.add(s);
       try {
         const list = await s.c.poll(now);
-        s.seen = new Map(list.slice(0, MAX_AGENTS).map((o) => [o.id, o]));
+        // Inventário completo SEM corte (o teto MAX_AGENTS é só visual, aplicado no reconcile).
+        const next = new Map(list.map((o) => [o.id, o]));
+        s.complete = !s.c.lastPartial;
+        // Parcial: quem não veio continua com a observação anterior (vence pelo TTL → stale), nunca fecha.
+        if (!s.complete) for (const [id, o] of s.seen) if (!next.has(id)) next.set(id, o);
+        s.seen = next;
         s.failures = 0;
         s.lastOk = now;
         delete s.error;
@@ -118,18 +129,35 @@ export class CloudSource {
 
   private reconcile(now: number): void {
     const want = new Map<string, CloudObservation>();
-    for (const s of this.states) for (const o of s.seen.values()) {
-      const st = effectiveState(o, now);
-      if (st === 'ended') continue;
-      want.set(officeId(o), o);
+    const ended = new Set<string>();
+    /** Ids cujo coletor fez um inventário COMPLETO (só aí a ausência fecha). */
+    const authoritative = new Set<CloudProvider>();
+    for (const s of this.states) {
+      if (s.complete) authoritative.add(s.c.provider);
+      for (const o of s.seen.values()) {
+        if (effectiveState(o, now) === 'ended') ended.add(officeId(o));
+        else want.set(officeId(o), o);
+      }
     }
     const office = this.deps.office;
     for (const id of [...this.present]) {
-      if (!want.has(id)) {
+      const provider = id.split(':')[1] as CloudProvider;
+      // Fecha só: estado terminal observado, ou ausência num inventário completo desse provedor.
+      if (ended.has(id) || (!want.has(id) && authoritative.has(provider))) {
         office.closeMain(id);
         this.present.delete(id);
       }
     }
+    // Teto visual: quem já está na sala fica (sem piscar); vagas livres vão para os mais recentes (ordem estável,
+    // independente da ordem da resposta).
+    const ordered = [...want].sort(([a, x], [b, y]) => y.updatedAt - x.updatedAt || (a < b ? -1 : a > b ? 1 : 0));
+    let slots = MAX_AGENTS - [...this.present].filter((id) => want.has(id)).length;
+    for (const [id] of ordered) {
+      if (this.present.has(id)) continue;
+      if (slots > 0) slots--;
+      else want.delete(id);
+    }
+    for (const id of [...want.keys()]) if (!this.present.has(id) && !ordered.some(([x]) => x === id)) want.delete(id);
     for (const [id, o] of want) {
       const st = effectiveState(o, now) as 'running' | 'idle' | 'stale' | 'unknown';
       // O personagem só "trabalha" com running; stale/unknown ficam parados MAS o estado real vai para a UI (cloud.state).
