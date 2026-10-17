@@ -23,6 +23,7 @@
 //   escuro (não preto); 3–4 tons por material; brilhos especulares; sombras de contato; muitos detalhes pequenos.
 
 import type { AppearanceParts } from '../../../shared/appearance';
+import type { Provider } from '../../../shared/types';
 
 export const TILE = 16;
 
@@ -93,6 +94,11 @@ export interface Appearance {
   facialHair?: 'none' | 'stubble' | 'beard' | 'mustache' | 'goatee';
   /** (Opcional, aditivo) Parte de baixo da roupa. Ausente = calça. */
   bottomStyle?: 'pants' | 'shorts' | 'skirt';
+  /**
+   * (Opcional, aditivo) Kit visual de ferramenta: 'opencode' = paleta própria (grafite/verde-terminal)
+   * + broche de terminal no peito. Ausente = visual sorteado normal.
+   */
+  kit?: 'opencode';
 }
 
 export interface Rect {
@@ -351,7 +357,7 @@ export type IconName = 'alert' | 'question' | 'zzz' | 'check' | 'heart' | 'coffe
 
 /** Assinatura que art/index.ts deve exportar (o mundo e a UI dependem disto). */
 export interface ArtModule {
-  appearanceFromSeed(seed: number, opts?: { look?: 'f' | 'm'; sub?: boolean; parts?: AppearanceParts }): Appearance;
+  appearanceFromSeed(seed: number, opts?: { look?: 'f' | 'm'; sub?: boolean; parts?: AppearanceParts; provider?: Provider }): Appearance;
   /** Ancoragem: (ax, ay) = centro dos pés (ponto no chão). Personagem ocupa ~14–18px de largura e ~24–28px de altura. */
   characterSprite(req: CharacterFrameRequest): Sprite;
   poseFrameCount(pose: Pose): number;
@@ -388,5 +394,5 @@ export interface ArtModule {
    */
   footballLance?(t: number, seed: number): { lance: number; progress: number; right: boolean; period: number; goalAt: number };
   /** Avatar (cabeça + ombros) ampliado para a UI. `parts`: peças do personagem editado (ver AgentInfo.parts). */
-  avatarCanvas(seed: number, opts?: { look?: 'f' | 'm'; sub?: boolean; scale?: number; parts?: AppearanceParts }): HTMLCanvasElement;
+  avatarCanvas(seed: number, opts?: { look?: 'f' | 'm'; sub?: boolean; scale?: number; parts?: AppearanceParts; provider?: Provider }): HTMLCanvasElement;
 }

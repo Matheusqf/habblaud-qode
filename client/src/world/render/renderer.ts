@@ -7,7 +7,7 @@ import type { WorldAssets } from '../assets';
 import type { Camera } from '../camera';
 import { BUILDING_H, COL_W, CORE_COLS, CORRIDOR_Y } from '../constants';
 import { layoutExterior, slotShell, type ExteriorLayout, type SlotShell } from '../layout/exterior';
-import { currentGarden } from '../season';
+import { currentGarden, currentOfficePreset } from '../season';
 
 const GARDEN = currentGarden();
 import { slotAt } from '../layout/geometry';
@@ -18,6 +18,7 @@ import type { RoomState } from '../sim/room-state';
 import { cobwebScale, hourglassIcon, HOURGLASS_FLIP_MS, STORM_LIFT } from '../sim/shell';
 import type { Sim } from '../sim/sim';
 import { buildAnim, furnitureScale, NO_ANIM, sweepDelay, type BuildAnim } from './anim';
+import { CloudLayer } from './clouds';
 import { daylightModeOf, parseHourParam } from './daylight';
 import { RoomFxRenderer } from './github-fx';
 import { Lighting } from './lighting';
@@ -99,6 +100,8 @@ export class Renderer {
   private icons: { x: number; y: number; name: IconName; bounce: number; alpha: number; badge: number }[] = [];
   /** Pipoca, confete e chuva (pool fixo). */
   readonly particles = new Particles();
+  /** Nuvens de parallax no exterior (só no presete gather; fora dele, nem criadas). */
+  private clouds: CloudLayer | null;
   /** Festa e alarme das salas (eventos do GitHub). */
   private readonly roomFx = new RoomFxRenderer();
   /** dt do frame atual (s), para as partículas emitidas durante o desenho. */
@@ -126,6 +129,7 @@ export class Renderer {
   ) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
     this.exterior = layoutExterior(sim.building.cols, { garden: GARDEN });
+    this.clouds = currentOfficePreset() === 'gather' ? new CloudLayer(this.exterior) : null;
     this.lighting = new Lighting(art, sim);
   }
 
@@ -175,6 +179,7 @@ export class Renderer {
     const cols = this.sim.building.cols;
     this.baseCols = cols;
     this.exterior = layoutExterior(cols, { garden: GARDEN });
+    this.clouds = currentOfficePreset() === 'gather' ? new CloudLayer(this.exterior) : null;
     const b = this.exterior.bounds;
     this.baseX = b.x * TILE;
     this.baseY = b.y * TILE;
@@ -492,6 +497,8 @@ export class Renderer {
     this.roomFx.emit(this.particles, this.sim, now, dt, view);
     this.particles.update(dt);
     this.particles.draw(ctx, vx0, vy0, vx1, vy1, now);
+    // nuvens de parallax sobre o exterior (antes do mapa de luz: escurecem junto à noite)
+    if (this.clouds) this.clouds.draw(ctx, now, this.lighting.ambient.night, view);
 
     // ---- luz: noite, salas apagadas, brilhos
     this.night = this.lighting.night;
