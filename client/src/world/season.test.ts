@@ -1,4 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { resolveOfficePreset } from './season';
+
+describe('presete do escritório (?office=)', () => {
+  it('o parâmetro vale sobre o da build; sem ele, o fallback; desconhecido ignora', () => {
+    expect(resolveOfficePreset('?office=gather', undefined)).toBe('gather');
+    expect(resolveOfficePreset('?office=classic', 'gather')).toBe('classic');
+    expect(resolveOfficePreset('', 'gather')).toBe('gather');
+    expect(resolveOfficePreset('', undefined)).toBeUndefined();
+    expect(resolveOfficePreset('?office=outra', 'gather')).toBe('gather');
+    expect(resolveOfficePreset('?rooms=gather', 'classic')).toBe('classic');
+  });
+});
 
 describe('season=auto não recarrega a página', () => {
   afterEach(() => {

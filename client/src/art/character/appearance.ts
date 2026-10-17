@@ -2,6 +2,7 @@
 // `look` apenas enviesa as probabilidades de estilos; nada é exclusivo de um look, exceto barba ('m').
 import { ACCESSORIES, BOTTOM_STYLES, FACIAL_HAIR, HAIR_STYLES, PART_KEYS, TOP_STYLES, type AppearanceParts, type PartKey } from '../../../../shared/appearance';
 import { mulberry32 } from '../../../../shared/hash';
+import type { Provider } from '../../../../shared/types';
 import type { Accessory, Appearance, HairStyle, TopStyle } from '../api';
 
 export const SKINS = ['#ffe2cc', '#f6cfb0', '#eab894', '#d69f78', '#bd8560', '#9a6444', '#7a4a31', '#5a3623'] as const;
@@ -49,6 +50,20 @@ const ACC_COLORS: Record<Accessory, readonly string[]> = {
 };
 const LANYARDS = ['#f2b33d', '#e2604f', '#4a86d8', '#4bab72', '#8d66cf', '#36b0b0'] as const;
 
+/**
+ * Kit visual do OpenCode (agentes com provider 'opencode'), identidade ORIGINAL desenhada em código:
+ * paleta grafite/verde-terminal por cima do sorteio (rosto, cabelo e silhueta seguem a semente, então
+ * agentes diferentes continuam diferentes) + broche de terminal no peito (render.ts). Peças escolhidas
+ * no editor continuam valendo por cima do kit.
+ */
+export const OPENCODE_KIT = {
+  top: '#20303a',
+  topAccent: '#4fd8a4',
+  bottom: '#2a3644',
+  shoes: '#1b2531',
+  accessoryColor: '#4fd8a4',
+} as const;
+
 type Weights<T extends string> = Readonly<Record<T, number>>;
 
 const HAIR_W: Record<'f' | 'm', Weights<HairStyle>> = {
@@ -89,7 +104,7 @@ function scramble(seed: number): number {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
-export function appearanceFromSeed(seed: number, opts: { look?: 'f' | 'm'; sub?: boolean; parts?: AppearanceParts } = {}): Appearance {
+export function appearanceFromSeed(seed: number, opts: { look?: 'f' | 'm'; sub?: boolean; parts?: AppearanceParts; provider?: Provider } = {}): Appearance {
   const rnd = mulberry32(scramble(seed));
   const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(rnd() * arr.length) % arr.length];
   const weighted = <T extends string>(w: Weights<T>): T => {
@@ -170,6 +185,15 @@ export function appearanceFromSeed(seed: number, opts: { look?: 'f' | 'm'; sub?:
     facialHair,
     bottomStyle,
   };
+  // Kit do OpenCode: por baixo das peças escolhidas no editor (o broche vem pelo `kit` no render).
+  if (opts.provider === 'opencode') {
+    a.top = OPENCODE_KIT.top;
+    a.topAccent = OPENCODE_KIT.topAccent;
+    a.bottom = OPENCODE_KIT.bottom;
+    a.shoes = OPENCODE_KIT.shoes;
+    a.accessoryColor = OPENCODE_KIT.accessoryColor;
+    a.kit = 'opencode';
+  }
   // Peças escolhidas no editor (por cima do sorteio, sem mudar a ordem dos sorteios). Um undefined explícito não
   // apaga a peça sorteada.
   const parts = opts.parts;
@@ -182,7 +206,7 @@ export function appearanceFromSeed(seed: number, opts: { look?: 'f' | 'm'; sub?:
 export function appearanceKey(a: Appearance): string {
   return [
     a.skin, a.hair, a.hairStyle, a.eyes, a.top, a.topAccent, a.topStyle, a.bottom, a.shoes, a.accessory,
-    a.accessoryColor, a.lanyard ?? '-', a.look, a.facialHair ?? '-', a.bottomStyle ?? '-',
+    a.accessoryColor, a.lanyard ?? '-', a.look, a.facialHair ?? '-', a.bottomStyle ?? '-', a.kit ?? '-',
   ].join('|');
 }
 

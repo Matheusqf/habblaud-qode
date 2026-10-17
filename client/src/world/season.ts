@@ -52,6 +52,17 @@ function resolvePreset(search: string, fallback: OfficePreset | undefined): Offi
   return v === 'gather' || v === 'classic' ? v : fallback;
 }
 
+/** Presete do escritório pela URL (?office=), com o da build como fallback. Puro. */
+export function resolveOfficePreset(search: string, fallback: OfficePreset | undefined): OfficePreset | undefined {
+  return resolvePreset(search, fallback);
+}
+
+/** Presete em vigor nesta página (?office= vale sobre VITE_HABBLAUD_OFFICE). */
+export function currentOfficePreset(): OfficePreset | undefined {
+  if (typeof location === 'undefined') return undefined;
+  return resolvePreset(location.search, buildOfficePreset());
+}
+
 /** ?rooms=gather | island | openspace força o estilo de todas as salas; sem parâmetro (ou mix) a semente sorteia. */
 export function resolveRoomStyle(search: string, preset?: OfficePreset): RoomStyle | undefined {
   const v = param(search, 'rooms');

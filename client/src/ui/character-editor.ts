@@ -3,7 +3,7 @@
 // que vai em `parts`) estão em character-model.ts.
 import { canonicalName } from '../../../shared/nicknames';
 import { NAME_MAX, type PartKey } from '../../../shared/appearance';
-import type { AgentInfo } from '../../../shared/types';
+import type { AgentInfo, Provider } from '../../../shared/types';
 import { appearanceFromSeed, characterSprite, editorConflict, editorOptions, fitToOptions } from '../art';
 import type { Appearance } from '../art/api';
 import { canEditCharacter, changedParts, EDITOR_GROUPS, rowVisible, styleLabel, type EditorRow } from './character-model';
@@ -30,6 +30,8 @@ export class CharacterEditor {
   private confirmingReset = false;
   private seed = 0;
   private look: 'f' | 'm' = 'f';
+  /** Ferramenta do agente (kit visual, ex.: o broche do OpenCode) durante a edição. */
+  private provider: Provider | undefined;
   /** Aparência sorteada pela seed (sem peças): o que não mudar não vai em `parts`. */
   private base: Appearance | null = null;
   private draft: Appearance | null = null;
@@ -98,7 +100,8 @@ export class CharacterEditor {
     if (!a) return;
     this.seed = a.seed;
     this.look = a.look;
-    this.base = appearanceFromSeed(a.seed, { look: a.look });
+    this.provider = a.provider;
+    this.base = appearanceFromSeed(a.seed, { look: a.look, provider: a.provider });
     this.draft = { ...this.base, ...a.parts };
     this.nameInput.value = canonicalName(a);
     this.confirmingReset = false;
@@ -130,7 +133,7 @@ export class CharacterEditor {
 
   private roll(): void {
     this.seed = randomSeed();
-    this.base = appearanceFromSeed(this.seed, { look: this.look });
+    this.base = appearanceFromSeed(this.seed, { look: this.look, provider: this.provider });
     this.draft = { ...this.base };
     this.paint();
   }
