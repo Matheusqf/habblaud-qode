@@ -4,6 +4,7 @@
 //                      página. Não há recarga automática (preserva rascunhos do MessageComposer e
 //                      edições não salvas do CharacterEditor): a virada do mês vale no próximo carregamento.
 //   ?season=off        desliga
+//   ?season=auto       auto mesmo com `seasonal: false` no pacote de tema
 //   sem parâmetro      = auto (a menos que o pacote de tema em vigor diga `seasonal: false`)
 import type { ThemePackGardenStyle, ThemePackOfficePreset, ThemePackRoomStyle } from '../../../shared/theme-packs';
 import { currentThemePack } from '../../../shared/theme-packs';
@@ -20,6 +21,8 @@ export function resolveSeason(search: string, now: Date = new Date(), seasonalDe
   }
   if (v === 'halloween') return 'halloween';
   if (v === 'off') return undefined;
+  // ?season=auto explícito vence `seasonal: false` do pacote (a URL é sempre a última palavra)
+  if (v === 'auto') return now.getMonth() === 9 ? 'halloween' : undefined;
   // padrão = auto: Halloween em outubro
   return seasonalDefault && now.getMonth() === 9 ? 'halloween' : undefined;
 }
@@ -80,7 +83,8 @@ export function resolveRoomStyle(search: string, preset?: OfficePreset): RoomSty
 
 /** Cadeia completa (pura): ?rooms= > var de build > URL ?office= > rooms do pacote > office do pacote. */
 export function resolveRoomStyleWithPack(search: string, envPreset: OfficePreset | undefined, pack: { rooms?: RoomStyle; office?: OfficePreset }): RoomStyle | undefined {
-  if (param(search, 'rooms') !== null) return resolveRoomStyle(search, undefined);
+  // ?rooms= presente (mesmo vazio/inválido): resolve com o preset da build (VITE_HABBLAUD_OFFICE) como fallback
+  if (param(search, 'rooms') !== null) return resolveRoomStyle(search, envPreset);
   // ?office= explícito na URL decide o estilo (o rooms do pacote é só padrão do preset do pacote)
   if (param(search, 'office') !== null) return resolveRoomStyle(search, envPreset);
   if (envPreset !== undefined) return resolveRoomStyle(search, envPreset);
@@ -104,7 +108,7 @@ export function resolveGarden(search: string, preset?: OfficePreset): GardenStyl
 
 /** Cadeia completa (pura): ?garden= > var de build > URL ?office= > garden do pacote > office do pacote. */
 export function resolveGardenWithPack(search: string, envPreset: OfficePreset | undefined, pack: { garden?: GardenStyle | 'off'; office?: OfficePreset }): GardenStyle | undefined {
-  if (param(search, 'garden') !== null) return resolveGarden(search, undefined);
+  if (param(search, 'garden') !== null) return resolveGarden(search, envPreset);
   if (param(search, 'office') !== null) return resolveGarden(search, envPreset);
   if (envPreset !== undefined) return resolveGarden(search, envPreset);
   if (pack.garden === 'off') return undefined; // o pacote desliga o rio mesmo com preset gather

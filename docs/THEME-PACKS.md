@@ -73,3 +73,12 @@ automática. Prioridade nos padrões de cenário: parâmetro da URL > var de bui
 - sazonais: `resolveSeason` em `client/src/world/season.ts` (consumido por `client/src/world/sim/sim.ts`).
 
 `shared/brand.ts` expõe `PRODUCT_NAME` (live binding) e `setProductName` para os textos do produto.
+
+## Regras de validação (pacotes JSON)
+
+- **Id**: `^[a-z0-9][a-z0-9-]*$`, até 40 caracteres, e não pode ser um nome do `Object.prototype` (`constructor`, `toString`...). A procura usa um `Map`, por isso ids herdados nunca resolvem para um pacote.
+- **Paleta** (allowlist): só `#rgb`/`#rgba`/`#rrggbb`/`#rrggbbaa`, `rgb()`/`rgba()`/`hsl()`/`hsla()` com números, ou uma palavra-chave de cor. `image-set(`, `url(`, `var(`, gradientes e `;`/`}` são recusados.
+- **Fontes** (allowlist): nomes de família (letras, dígitos, espaço, hífen), com ou sem aspas, separados por vírgula.
+- **Logo**: SVG renderizado como `<img>` com data-URI (sem script), até **8192 bytes UTF-8** (`LOGO_MAX_BYTES`).
+- **Eventos sazonais**: `?season=halloween|off` força; `?season=auto` liga o automático **mesmo com `seasonal: false`** no pacote (a URL tem sempre a última palavra). Sem parâmetro, vale o `seasonal` do pacote.
+- **Cenário**: `?rooms=`/`?garden=` presentes mas vazios ou inválidos caem no preset da build (`VITE_HABBLAUD_OFFICE`) e só depois no pacote.

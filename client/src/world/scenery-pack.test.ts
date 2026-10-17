@@ -70,3 +70,24 @@ describe('garden off do pacote', () => {
     expect(resolveGardenWithPack('?garden=river', undefined, { garden: 'off', office: 'gather' })).toBe('river');
   });
 });
+
+describe('?rooms=/?garden= vazio ou inválido preserva o preset da build', () => {
+  it('build gather: ?rooms= / ?rooms=xyz → openspace; ?garden= / ?garden=xyz → river', () => {
+    for (const q of ['?rooms=', '?rooms=xyz']) expect(resolveRoomStyleWithPack(q, 'gather', {}), q).toBe('openspace');
+    for (const q of ['?garden=', '?garden=xyz']) expect(resolveGardenWithPack(q, 'gather', {}), q).toBe('river');
+  });
+  it('build classic: valores inválidos não ligam nada; válidos continuam a vencer', () => {
+    expect(resolveRoomStyleWithPack('?rooms=xyz', 'classic', { rooms: 'openspace' })).toBeUndefined();
+    expect(resolveRoomStyleWithPack('?rooms=island', 'gather', {})).toBe('island');
+    expect(resolveGardenWithPack('?garden=off', 'gather', {})).toBeUndefined();
+  });
+});
+
+describe('?season=auto vence seasonal:false', () => {
+  it('outubro: auto liga mesmo com o pacote desligado; sem parâmetro respeita o pacote', () => {
+    const oct = new Date(2026, 9, 17);
+    expect(resolveSeason('?season=auto', oct, false)).toBe('halloween');
+    expect(resolveSeason('', oct, false)).toBeUndefined();
+    expect(resolveSeason('?season=auto', new Date(2026, 5, 1), false)).toBeUndefined();
+  });
+});

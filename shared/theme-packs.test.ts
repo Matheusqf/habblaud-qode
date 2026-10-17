@@ -10,6 +10,10 @@ import {
   resolveThemePack,
   resolveThemePackId,
   safeCssValue,
+  safeCssColor,
+  safeFontStack,
+  utf8Bytes,
+  LOGO_MAX_BYTES,
   validateThemePack,
 } from './theme-packs';
 import { PRODUCT_NAME, setProductName } from './brand';
@@ -102,5 +106,54 @@ describe('pacote JSON: valores CSS seguros', () => {
     expect(safeCssValue('</style><script>')).toBe(false);
     const base = HABBLAUD_PACK;
     expect(validateThemePack({ ...base, palette: { '--accent': 'red;}*{color:red' } })).toBeUndefined();
+  });
+});
+
+describe('ids herdados do Object.prototype não são pacotes', () => {
+  const evil = ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf', 'prototype'];
+  it('?theme=<id do prototype> passa à origem seguinte (build) ou ao padrão', () => {
+    for (const id of evil) {
+      expect(resolveThemePackId(`?theme=${id}`, undefined)).toBe('habblaud');
+      expect(resolveThemePackId(`?theme=${id}`, 'qode')).toBe('qode');
+      expect(resolveThemePackId('', id)).toBe('habblaud');
+    }
+  });
+  it('resolveThemePack devolve sempre um pacote com forma válida', () => {
+    for (const id of evil) {
+      const p = resolveThemePack(`?theme=${encodeURIComponent(id)}`, {});
+      expect(p.id).toBe('habblaud');
+      expect(validateThemePack(p)).toBeDefined();
+    }
+    expect(resolveThemePack('?theme=constructor', { VITE_HABBLAUD_THEME: 'qode' }).id).toBe('qode');
+  });
+  it('JSON com id do prototype é recusado', () => {
+    expect(parseThemePackJson(JSON.stringify({ ...HABBLAUD_PACK, id: '__proto__' }))).toBeUndefined();
+    expect(resolveThemePack('?theme=constructor', { VITE_HABBLAUD_THEME_JSON: JSON.stringify({ ...HABBLAUD_PACK, id: 'constructor' }) }).id).toBe('habblaud');
+  });
+});
+
+describe('paleta: allowlist de cores (sem image-set/url/var)', () => {
+  it('aceita só a gramática de cor suportada', () => {
+    for (const ok of ['#fff', '#ffff', '#12151d', '#12151dcc', 'rgba(124, 200, 255, 0.13)', 'rgb(1 2 3 / 50%)', 'hsl(210, 50%, 40%)', 'transparent', 'rebeccapurple'])
+      expect(safeCssColor(ok), ok).toBe(true);
+  });
+  it('recusa image-set e variantes, url, var, gradientes e injeção', () => {
+    for (const bad of [
+      'image-set("https://x.example/a.png" 1x)', '-webkit-image-set(url(a.png) 1x)', 'IMAGE-SET("a.png" 1x)', 'image-set( "a" 1x , "b" 2x )',
+      'url(https://x.example/a.png)', 'var(--x)', 'linear-gradient(red, blue)', 'red; background: url(x)', 'rgb(1,2,3) url(x)', '#12151d}', 'expression(alert(1))',
+    ])
+      expect(safeCssColor(bad), bad).toBe(false);
+    expect(validateThemePack({ ...HABBLAUD_PACK, palette: { '--ui-bg': 'image-set("https://x.example/a.png" 1x)' } })).toBeUndefined();
+  });
+  it('fontes: só nomes de família', () => {
+    expect(safeFontStack('system-ui, -apple-system, "Segoe UI", Roboto, sans-serif')).toBe(true);
+    expect(safeFontStack('x, url(a.woff)')).toBe(false);
+    expect(safeFontStack('"a" ; b')).toBe(false);
+  });
+  it('limite do logo é em bytes UTF-8', () => {
+    expect(utf8Bytes('é')).toBe(2);
+    const multi = '<svg>' + 'é'.repeat(LOGO_MAX_BYTES / 2) + '</svg>'; // < 8192 unidades UTF-16, > 8192 bytes
+    expect(multi.length).toBeLessThan(LOGO_MAX_BYTES + 20);
+    expect(validateThemePack({ ...HABBLAUD_PACK, brand: { ...HABBLAUD_PACK.brand, logo: multi } })).toBeUndefined();
   });
 });

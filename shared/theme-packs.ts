@@ -26,7 +26,7 @@ export type ThemePackFx = 'vibe' | 'off';
 export interface ThemePackBrand {
   /** Nome do produto: document.title, topbar, avisos. */
   text: string;
-  /** SVG inline (string) do logotipo; renderizado como <img> com data-URI (sem script), até 8 KB. Vazio = usa a marca pixel do próprio app. */
+  /** SVG inline (string) do logotipo; renderizado como <img> com data-URI (sem script), até 8 KB em bytes UTF-8 (LOGO_MAX_BYTES). Vazio = usa a marca pixel do próprio app. */
   logo: string;
   /** Wordmark do topbar: 'pixel' usa o logotipo em pixels do app; 'text' (padrão) usa `text` com `--font-brand`. */
   wordmark?: 'pixel' | 'text';
@@ -68,7 +68,8 @@ export interface ThemePack {
 
 /** Id válido: minúsculas, dígitos e hífen (o mesmo que a URL aceita sem escape). */
 export function isValidPackId(v: string): boolean {
-  return /^[a-z0-9][a-z0-9-]*$/.test(v);
+  // nomes do Object.prototype ficam reservados (defesa extra contra lookups herdados)
+  return /^[a-z0-9][a-z0-9-]*$/.test(v) && v.length <= 40 && !(v in Object.prototype);
 }
 
 /** Valida um valor de fora (JSON) contra o schema do pacote: devolve o pacote tipado ou undefined. */
@@ -83,20 +84,20 @@ export function validateThemePack(value: unknown): ThemePack | undefined {
   const brand = isRecord(v.brand) ? v.brand : undefined;
   if (!brand) return undefined;
   if (typeof brand.text !== 'string' || brand.text.length === 0) return undefined;
-  if (typeof brand.logo !== 'string' || brand.logo.length > 8192) return undefined;
+  if (typeof brand.logo !== 'string' || utf8Bytes(brand.logo) > LOGO_MAX_BYTES) return undefined;
   if (brand.wordmark !== undefined && brand.wordmark !== 'pixel' && brand.wordmark !== 'text') return undefined;
 
   const palette = isRecord(v.palette) ? v.palette : undefined;
   if (!palette || Object.keys(palette).length === 0) return undefined;
   for (const [k, val] of Object.entries(palette)) {
-    if (!/^--[a-z0-9-]+$/i.test(k) || typeof val !== 'string' || !safeCssValue(val)) return undefined;
+    if (!/^--[a-z0-9-]+$/i.test(k) || typeof val !== 'string' || !safeCssColor(val)) return undefined;
   }
 
   const fonts = isRecord(v.fonts) ? v.fonts : undefined;
   if (!fonts) return undefined;
   for (const k of ['body', 'brand']) {
     const val = fonts[k];
-    if (typeof val !== 'string' || !safeCssValue(val)) return undefined;
+    if (typeof val !== 'string' || !safeFontStack(val)) return undefined;
   }
 
   let scenery: ThemePackScenery = {};
@@ -132,9 +133,36 @@ export function validateThemePack(value: unknown): ThemePack | undefined {
   };
 }
 
-/** Valor CSS de pacote: sem `{ } ; < >` nem `url(`/`expression(` (o valor vai para uma <style> gerada). */
+const NUM = String.raw`[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:%|deg)?`;
+const COLOR_FN = new RegExp(String.raw`^(?:rgba?|hsla?)\(\s*${NUM}(?:\s*[,\s/]\s*${NUM}){2,3}\s*\)$`, 'i');
+
+/**
+ * Cor de paleta (ALLOWLIST): #rgb/#rgba/#rrggbb/#rrggbbaa, rgb()/rgba()/hsl()/hsla() só com números,
+ * ou uma palavra-chave (letras: `transparent`, `white`, `rebeccapurple`...). Tudo o resto — `image-set(`,
+ * `url(`, `var(`, gradientes, `;`/`}` — é recusado (o valor vai para uma <style> gerada).
+ */
+export function safeCssColor(v: string): boolean {
+  const t = v.trim();
+  if (t.length === 0 || t.length > 64) return false;
+  return /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(t) || COLOR_FN.test(t) || /^[a-z]{3,20}$/i.test(t);
+}
+
+/** Stack de fontes (ALLOWLIST): nomes com letras/dígitos/espaço/hífen, entre aspas ou não, separados por vírgula. */
+export function safeFontStack(v: string): boolean {
+  if (v.length === 0 || v.length > 300) return false;
+  return v.split(',').every((f) => /^\s*(?:"[A-Za-z0-9 -]+"|'[A-Za-z0-9 -]+'|[A-Za-z0-9 -]+)\s*$/.test(f));
+}
+
+/** Compatível com a API anterior: valor aceite como cor OU stack de fontes. */
 export function safeCssValue(v: string): boolean {
-  return v.length > 0 && v.length <= 300 && !/[{};<>\\]/.test(v) && !/url\s*\(|expression\s*\(|@import/i.test(v);
+  return safeCssColor(v) || safeFontStack(v);
+}
+
+/** Limite do logo em BYTES UTF-8 (não em unidades UTF-16). */
+export const LOGO_MAX_BYTES = 8192;
+
+export function utf8Bytes(s: string): number {
+  return new TextEncoder().encode(s).length;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -197,7 +225,11 @@ export const QODE_PACK: ThemePack = {
   seasonal: true,
 };
 
-const BUILTIN: Record<string, ThemePack> = { habblaud: HABBLAUD_PACK, qode: QODE_PACK };
+// Map (não objeto literal): ids como `constructor`, `toString` ou `__proto__` não herdam do Object.prototype.
+const BUILTIN: ReadonlyMap<string, ThemePack> = new Map([
+  [HABBLAUD_PACK.id, HABBLAUD_PACK],
+  [QODE_PACK.id, QODE_PACK],
+]);
 
 function param(search: string | undefined, key: string): string | null {
   if (search === undefined) return null;
@@ -220,7 +252,7 @@ export function parseThemePackJson(json: string | undefined): ThemePack | undefi
 
 /** Id resolvido (puro): `?theme=` > `VITE_HABBLAUD_THEME` > padrão 'habblaud'. Id desconhecido numa origem passa à seguinte (URL inválida → build → padrão). */
 export function resolveThemePackId(search: string | undefined, envTheme: string | undefined, envJsonId?: string): string {
-  const known = (id: string): boolean => BUILTIN[id] !== undefined || id === envJsonId;
+  const known = (id: string): boolean => isValidPackId(id) && (BUILTIN.has(id) || id === envJsonId);
   const url = param(search, 'theme') || undefined;
   if (url !== undefined && known(url)) return url;
   const env = envTheme || undefined;
@@ -234,7 +266,8 @@ export function resolveThemePack(search: string | undefined, env: Record<string,
   const json = parseThemePackJson(env?.VITE_HABBLAUD_THEME_JSON);
   const id = resolveThemePackId(search, envTheme, json?.id);
   if (json && json.id === id) return json;
-  return BUILTIN[id] ?? BUILTIN[DEFAULT_PACK_ID];
+  // forma validada também nos built-ins: um pacote inválido nunca chega ao boot
+  return validateThemePack(BUILTIN.get(id)) ?? HABBLAUD_PACK;
 }
 
 function packEnv(): Record<string, string | undefined> | undefined {
