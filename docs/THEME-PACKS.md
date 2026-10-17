@@ -81,4 +81,4 @@ automática. Prioridade nos padrões de cenário: parâmetro da URL > var de bui
 - **Fontes** (allowlist): nomes de família (letras, dígitos, espaço, hífen), com ou sem aspas, separados por vírgula.
 - **Logo**: SVG renderizado como `<img>` com data-URI (sem script), até **8192 bytes UTF-8** (`LOGO_MAX_BYTES`).
 - **Eventos sazonais**: `?season=halloween|off` força; `?season=auto` liga o automático **mesmo com `seasonal: false`** no pacote (a URL tem sempre a última palavra). Sem parâmetro, vale o `seasonal` do pacote.
-- **Cenário**: `?rooms=`/`?garden=` presentes mas vazios ou inválidos caem no preset da build (`VITE_HABBLAUD_OFFICE`) e só depois no pacote.
+- **Cenário**: quando `?rooms=`/`?garden=` estão presentes (mesmo vazios ou inválidos), o pacote deixa de contar para essa peça. Um valor válido vence; senão vale o `?office=` da URL e, a seguir, o preset da build (`VITE_HABBLAUD_OFFICE`). **Sem preset da build, os padrões `rooms`/`garden` do pacote são ignorados** (ex.: `?theme=qode&garden=xyz` fica sem rio forçado).
