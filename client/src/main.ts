@@ -5,10 +5,17 @@ import { createUI } from './ui';
 import { migrateLegacyKeys, safeLocalStorage } from './ui/prefs';
 import { ensureAuthenticated } from './net/auth-gate';
 import { applyViewMode } from './ui/view-mode';
+import { applyThemePack } from './ui/theme';
+import { currentThemePack } from '../../shared/theme-packs';
 import { mountCards } from './ui/cards';
 
 // Antes de tudo: o mundo (carteiras) e a UI (preferências) leem o localStorage ao serem criados.
 migrateLegacyKeys(safeLocalStorage());
+
+// Pacote de tema (white-label): resolvido uma vez (?theme= > VITE_HABBLAUD_THEME > padrão) e
+// aplicado ao documento (título, marca do produto, paleta/fontes). Mundo e UI leem o pacote
+// resolvido; nada disso roda por frame.
+applyThemePack(currentThemePack(), document);
 
 // B4 L1: bloqueia até autenticar quando HABBLAUD_AUTH está ligado (sem auth: passa direto).
 await ensureAuthenticated(document.body);

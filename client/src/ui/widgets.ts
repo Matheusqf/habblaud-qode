@@ -4,6 +4,7 @@ import { PRODUCT_NAME } from '../../../shared/brand';
 import type { AccountInfo, Activity, AgentInfo, AgentStatus, Provider } from '../../../shared/types';
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { WORDMARK } from './icons';
+import { packWordmark } from './theme';
 import { shellDoneKind, shellLine, shellStage, statusLabel, type ShellWait } from './model';
 import { accountChipLabel, accountProvider, fallbackShort, PROVIDER_NAME, showsProviderTag } from './provider';
 
@@ -131,10 +132,12 @@ export function updateShellActivityLine(el: HTMLElement, wait: ShellWait, now: n
   );
 }
 
-/** Nome do produto como logotipo em pixels (o texto fica para leitores de tela). */
+/** Nome do produto conforme o pacote de tema: pixel (qode) ou texto com `--font-brand`; o texto fica para leitores de tela. */
 export function wordmark(cls = 'ui-brand__name'): HTMLElement {
   const el = h('span', { class: cls });
-  el.innerHTML = WORDMARK;
+  const { pixel, text } = packWordmark();
+  if (pixel) el.innerHTML = WORDMARK;
+  else el.append(h('span', { class: 'ui-brand__word', text }));
   el.append(h('span', { class: 'ui-sr', text: PRODUCT_NAME }));
   return el;
 }

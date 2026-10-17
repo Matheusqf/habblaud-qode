@@ -665,6 +665,15 @@
   line-height: 0;
 }
 
+/* Wordmark do pacote em texto (quando o pacote não usa o pixel): fonte do pacote, tamanho de display. */
+.ui-brand__word {
+  display: block;
+  line-height: 1.4;
+  font: 700 15px/1 var(--font-brand, var(--font-ui));
+  letter-spacing: 0.02em;
+  color: var(--ui-text);
+}
+
 .ui-wordmark {
   display: block;
   width: 174px;

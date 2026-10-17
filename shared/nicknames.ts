@@ -186,10 +186,12 @@ export function originalNameShown(agent: AgentInfo): string | undefined {
   return c !== undefined && c !== agent.name ? c : undefined;
 }
 
-/** Os apelidos estão ligados? `?nicknames=0` ou localStorage `habblaud:nicknames`='0' desligam; storage que lança = padrão (ligado). */
-export function nicknamesEnabled(search: string | undefined, storage: Pick<Storage, 'getItem'> | undefined): boolean {
+/** Os apelidos estão ligados? `?nicknames=0` ou localStorage `habblaud:nicknames`='0' desligam; `?nicknames=1` liga; caso contrário o padrão do pacote de tema. Storage que lança = segue. */
+export function nicknamesEnabled(search: string | undefined, storage: Pick<Storage, 'getItem'> | undefined, packDefault = true): boolean {
   try {
-    if (search !== undefined && new URLSearchParams(search).get('nicknames') === '0') return false;
+    const v = search !== undefined ? new URLSearchParams(search).get('nicknames') : null;
+    if (v === '0') return false;
+    if (v === '1') return true;
   } catch {
     /* busca inválida: segue */
   }
@@ -198,5 +200,5 @@ export function nicknamesEnabled(search: string | undefined, storage: Pick<Stora
   } catch {
     /* sem storage (modo privado, bloqueado): fica no padrão */
   }
-  return true;
+  return packDefault;
 }
