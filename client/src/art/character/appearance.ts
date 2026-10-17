@@ -266,8 +266,13 @@ export function editorConflict(a: Appearance, key: PartKey, value: string): stri
   return undefined;
 }
 
-/** Depois de trocar um estilo: cores que não existem na paleta nova caem na primeira dela. */
-export function fitToOptions(a: Appearance): Appearance {
+/**
+ * Depois de trocar um estilo: cores que não existem na paleta nova caem na primeira dela. Com `changed`, só
+ * refaz o ajuste quando a peça mudada altera uma paleta (estilo da roupa/acessório): trocar cabelo/pele preserva
+ * cores fora da paleta do editor (ex.: o kit do OpenCode).
+ */
+export function fitToOptions(a: Appearance, changed?: PartKey): Appearance {
+  if (changed !== undefined && changed !== 'topStyle' && changed !== 'accessory') return a;
   const o = editorOptions(a);
   const fit = (v: string, list: readonly string[]): string => (list.includes(v) ? v : list[0]);
   return { ...a, top: fit(a.top, o.top), topAccent: fit(a.topAccent, o.topAccent), accessoryColor: fit(a.accessoryColor, o.accessoryColor) };

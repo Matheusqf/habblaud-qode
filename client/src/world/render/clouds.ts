@@ -72,6 +72,23 @@ interface CloudSprite {
 
 let spriteCache: CloudSprite[] | null = null;
 
+/** Caixa (px lógicos) que contém todos os puffs, com 1px de margem (+1 em baixo para a barriga). Pura. */
+export function puffBounds(puffs: readonly (readonly [number, number, number])[]): { dx: number; dy: number; w: number; h: number } {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y, r] of puffs) {
+    x0 = Math.min(x0, x - r);
+    y0 = Math.min(y0, y - r);
+    x1 = Math.max(x1, x + r);
+    y1 = Math.max(y1, y + r + 1);
+  }
+  const dx = Math.ceil(1 - x0);
+  const dy = Math.ceil(1 - y0);
+  return { dx, dy, w: Math.ceil(x1 + dx + 1), h: Math.ceil(y1 + dy + 1) };
+}
+
+/** Variantes expostas para teste (somente leitura). */
+export const CLOUD_VARIANTS = VARIANTS;
+
 function paintPuffs(ctx: CanvasRenderingContext2D, puffs: readonly (readonly [number, number, number])[], tones: readonly [string, string, string]): void {
   const [body, top, bottom] = tones;
   ctx.fillStyle = body;
@@ -98,13 +115,17 @@ function paintPuffs(ctx: CanvasRenderingContext2D, puffs: readonly (readonly [nu
 function cloudSprites(): CloudSprite[] {
   if (spriteCache) return spriteCache;
   spriteCache = VARIANTS.map((puffs) => {
-    const w = Math.max(...puffs.map((p) => p[0] + p[2])) + 1;
-    const h = Math.max(...puffs.map((p) => p[1] + p[2])) + 2;
+    const b = puffBounds(puffs);
+    const w = b.w;
+    const h = b.h;
     const make = (tones: readonly [string, string, string]): HTMLCanvasElement => {
       const c = document.createElement('canvas');
       c.width = w;
       c.height = h;
-      paintPuffs(c.getContext('2d')!, puffs, tones);
+      const g = c.getContext('2d')!;
+      // desloca para que o puff mais alto/à esquerda (cy−r / cx−r negativos) não seja cortado
+      g.translate(b.dx, b.dy);
+      paintPuffs(g, puffs, tones);
       return c;
     };
     return { day: make(DAY_TONES), night: make(NIGHT_TONES), w: w * 2, h: h * 2 };

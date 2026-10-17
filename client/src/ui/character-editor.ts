@@ -140,7 +140,7 @@ export class CharacterEditor {
 
   private pick(key: PartKey, value: string): void {
     if (!this.draft) return;
-    this.draft = fitToOptions({ ...this.draft, [key]: value });
+    this.draft = fitToOptions({ ...this.draft, [key]: value }, key);
     this.paint(key);
   }
 

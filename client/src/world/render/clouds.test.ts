@@ -2,7 +2,7 @@
 // tom pelo relógio de luz. O desenho em si (blit de formas pré-renderizadas) é coberto no navegador.
 import { describe, expect, it } from 'vitest';
 import { ambientAt } from './daylight';
-import { CLOUD_COUNT, cloudDayAlpha, cloudNightAlpha, cloudsActive, cloudX } from './clouds';
+import { CLOUD_COUNT, CLOUD_VARIANTS, puffBounds, cloudDayAlpha, cloudNightAlpha, cloudsActive, cloudX } from './clouds';
 
 describe('nuvens de parallax (presete gather)', () => {
   it('ligam só no presete gather e desligam com prefers-reduced-motion', () => {
@@ -49,5 +49,20 @@ describe('nuvens de parallax (presete gather)', () => {
     // cresce/decresce com o nível de noite
     expect(cloudNightAlpha(dusk.night)).toBeLessThan(cloudNightAlpha(night.night));
     expect(cloudDayAlpha(dusk.night)).toBeLessThan(cloudDayAlpha(noon.night));
+  });
+});
+
+describe('nuvens: caixa dos puffs (sem corte)', () => {
+  it('cada variante cabe inteira no canvas, incluindo cy−r e cx−r negativos', () => {
+    for (const puffs of CLOUD_VARIANTS) {
+      const b = puffBounds(puffs);
+      for (const [x, y, r] of puffs) {
+        expect(x - r + b.dx).toBeGreaterThanOrEqual(0);
+        expect(y - r + b.dy).toBeGreaterThanOrEqual(0);
+        expect(x + r + b.dx).toBeLessThanOrEqual(b.w);
+        expect(y + r + 1 + b.dy).toBeLessThanOrEqual(b.h);
+      }
+    }
+    expect(CLOUD_VARIANTS.some((p) => p.some(([, y, r]) => y - r < 0))).toBe(true);
   });
 });

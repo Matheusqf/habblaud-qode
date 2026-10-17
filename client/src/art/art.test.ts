@@ -979,3 +979,15 @@ describe('editor do personagem (arte)', () => {
     expect(fitToOptions({ ...ok, accessory: 'sunglasses', accessoryColor: '#e2604f' }).accessoryColor).toBe('#22232b');
   });
 });
+
+describe('editor: kit do OpenCode preservado', () => {
+  it('mudar só cabelo/pele preserva a roupa OpenCode; mudar estilo da roupa reajusta à paleta', () => {
+    const a = appearanceFromSeed(42, { provider: 'opencode' });
+    const hair = fitToOptions({ ...a, hair: editorOptions(a).hair[1] }, 'hair');
+    expect([hair.top, hair.topAccent, hair.accessoryColor]).toEqual([OPENCODE_KIT.top, OPENCODE_KIT.topAccent, OPENCODE_KIT.accessoryColor]);
+    const skin = fitToOptions({ ...a, skin: editorOptions(a).skin[2] }, 'skin');
+    expect(skin.top).toBe(OPENCODE_KIT.top);
+    const style = fitToOptions({ ...a, topStyle: TOP_STYLES[0] }, 'topStyle');
+    expect(editorOptions(style).top).toContain(style.top);
+  });
+});
