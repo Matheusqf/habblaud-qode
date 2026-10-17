@@ -12,6 +12,8 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Pacotes de tema (white-label):** a identidade da página (título, marca no topbar, paleta, fontes e padrões de cenário) vem de um objeto de config tipado — `habblaud` (neutro, o padrão) e `qode` (a marca que hoje vai de mãos postas). Escolha com `?theme=`, na URL, ou `VITE_HABBLAUD_THEME=qode` no build; um pacote próprio entra em JSON por `VITE_HABBLAUD_THEME_JSON` (schema em `docs/THEME-PACKS.md`). Parâmetros explícitos (`?office=`, `?rooms=`, `?garden=`, `?fx=`, `?season=`, `?nicknames=1|0`) seguem valendo sobre os padrões do pacote, que também pode desligar apelidos e eventos sazonais. Resolvido uma vez no boot: nada muda por frame.
+
 - **Monitor da mesa clicável:** clique (ou toque) no monitor de uma mesa abre um painel **só leitura** de quem está sentado ali — estado, modelo, ficheiro/atividade atual e tokens/custo. Mesa vazia mostra só a dica “Mesa livre”. Sem botões de ação: aprovar, recusar e responder continuam na gaveta do agente. `Esc` fecha e devolve o foco ao escritório.
 - **Filtro “precisa de atenção” na vista em cartões** (`?view=cards`): um chip deixa só os agentes com pedido de permissão pendente de verdade ou erro com evidência válida; espera genérica, erro velho e estado inferido (desconhecido/desatualizado) não contam e continuam distinguíveis à vista.
 

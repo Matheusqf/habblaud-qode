@@ -8,6 +8,7 @@ import type { AppearanceParts } from '../../../shared/appearance';
 import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeSnapshot, OutboxMessage, PermissionDecision, PermissionRequestInfo, RoomInfo } from '../../../shared/types';
 import { DemoSimulator } from '../../../shared/demo/simulator';
 import { applyNicknames, nicknamesEnabled as nicknamesFor, type NicknamedAgent } from '../../../shared/nicknames';
+import { currentThemePack } from '../../../shared/theme-packs';
 
 function nicknamesEnabled(): boolean {
   let storage: Storage | undefined;
@@ -16,7 +17,7 @@ function nicknamesEnabled(): boolean {
   } catch {
     storage = undefined;
   }
-  return nicknamesFor(typeof location !== 'undefined' ? location.search : undefined, storage);
+  return nicknamesFor(typeof location !== 'undefined' ? location.search : undefined, storage, currentThemePack().nicknames);
 }
 
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'mock';

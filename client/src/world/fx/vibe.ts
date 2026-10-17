@@ -1,4 +1,5 @@
-// Animações de estado "vibe" (opt-in: ?fx=vibe ou build VITE_HABBLAUD_FX=vibe).
+// Animações de estado "vibe" (opt-in: ?fx=vibe, VITE_HABBLAUD_FX=vibe ou o pacote de tema).
+import { currentThemePack } from '../../../../shared/theme-packs';
 //
 // Ideias adaptadas de vibeoffice (https://github.com/acost1a/vibeoffice, MIT, Copyright (c) 2026
 // acost1a): café ao esperar permissão, "cair da cadeira" quando uma ferramenta dá erro e confete
@@ -38,7 +39,9 @@ function buildEnv(key: string): string | undefined {
 
 export function vibeEnabled(): boolean {
   if (typeof location === 'undefined') return false;
-  return resolveVibe(location.search, buildEnv('VITE_HABBLAUD_FX'));
+  // ?fx= > VITE_HABBLAUD_FX > fx do pacote de tema (default 'off').
+  const pack = currentThemePack().scenery.fx;
+  return resolveVibe(location.search, buildEnv('VITE_HABBLAUD_FX') ?? (pack === 'off' ? undefined : pack));
 }
 
 /** Áreas por projeto da config de build (JSON em VITE_HABBLAUD_AREAS). */
