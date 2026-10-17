@@ -989,5 +989,9 @@ describe('editor: kit do OpenCode preservado', () => {
     expect(skin.top).toBe(OPENCODE_KIT.top);
     const style = fitToOptions({ ...a, topStyle: TOP_STYLES[0] }, 'topStyle');
     expect(editorOptions(style).top).toContain(style.top);
+    expect(style.accessoryColor).toBe(OPENCODE_KIT.accessoryColor); // camisa não mexe no acessório
+    const acc = fitToOptions({ ...a, accessory: ACCESSORIES.find((x) => x !== a.accessory)! }, 'accessory');
+    expect([acc.top, acc.topAccent]).toEqual([OPENCODE_KIT.top, OPENCODE_KIT.topAccent]); // acessório não mexe na roupa
+    expect(editorOptions(acc).accessoryColor).toContain(acc.accessoryColor);
   });
 });

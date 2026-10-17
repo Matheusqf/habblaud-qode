@@ -275,5 +275,13 @@ export function fitToOptions(a: Appearance, changed?: PartKey): Appearance {
   if (changed !== undefined && changed !== 'topStyle' && changed !== 'accessory') return a;
   const o = editorOptions(a);
   const fit = (v: string, list: readonly string[]): string => (list.includes(v) ? v : list[0]);
-  return { ...a, top: fit(a.top, o.top), topAccent: fit(a.topAccent, o.topAccent), accessoryColor: fit(a.accessoryColor, o.accessoryColor) };
+  // topStyle só mexe nas cores da roupa; accessory só na cor do acessório (a peça não editada fica como está).
+  const top = changed !== 'accessory';
+  const acc = changed !== 'topStyle';
+  return {
+    ...a,
+    top: top ? fit(a.top, o.top) : a.top,
+    topAccent: top ? fit(a.topAccent, o.topAccent) : a.topAccent,
+    accessoryColor: acc ? fit(a.accessoryColor, o.accessoryColor) : a.accessoryColor,
+  };
 }
