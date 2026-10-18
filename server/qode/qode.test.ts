@@ -469,7 +469,7 @@ describe('allowlist: campo novo do upstream não passa sem decisão', () => {
       id: 'a', kind: 'main', provider: 'claude', parentId: 'p', roomId: 'r', name: 'n', look: 'f', role: 'r', title: 't', cloud: { provider: 'cursor', state: 'stale', nativeState: 'ACTIVE', updatedAt: 0 }, sessionId: 's', account: 'a',
       status: 'working', waitingFor: 'w', activity, recent: [], tasks: [], shells: [], model: 'm', gitBranch: 'g', permissionMode: 'p', startedAt: 0,
       lastEventAt: 0, statusSince: 0, stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }, seed: 0, parts: {}, custom: true, background: true,
-      permission: { id: 'p', tool: 't', title: 't', text: 't', icon: 'i', createdAt: 0, expiresAt: 0 }, canMessage: true,
+      permission: { id: 'p', tool: 't', title: 't', text: 't', icon: 'i', createdAt: 0, expiresAt: 0 }, canMessage: true, observed: { basis: 'inferred', activity: 'active', at: 0, stale: false },
     };
     const room: Required<RoomInfo> = { id: 'r', name: 'n', path: 'p', slot: 0, seed: 0, createdAt: 0, effect: { kind: 'party', text: 't', at: 0, until: 0 } };
     const feed: Required<FeedItem> = { id: 'f', agentId: 'a', roomId: 'r', agentName: 'n', roomName: 'r', account: 'a', activity };

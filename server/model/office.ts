@@ -17,6 +17,7 @@ import type {
   Provider,
   RoomInfo,
   ShellJob,
+  ObservedActivity,
   SourceInfo,
   TaskItem,
   UpdateStatus,
@@ -121,6 +122,12 @@ export interface SubInput {
   title?: string;
   background: boolean;
   startedAt: number;
+  /** Status inicial (padrão 'working'). Fontes sem estado ao vivo entram 'idle', sem efeito de conclusão. */
+  status?: AgentStatus;
+  /** Atividade inferida já instalada na criação (antes de qualquer publicação). */
+  observed?: ObservedActivity;
+  /** Textos que o filtro de privacidade deve ver na criação (ex.: pasta REAL da filha, que pode ser privada). */
+  privacyTexts?: ReadonlyArray<string | undefined>;
 }
 
 interface AgentRecord {
@@ -455,6 +462,26 @@ export class Office {
   }
 
   /**
+   * Status OBSERVADO de fora (agentes cloud, server/cloud): só muda o estado do personagem. Nunca sintetiza atividade
+   * ("Concluiu em …"), aviso de sucesso nem balão de espera: perder um RUNNING (stale/unknown/IDLE/CREATING) não é
+   * prova de conclusão. O estado real vai para a UI por setCloudMeta (cloud.state).
+   */
+  setObservedStatus(id: string, status: 'working' | 'idle'): void {
+    const rec = this.agents.get(id);
+    if (!rec || rec.info.status === 'offline') return;
+    const info = rec.info;
+    if (info.status === status && info.waitingFor === undefined) return;
+    if (info.status !== status) {
+      info.status = status;
+      info.statusSince = this.now();
+    }
+    delete info.waitingFor;
+    // Sem turno: um "working→idle" futuro por setStatus não deve medir/anunciar um turno que nunca observámos.
+    delete rec.turnStart;
+    this.markDirty();
+  }
+
+  /**
    * Ocupado, mas o transcript não diz nada novo há um tempo (a última atividade é o fim do turno
    * anterior — ex.: esperando subagentes em segundo plano): mostra algo coerente com "trabalhando".
    */
@@ -603,7 +630,9 @@ export class Office {
     const now = this.now();
     const existing = this.agents.get(p.id);
     if (existing) {
-      this.reactivateSub(p.id);
+      this.reactivateSub(p.id, p.status ? { status: p.status } : {});
+      if (p.observed) this.setObserved(p.id, p.observed);
+      this.see(p.id, () => [...(p.privacyTexts ?? [])]);
       return true;
     }
     const person = this.deps.names.assign(p.id, this.takenNames());
@@ -617,7 +646,7 @@ export class Office {
       role: p.role,
       sessionId: p.sessionId,
       account: parent.info.account,
-      status: 'working',
+      status: p.status ?? 'working',
       recent: [],
       tasks: [],
       startedAt: p.startedAt,
@@ -629,13 +658,15 @@ export class Office {
     if (parent.info.provider) info.provider = parent.info.provider;
     if (p.title) info.title = p.title;
     if (p.background) info.background = true;
+    if (p.observed) info.observed = { ...p.observed };
     this.agents.set(p.id, { info, history: [], turnStart: now });
-    this.see(p.id, () => [p.title]);
+    this.see(p.id, () => [p.title, ...(p.privacyTexts ?? [])]);
     this.markDirty();
     return true;
   }
 
-  completeSub(id: string, opts: { notify?: boolean } = {}): void {
+  /** `silent`: sem atividade de conclusão nem aviso (fonte que só deixou de ver a sessão, sem prova de entrega). */
+  completeSub(id: string, opts: { notify?: boolean; silent?: boolean } = {}): void {
     const rec = this.agents.get(id);
     if (!rec || rec.info.kind !== 'sub' || rec.info.status === 'done' || rec.info.status === 'offline') return;
     const now = this.now();
@@ -644,11 +675,11 @@ export class Office {
     info.statusSince = now;
     delete info.shells;
     rec.removeAt = now + DONE_GRACE_MS;
-    if (!this.booting && info.activity?.kind !== 'done') {
+    if (!opts.silent && !this.booting && info.activity?.kind !== 'done') {
       const act: Activity = { id: `${id}#done:${++this.seq}`, at: now, ...SPECIAL.turnDone(now - info.startedAt), durationMs: now - info.startedAt };
       this.addActivity(id, act, true);
     }
-    if (opts.notify !== false) {
+    if (opts.notify !== false && !opts.silent) {
       const parent = info.parentId ? this.agents.get(info.parentId)?.info : undefined;
       const what = info.title ? `“${info.title}”` : 'o trabalho';
       this.notice('deliver', id, 'success', `📦 ${info.name} entregou ${what} para ${parent?.name ?? 'o agente principal'}`, info.roomId);
@@ -657,14 +688,28 @@ export class Office {
   }
 
   /** Subagente concluído voltou a escrever (ex.: recebeu nova mensagem): volta ao trabalho. */
-  reactivateSub(id: string): void {
+  reactivateSub(id: string, opts: { status?: AgentStatus } = {}): void {
     const rec = this.agents.get(id);
     if (!rec || rec.info.kind !== 'sub' || rec.info.status !== 'done') return;
     const parent = rec.info.parentId ? this.agents.get(rec.info.parentId) : undefined;
     if (!parent || parent.info.status === 'offline') return;
-    rec.info.status = 'working';
+    rec.info.status = opts.status ?? 'working';
     rec.info.statusSince = this.now();
     delete rec.removeAt;
+    this.markDirty();
+  }
+
+  /** Mostra textos ao filtro de privacidade (ex.: a pasta REAL de uma sessão, que pode ser privada). */
+  observePrivacy(id: string, texts: ReadonlyArray<string | undefined>): void {
+    if (this.agents.has(id)) this.see(id, () => [...texts]);
+  }
+
+  /** Atividade inferida de uma fonte sem estado ao vivo (AgentInfo.observed); undefined limpa. */
+  setObserved(id: string, observed: ObservedActivity | undefined): void {
+    const rec = this.agents.get(id);
+    if (!rec || JSON.stringify(rec.info.observed) === JSON.stringify(observed)) return;
+    if (observed) rec.info.observed = { ...observed };
+    else delete rec.info.observed;
     this.markDirty();
   }
 

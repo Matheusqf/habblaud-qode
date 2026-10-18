@@ -1,4 +1,4 @@
-import { appendFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { tempDir } from '../test/fixtures';
@@ -40,6 +40,22 @@ describe('FileTail', () => {
     const r = t.read();
     expect(r.reset).toBe(true);
     expect(r.lines).toEqual(['x']);
+  });
+
+  it('determinístico: mesmo inode, conteúdo novo e maior com outro começo = troca; acréscimo no mesmo inode não', () => {
+    writeFileSync(file, 'a\n');
+    const t = new FileTail(file);
+    t.read();
+    const ino = statSync(file).ino;
+    writeFileSync(file, 'novo-1\nnovo-2\n'); // reescreve no lugar: inode garantidamente igual
+    expect(statSync(file).ino).toBe(ino);
+    const r = t.read();
+    expect(r.reset).toBe(true);
+    expect(r.lines).toEqual(['novo-1', 'novo-2']);
+    appendFileSync(file, 'novo-3\n');
+    const r2 = t.read();
+    expect(r2.reset).toBe(false);
+    expect(r2.lines).toEqual(['novo-3']);
   });
 
   it('detecta arquivo substituído (rotação) mesmo maior', () => {

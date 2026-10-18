@@ -3,10 +3,12 @@ import { FURNITURE, TILE, type FurnitureKind, type RoomTheme } from '../../art/a
 import { BUILDING_H, COL_W, CORRIDOR_Y, SOUTH_Y } from '../constants';
 import { assembleBuilding, coreAreas } from './building';
 import { columnsFor, slotAt, slotColumn, slotRect, slotSide } from './geometry';
-import { layoutProjectRoom, roomVariant } from './room';
-import { layoutExterior, slotShell } from './exterior';
+import { WALL_IGNORED, layoutProjectRoom, occludesWall, roomStyle, roomVariant } from './room';
+import { resolveGarden, resolveRoomStyle, resolveSeason } from '../season';
+import { RIVER_ROWS, layoutExterior, slotShell } from './exterior';
 import { RECEPTION_ID } from './core';
 import type { AreaLayout } from './types';
+import { validateZones } from './zones';
 
 const theme: RoomTheme = {
   carpet: '#4f6d8f',
@@ -184,7 +186,8 @@ describe('variações das salas de projeto', () => {
   it('toda variação é válida: sem sobreposição, tudo alcançável, lugares suficientes', () => {
     for (const slot of [0, 1]) {
       for (const seed of seeds) {
-        const room = layoutProjectRoom({ id: `/v/${seed}`, slot, seed }, theme);
+        for (const style of ['gather', 'island', 'openspace'] as const) {
+        const room = layoutProjectRoom({ id: `/v/${seed}`, slot, seed, style }, theme);
         const b = assembleBuilding(columnsFor([slot]), [room]);
         const used = new Map<string, string>();
         for (const f of room.furniture) {
@@ -208,6 +211,7 @@ describe('variações das salas de projeto', () => {
         // spots de uso não podem cair em cima de móvel que bloqueia
         for (const sp of room.spots) expect(b.grid.walkable(sp.tx, sp.ty), `${sp.id} sobre móvel`).toBe(true);
         expect(hiddenWallItems(room)).toEqual([]);
+        }
       }
     }
   });
@@ -234,5 +238,216 @@ describe('itens de parede', () => {
     const restroom = coreAreas().find((a) => a.kind === 'restroom')!;
     expect(restroom.wallItems.some((w) => w.kind === 'door_frame')).toBe(true);
     for (const room of roomsFor([1, 3, 7])) expect(room.wallItems.some((w) => w.kind === 'door_frame'), room.id).toBe(true);
+  });
+});
+
+describe('estilos de sala e tema sazonal', () => {
+  const seeds = Array.from({ length: 90 }, (_, i) => (i * 7919 + 13) >>> 0);
+
+  it('há salas "gather" (madeira, reunião central com sofás) e salas clássicas', () => {
+    const styles = new Set(seeds.map(roomStyle));
+    expect(styles).toEqual(new Set(['gather', 'island']));
+    const seed = seeds.find((s) => roomStyle(s) === 'gather')!;
+    const room = layoutProjectRoom({ id: '/g', slot: 0, seed }, theme);
+    expect(room.floors.some((f) => f.kind === 'wood')).toBe(true);
+    expect(room.furniture.some((f) => f.kind === 'meeting_table')).toBe(true);
+    expect(room.furniture.filter((f) => f.kind === 'sofa')).toHaveLength(2);
+    expect(room.wallItems.some((w) => w.kind === 'sign')).toBe(true);
+  });
+
+  it('Halloween só troca decoração: mesmos spots, mesmos bloqueios', () => {
+    for (const slot of [0, 1]) {
+      for (const seed of seeds.slice(0, 30)) {
+        const a = layoutProjectRoom({ id: '/h', slot, seed }, theme);
+        const h = layoutProjectRoom({ id: '/h', slot, seed, season: 'halloween' }, theme);
+        expect(h.spots).toEqual(a.spots);
+        expect(h.furniture.map((f) => [f.tx, f.ty, FURNITURE[f.kind].footprint, FURNITURE[f.kind].blocks])).toEqual(
+          a.furniture.map((f) => [f.tx, f.ty, FURNITURE[f.kind].footprint, FURNITURE[f.kind].blocks]),
+        );
+        expect(h.furniture.some((f) => f.kind === 'pumpkin')).toBe(true);
+        expect(h.wallItems.some((w) => w.kind === 'cobweb')).toBe(true);
+        expect(a.furniture.some((f) => f.kind === 'pumpkin')).toBe(false);
+      }
+    }
+  });
+
+  it('tema sazonal: padrão = auto (outubro); ?season=off desliga; ?season=halloween força', () => {
+    const oct = new Date(2026, 9, 16);
+    const nov = new Date(2026, 10, 2);
+    expect(resolveSeason('', oct)).toBe('halloween');
+    expect(resolveSeason('', nov)).toBeUndefined();
+    expect(resolveSeason('?season=off', oct)).toBeUndefined();
+    expect(resolveSeason('?season=halloween', nov)).toBe('halloween');
+    expect(resolveSeason('?season=auto', oct)).toBe('halloween');
+    expect(resolveSeason('?season=auto', nov)).toBeUndefined();
+    expect(resolveRoomStyle('')).toBeUndefined();
+    expect(resolveRoomStyle('?rooms=gather')).toBe('gather');
+    const forced = layoutProjectRoom({ id: '/f', slot: 1, seed: seeds.find((s) => roomStyle(s) === 'island')!, style: 'gather' }, theme);
+    expect(forced.furniture.filter((f) => f.kind === 'sofa')).toHaveLength(2);
+  });
+});
+
+/** Composição: nenhum item de parede fica atrás de mesa/monitor/móvel alto nem sobreposto a outro item. */
+function wallCompositionIssues(area: AreaLayout): string[] {
+  const out: string[] = [];
+  const items = area.wallItems.filter((w) => w.on === 'face' && !WALL_IGNORED.has(w.kind));
+  // 2 px de margem: os sprites de parede deixam essa folga lateral dentro do trecho
+  const span = (w: (typeof items)[number]) => [w.cx - (FURNITURE[w.kind].footprint.w * TILE) / 2 + 2, w.cx + (FURNITURE[w.kind].footprint.w * TILE) / 2 - 2] as const;
+  items.forEach((w, i) => {
+    const [a0, a1] = span(w);
+    const wy = w.baseY / TILE;
+    for (const f of area.furniture) {
+      if (!occludesWall(f) || f.ty !== wy) continue;
+      const fx0 = f.tx * TILE + (f.dx ?? 0);
+      const fx1 = fx0 + FURNITURE[f.kind].footprint.w * TILE;
+      if (fx0 < a1 && fx1 > a0) out.push(`${w.id} atrás de ${f.id}`);
+    }
+    for (const o of items.slice(i + 1)) {
+      const [b0, b1] = span(o);
+      if (b0 < a1 && b1 > a0) out.push(`${w.id} sobre ${o.id}`);
+    }
+  });
+  return out;
+}
+
+describe('composição das paredes (regressão #16)', () => {
+  const seeds = Array.from({ length: 90 }, (_, i) => (i * 7919 + 13) >>> 0);
+  it('mesas/monitores e móveis altos não tapam quadro, letreiro, relógio, dardos, morcego nem guirlanda (todos os seeds/estilos/temas)', () => {
+    for (const slot of [0, 1, 2, 3]) {
+      for (const seed of seeds) {
+        for (const style of ['gather', 'island'] as const) {
+          for (const season of [undefined, 'halloween'] as const) {
+            const room = layoutProjectRoom({ id: `/c/${seed}`, slot, seed, style, season }, theme);
+            expect(wallCompositionIssues(room), `slot ${slot} seed ${seed} ${style} ${season ?? 'off'}`).toEqual([]);
+          }
+        }
+      }
+    }
+  });
+
+  it('gather mantém 6 mesas com ranks 0–5 (3 de cada lado) em todos os seeds', () => {
+    for (const slot of [0, 1]) {
+      for (const seed of seeds) {
+        const room = layoutProjectRoom({ id: '/r', slot, seed, style: 'gather' }, theme);
+        const desks = room.spots.filter((s) => s.kind === 'desk');
+        expect(new Set(desks.map((d) => d.rank))).toEqual(new Set([0, 1, 2, 3, 4, 5]));
+        expect(desks.filter((d) => d.side === 'N')).toHaveLength(3);
+      }
+    }
+  });
+});
+
+describe('open-space (G1 zonas + G2 ilha rotulada)', () => {
+  const seeds = Array.from({ length: 90 }, (_, i) => (i * 7919 + 13) >>> 0);
+
+  it('mesmos móveis, spots e caminhos da ilha clássica (só piso, zonas e rótulo mudam)', () => {
+    for (const slot of [0, 1]) for (const seed of seeds.filter((s) => roomVariant(s).meeting === 'table')) {
+      const a = layoutProjectRoom({ id: `/o/${seed}`, slot, seed, style: 'island' }, theme);
+      const o = layoutProjectRoom({ id: `/o/${seed}`, slot, seed, style: 'openspace' }, theme);
+      expect(o.spots).toEqual(a.spots);
+      expect(o.furniture).toEqual(a.furniture);
+      expect(o.walkable).toEqual(a.walkable);
+      expect(o.door).toEqual(a.door);
+      const ga = assembleBuilding(columnsFor([slot]), [a]).grid;
+      const go = assembleBuilding(columnsFor([slot]), [o]).grid;
+      expect(Array.from(go.reachableFrom(o.door!.x, o.door!.y))).toEqual(Array.from(ga.reachableFrom(a.door!.x, a.door!.y)));
+    }
+  });
+
+  it('zonas válidas: dentro da sala, sem sobreposição, alcançáveis; ilha contém as 6 mesas e tem rótulo', () => {
+    for (const slot of [0, 1]) for (const seed of seeds) for (const season of [undefined, 'halloween'] as const) {
+      const o = layoutProjectRoom({ id: `/z/${seed}`, slot, seed, style: 'openspace', season }, theme);
+      const grid = assembleBuilding(columnsFor([slot]), [o]).grid;
+      expect(validateZones(o, grid), `semente ${seed}`).toEqual([]);
+      const island = o.zones!.find((z) => z.kind === 'island')!;
+      expect(island.label).toBe('project');
+      for (const sp of o.spots.filter((s) => s.kind === 'desk')) {
+        expect(sp.tx >= island.rect.x && sp.tx < island.rect.x + island.rect.w && sp.ty >= island.rect.y && sp.ty < island.rect.y + island.rect.h, sp.id).toBe(true);
+      }
+      const l = o.floorLabels![0];
+      expect(l.zoneId).toBe(island.id);
+      expect(l.x >= island.rect.x * TILE && l.x + l.w <= (island.rect.x + island.rect.w) * TILE).toBe(true);
+      expect(hiddenWallItems(o)).toEqual([]);
+    }
+  });
+
+  it('validateZones acusa sobreposição, fora da área e zona inalcançável', () => {
+    const o = layoutProjectRoom({ id: '/bad', slot: 0, seed: 7, style: 'openspace' }, theme);
+    const r = o.rect;
+    o.zones = [
+      { id: 'a', kind: 'island', rect: { x: r.x + 1, y: r.y + 3, w: 4, h: 4 } },
+      { id: 'b', kind: 'meeting', rect: { x: r.x + 3, y: r.y + 3, w: 4, h: 4 } },
+      { id: 'c', kind: 'garden', rect: { x: r.x - 2, y: r.y, w: 3, h: 3 } },
+      { id: 'd', kind: 'lounge', rect: { x: r.x, y: r.y, w: 1, h: 1 } },
+    ];
+    o.floorLabels = [];
+    const errs = validateZones(o, assembleBuilding(columnsFor([0]), [o]).grid);
+    expect(errs).toContain('a sobrepõe b');
+    expect(errs).toContain('c: fora da área');
+    expect(errs).toContain('d: inalcançável a partir da porta');
+  });
+
+  it('?rooms=openspace é opcional e o padrão não muda', () => {
+    expect(resolveRoomStyle('?rooms=openspace')).toBe('openspace');
+    expect(resolveRoomStyle('')).toBeUndefined();
+    for (const seed of seeds) expect(roomStyle(seed)).not.toBe('openspace');
+  });
+});
+
+describe('G3–G7: corredor, reunião grande, jardim e preset', () => {
+  const seeds = Array.from({ length: 30 }, (_, i) => (i * 104729 + 5) >>> 0);
+
+  it('G3: prédio inteiro em open-space — toda sala, spot e zona alcançável a partir da recepção pelo corredor', () => {
+    const slots = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    for (const seed of seeds) {
+      const rooms = slots.map((slot) => layoutProjectRoom({ id: `/g3/${slot}`, slot, seed: seed + slot, style: 'openspace' }, theme));
+      const b = assembleBuilding(columnsFor(slots), rooms);
+      const rec = b.core.find((a) => a.id === RECEPTION_ID)!;
+      const start = rec.spots.find((sp) => b.grid.walkable(sp.tx, sp.ty))!;
+      const reach = b.grid.reachableFrom(start.tx, start.ty);
+      for (const sp of b.spots) expect(reach[sp.ty * b.grid.w + sp.tx], `${sp.id} inalcançável`).toBe(1);
+      for (const r of rooms) expect(validateZones(r, b.grid), r.id).toEqual([]);
+    }
+  });
+
+  it('G4: a reunião do open-space é sempre a mesa grande com 4 banquetas e rótulo próprio', () => {
+    for (const seed of seeds) {
+      const o = layoutProjectRoom({ id: `/g4/${seed}`, slot: 1, seed, style: 'openspace' }, theme);
+      expect(o.furniture.some((f) => f.kind === 'meeting_table')).toBe(true);
+      expect(o.spots.filter((sp) => sp.kind === 'stool')).toHaveLength(4);
+      const meeting = o.zones!.find((z) => z.kind === 'meeting')!;
+      for (const sp of o.spots.filter((s) => s.kind === 'stool'))
+        expect(sp.tx >= meeting.rect.x && sp.tx < meeting.rect.x + meeting.rect.w, sp.id).toBe(true);
+      expect(o.floorLabels!.find((l) => l.zoneId === meeting.id)?.text).toBe('REUNIÃO');
+    }
+  });
+
+  it('G5: o rio é só decoração — fora do prédio, sem árvores dentro, pontes sobre a água; desligado por padrão', () => {
+    expect(layoutExterior(4).decor).toEqual([]);
+    const ext = layoutExterior(4, { garden: 'river' });
+    const water = ext.decor.filter((d) => d.kind === 'water');
+    const bridges = ext.decor.filter((d) => d.kind === 'bridge');
+    expect(water).toHaveLength(1);
+    expect(bridges.length).toBeGreaterThan(1);
+    expect(water[0].y + water[0].h).toBeLessThanOrEqual(0); // acima da linha 0 do prédio
+    for (const br of bridges) expect(br.y <= water[0].y && br.y + br.h >= water[0].y + water[0].h).toBe(true);
+    for (const p of ext.props) expect(p.y >= RIVER_ROWS.y * TILE - 2 && p.y <= (RIVER_ROWS.y + RIVER_ROWS.h + 1) * TILE, `${p.kind} no rio`).toBe(false);
+    // a grade de caminhos do prédio não depende do jardim
+    const rooms = [layoutProjectRoom({ id: '/g5', slot: 0, seed: 3, style: 'openspace' }, theme)];
+    expect(Array.from(assembleBuilding(columnsFor([0]), rooms).grid.reachableFrom(rooms[0].door!.x, rooms[0].door!.y)).length).toBeGreaterThan(0);
+  });
+
+  it('G7: preset por config é opt-in e a URL tem precedência', () => {
+    expect(resolveRoomStyle('')).toBeUndefined();
+    expect(resolveGarden('')).toBeUndefined();
+    expect(resolveRoomStyle('', 'gather')).toBe('openspace');
+    expect(resolveGarden('', 'gather')).toBe('river');
+    expect(resolveRoomStyle('', 'classic')).toBeUndefined();
+    expect(resolveRoomStyle('?office=gather')).toBe('openspace');
+    expect(resolveGarden('?office=gather')).toBe('river');
+    expect(resolveRoomStyle('?office=classic', 'gather')).toBeUndefined();
+    expect(resolveGarden('?garden=off', 'gather')).toBeUndefined();
+    expect(resolveRoomStyle('?rooms=island', 'gather')).toBe('island');
+    expect(resolveGarden('?garden=river')).toBe('river');
   });
 });

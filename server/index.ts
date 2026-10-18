@@ -36,6 +36,8 @@ import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
+import { readOnlyRunner } from './sources/opencode/reader';
+import { OpenCodeSource } from './sources/opencode/source';
 import { createBuildReader } from './build';
 import { setupQode } from './qode';
 import { qodePreflight, qodeRequired } from './qode/preflight';
@@ -140,6 +142,15 @@ if (cloudConfig.enabled) {
   const collectors = buildCloudCollectors(cloudConfig, process.env);
   if (!cloudConfig.projects.size) log.warn('Cloud: HABBLAUD_CLOUD=1 sem HABBLAUD_CLOUD_PROJECTS: nada será mostrado.');
   agents.add(new CloudSource({ office, collectors }));
+}
+// OpenCode (sources/opencode/): opt-in (HABBLAUD_OPENCODE=1) + allowlist de projetos (HABBLAUD_OPENCODE_PROJECTS). Só
+// metadados (modelo, atividade inferida, tokens, custo), lidos do SQLite em modo somente leitura (reader.ts).
+if (config.opencode) {
+  const opencodeDir = process.env.HABBLAUD_OPENCODE_DATA?.trim() || join(config.home, '.local', 'share', 'opencode');
+  if (!config.opencodeProjects.length) log.warn('OpenCode: HABBLAUD_OPENCODE=1 sem HABBLAUD_OPENCODE_PROJECTS; nenhuma sessão vai entrar.');
+  agents.add(
+    new OpenCodeSource({ accounts, office, dataDir: opencodeDir, projects: config.opencodeProjects, run: readOnlyRunner(join(opencodeDir, 'opencode.db')) }),
+  );
 }
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.

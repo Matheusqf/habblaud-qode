@@ -24,9 +24,14 @@ export interface CloudObservation {
   /** Estado nativo, já reduzido a [A-Z_]{1,32}. */
   nativeState: string;
   state: CloudState;
-  /** Última atualização reportada pelo provedor (epoch ms). */
+  /** Horário NATIVO reportado pelo provedor para o estado observado (ex. Cursor: o do run, não o do agente). */
   updatedAt: number;
-  /** Até quando esta observação vale (epoch ms); depois vira 'stale'. */
+  /**
+   * Instante LOCAL em que ESTE item foi confirmado (resposta recebida para ele), epoch ms. Separado de updatedAt
+   * (horário do provedor) e do fim do poll (que só serve para agendamento/backoff).
+   */
+  confirmedAt: number;
+  /** Até quando esta observação vale: confirmedAt + TTL (epoch ms); depois vira 'stale'. */
   expiresAt: number;
   /** Link validado para abrir o agente no provedor, ou ausente. */
   link?: string;
@@ -101,7 +106,10 @@ export function normalizeState(provider: CloudProvider, native: string): CloudSt
   if (provider === 'cursor') {
     // Só um RUN em RUNNING é execução. ACTIVE (agente) cobre também "à espera"/"prestes a começar"; CREATING ainda
     // não executa: ambos ficam 'unknown' (conservador).
-    if (n === 'RUNNING') return 'running';
+    if (n === 'RUNNING' || n === 'RUN_RUNNING') return 'running';
+    // Estado do RUN (coletor Cursor): terminal do run NÃO é fim do agente (não fecha) nem sucesso → idle, com o estado
+    // nativo preservado (RUN_ERROR, RUN_FINISHED…) para a UI. RUN_CREATING/RUN_UNKNOWN → unknown.
+    if (n === 'RUN_FINISHED' || n === 'RUN_ERROR' || n === 'RUN_CANCELLED' || n === 'RUN_EXPIRED') return 'idle';
     if (n === 'IDLE') return 'idle';
     if (n === 'ARCHIVED' || n === 'FINISHED' || n === 'ERROR' || n === 'CANCELLED' || n === 'EXPIRED') return 'ended';
     return 'unknown';
@@ -143,6 +151,8 @@ function toMs(v: unknown): number | undefined {
 /**
  * Sanitiza um item cru. Devolve undefined (descarta) se o projeto não está na allowlist ou o id é inválido.
  * Só os campos de CloudObservation sobrevivem — o resto do item cru é ignorado por construção.
+ * `now` = instante local em que ESTE item foi confirmado (o coletor passa o relógio de quando recebeu a resposta
+ * dele, não o início nem o fim do poll): vira confirmedAt, e o TTL conta a partir dele.
  */
 export function sanitize(provider: CloudProvider, raw: RawCloudItem, cfg: Pick<CloudConfig, 'projects' | 'ttlMs'>, now: number): CloudObservation | undefined {
   const project = normalizeProject(raw.project);
@@ -160,6 +170,7 @@ export function sanitize(provider: CloudProvider, raw: RawCloudItem, cfg: Pick<C
     nativeState: nativeState || 'UNKNOWN',
     state,
     updatedAt: updatedAt ?? now,
+    confirmedAt: now,
     expiresAt: now + cfg.ttlMs,
   };
   const link = validLink(provider, raw.link);

@@ -1,5 +1,7 @@
 // Modelo de apresentação da UI: agrupamento salas -> agentes -> subagentes, filtros, contadores e rótulos.
 // Funções puras (sem DOM), testadas em ui/model.test.ts.
+import { observedLabel } from '../../../shared/observed';
+import { canonicalName } from '../../../shared/nicknames';
 import type { AccountInfo, Activity, AgentInfo, AgentStatus, OfficeSnapshot, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
 import { formatElapsed, normalizeSearch } from './format';
 
@@ -20,7 +22,10 @@ export function statusLabel(status: AgentStatus): string {
 }
 
 /** Texto da linha de atividade quando o agente ainda não tem nenhuma (ex.: sessão recém-aberta, sem pedido). */
-export function activityFallback(agent: Pick<AgentInfo, 'status' | 'waitingFor'>): string {
+export function activityFallback(agent: Pick<AgentInfo, 'status' | 'waitingFor'> & { observed?: AgentInfo['observed'] }): string {
+  // Fonte sem estado ao vivo: o texto visível diz que é inferido, de quando e se está desatualizado.
+  const inferred = observedLabel(agent.observed);
+  if (inferred) return inferred;
   switch (agent.status) {
     case 'working':
       return 'Trabalhando…';
@@ -332,6 +337,7 @@ export function matchesQuery(agent: AgentInfo, room: RoomInfo | undefined, accou
   const hay = normalizeSearch(
     [
       agent.name,
+      canonicalName(agent),
       roleLabel(agent),
       agent.title ?? '',
       room?.name ?? '',

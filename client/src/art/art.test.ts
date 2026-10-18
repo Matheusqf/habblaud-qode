@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { ACCESSORIES, BOTTOM_STYLES, FACIAL_HAIR, HAIR_STYLES, PART_KEYS, TOP_STYLES } from '../../../shared/appearance';
 import { FURNITURE, TILE, type Accessory, type Appearance, type Dir, type FloorKind, type FurnitureKind, type HairStyle, type HeldItem, type Pose, type ScreenMode, type TopStyle, type WallPattern } from './api';
-import { appearanceFromSeed, appearanceKey, editorConflict, editorOptions, fitToOptions } from './character/appearance';
+import { appearanceFromSeed, appearanceKey, editorConflict, editorOptions, fitToOptions, OPENCODE_KIT } from './character/appearance';
 import { HAIR, HEAD_BASE } from './character/hair';
 import { CHAR_AX, CHAR_AY, CHAR_H, CHAR_W, POSE_DURATION, POSE_FRAMES, isSeated, renderCharacter } from './character/render';
 import { PixelBuf } from './core/pixbuf';
@@ -160,6 +160,68 @@ describe('personagens', () => {
       keys.add(digest(s.buf.data));
     }
     expect(keys.size).toBe(40);
+  });
+});
+
+describe("kit do OpenCode (provider 'opencode')", () => {
+  it('troca a paleta e marca o kit; claude/codex ficam no sorteado', () => {
+    for (const seed of [3, 41, 777]) {
+      const plain = appearanceFromSeed(seed, { look: 'm' });
+      const oc = appearanceFromSeed(seed, { look: 'm', provider: 'opencode' });
+      expect(oc.kit).toBe('opencode');
+      expect(oc.top).toBe(OPENCODE_KIT.top);
+      expect(oc.topAccent).toBe(OPENCODE_KIT.topAccent);
+      expect(oc.bottom).toBe(OPENCODE_KIT.bottom);
+      expect(oc.shoes).toBe(OPENCODE_KIT.shoes);
+      expect(oc.accessoryColor).toBe(OPENCODE_KIT.accessoryColor);
+      // rosto, cabelo e silhueta seguem a semente (agentes do OpenCode continuam diferentes entre si)
+      expect(oc.skin).toBe(plain.skin);
+      expect(oc.hair).toBe(plain.hair);
+      expect(oc.hairStyle).toBe(plain.hairStyle);
+      expect(oc.topStyle).toBe(plain.topStyle);
+      expect(appearanceFromSeed(seed, { look: 'm', provider: 'claude' })).toEqual(plain);
+      expect(appearanceFromSeed(seed, { look: 'm', provider: 'codex' })).toEqual(plain);
+      expect(plain.kit).toBeUndefined();
+    }
+  });
+
+  it('peças do editor valem por cima do kit; a chave de cache distingue o kit', () => {
+    const a = appearanceFromSeed(9, { provider: 'opencode', parts: { top: '#e2604f' } });
+    expect(a.top).toBe('#e2604f');
+    expect(a.kit).toBe('opencode');
+    const plain = appearanceFromSeed(9);
+    expect(appearanceKey(a)).not.toBe(appearanceKey(plain));
+    expect(appearanceKey({ ...plain, kit: 'opencode' })).not.toBe(appearanceKey(plain));
+  });
+
+  it('broche de terminal no peito: só com o kit (de frente e de perfil; de costas não)', () => {
+    const plain = appearanceFromSeed(11, { look: 'm' });
+    const oc: Appearance = { ...plain, kit: 'opencode' };
+    for (const dir of ['down', 'left', 'right'] as const) {
+      const withKit = renderCharacter({ appearance: oc, dir, pose: 'stand', frame: 0 });
+      expect(countColor(withKit.buf, '#161d29'), dir).toBeGreaterThan(0);
+      expect(countColor(withKit.buf, '#4fd8a4'), dir).toBeGreaterThan(0);
+      const without = renderCharacter({ appearance: plain, dir, pose: 'stand', frame: 0 });
+      expect(countColor(without.buf, '#161d29'), dir).toBe(0);
+      expect(countColor(without.buf, '#4fd8a4'), dir).toBe(0);
+    }
+    const back = renderCharacter({ appearance: oc, dir: 'up', pose: 'stand', frame: 0 });
+    expect(countColor(back.buf, '#161d29')).toBe(0);
+    expect(countColor(back.buf, '#4fd8a4')).toBe(0);
+  });
+
+  it('com o kit, todas as poses renderizam na mesma folha e âncora (mesma hitbox)', () => {
+    const oc = appearanceFromSeed(23, { look: 'f', provider: 'opencode' });
+    for (const pose of POSES) {
+      for (const dir of DIRS) {
+        const s = renderCharacter({ appearance: oc, dir, pose, frame: 0 });
+        expect(s.buf.w).toBe(CHAR_W);
+        expect(s.buf.h).toBe(CHAR_H);
+        expect(s.ax).toBe(CHAR_AX);
+        expect(s.ay).toBe(CHAR_AY);
+        expect(s.buf.countOpaque()).toBeGreaterThan(150);
+      }
+    }
   });
 });
 
@@ -915,5 +977,21 @@ describe('editor do personagem (arte)', () => {
     const ok = { ...appearanceFromSeed(1), topStyle: 'tshirt' as const, top: '#e2604f' };
     expect(fitToOptions(ok).top).toBe('#e2604f');
     expect(fitToOptions({ ...ok, accessory: 'sunglasses', accessoryColor: '#e2604f' }).accessoryColor).toBe('#22232b');
+  });
+});
+
+describe('editor: kit do OpenCode preservado', () => {
+  it('mudar só cabelo/pele preserva a roupa OpenCode; mudar estilo da roupa reajusta à paleta', () => {
+    const a = appearanceFromSeed(42, { provider: 'opencode' });
+    const hair = fitToOptions({ ...a, hair: editorOptions(a).hair[1] }, 'hair');
+    expect([hair.top, hair.topAccent, hair.accessoryColor]).toEqual([OPENCODE_KIT.top, OPENCODE_KIT.topAccent, OPENCODE_KIT.accessoryColor]);
+    const skin = fitToOptions({ ...a, skin: editorOptions(a).skin[2] }, 'skin');
+    expect(skin.top).toBe(OPENCODE_KIT.top);
+    const style = fitToOptions({ ...a, topStyle: TOP_STYLES[0] }, 'topStyle');
+    expect(editorOptions(style).top).toContain(style.top);
+    expect(style.accessoryColor).toBe(OPENCODE_KIT.accessoryColor); // camisa não mexe no acessório
+    const acc = fitToOptions({ ...a, accessory: ACCESSORIES.find((x) => x !== a.accessory)! }, 'accessory');
+    expect([acc.top, acc.topAccent]).toEqual([OPENCODE_KIT.top, OPENCODE_KIT.topAccent]); // acessório não mexe na roupa
+    expect(editorOptions(acc).accessoryColor).toContain(acc.accessoryColor);
   });
 });
