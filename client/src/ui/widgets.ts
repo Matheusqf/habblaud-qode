@@ -4,8 +4,9 @@ import { PRODUCT_NAME } from '../../../shared/brand';
 import type { AccountInfo, Activity, AgentInfo, AgentStatus, Provider } from '../../../shared/types';
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { WORDMARK } from './icons';
+import { packWordmark } from './theme';
 import { shellDoneKind, shellLine, shellStage, statusLabel, type ShellWait } from './model';
-import { accountChipLabel, accountProvider, fallbackShort, showsProviderTag } from './provider';
+import { accountChipLabel, accountProvider, fallbackShort, PROVIDER_NAME, showsProviderTag } from './provider';
 
 /**
  * Chip quadrado com a letra curta da conta ("C", "D") na cor da conta. Conta do Codex: o chip fica vazado (fundo
@@ -20,7 +21,7 @@ export function updateAccountChip(chip: HTMLElement, account: AccountInfo | unde
   const p = accountProvider(account, fallbackId, provider);
   setText(chip, account?.short ?? fallbackShort(fallbackId, p));
   setStyleVar(chip, '--acc', account?.color ?? '#8b98b3');
-  setAttr(chip, 'data-provider', p === 'codex' ? 'codex' : null);
+  setAttr(chip, 'data-provider', p === 'codex' || p === 'opencode' ? p : null);
   const label = accountChipLabel(account, fallbackId, p);
   setTitle(chip, label);
   setAttr(chip, 'aria-label', label);
@@ -31,8 +32,10 @@ export function createProviderTag(extra = ''): HTMLElement {
   return h('span', { class: `ui-prov${extra ? ` ${extra}` : ''}`, text: 'Codex', hidden: true, title: 'Agente do Codex (OpenAI)' });
 }
 
-/** Mostra o selo só para o Codex (e não repete quando o nome da conta já diz "Codex"). */
+/** Mostra o selo só para o Codex/OpenCode (e não repete quando o nome da conta já diz a ferramenta). O texto é o da ferramenta. */
 export function updateProviderTag(tag: HTMLElement, provider: Provider, accountName = ''): void {
+  setText(tag, PROVIDER_NAME[provider]);
+  setTitle(tag, provider === 'codex' ? 'Agente do Codex (OpenAI)' : `Agente do ${PROVIDER_NAME[provider]}`);
   setHidden(tag, !showsProviderTag(provider, accountName));
 }
 
@@ -129,10 +132,12 @@ export function updateShellActivityLine(el: HTMLElement, wait: ShellWait, now: n
   );
 }
 
-/** Nome do produto como logotipo em pixels (o texto fica para leitores de tela). */
+/** Nome do produto conforme o pacote de tema: pixel (qode) ou texto com `--font-brand`; o texto fica para leitores de tela. */
 export function wordmark(cls = 'ui-brand__name'): HTMLElement {
   const el = h('span', { class: cls });
-  el.innerHTML = WORDMARK;
+  const { pixel, text } = packWordmark();
+  if (pixel) el.innerHTML = WORDMARK;
+  else el.append(h('span', { class: 'ui-brand__word', text }));
   el.append(h('span', { class: 'ui-sr', text: PRODUCT_NAME }));
   return el;
 }

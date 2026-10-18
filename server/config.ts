@@ -50,6 +50,10 @@ export interface ServerConfig {
   updateCheck: boolean;
   /** Observa as sessões do Codex (sources/codex/); HABBLAUD_CODEX=0 desliga. */
   codex: boolean;
+  /** Observa as sessões do OpenCode (sources/opencode/), só metadados. Opt-in explícito: HABBLAUD_OPENCODE=1. */
+  opencode: boolean;
+  /** Allowlist de projetos do OpenCode (HABBLAUD_OPENCODE_PROJECTS, pastas separadas por vírgula). Vazia = nada entra. */
+  opencodeProjects: string[];
 }
 
 export function isTruthy(v: string | undefined): boolean {
@@ -169,5 +173,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     repo: pkg.repo,
     updateCheck: !env.HABBLAUD_UPDATE_CHECK?.trim() || isTruthy(env.HABBLAUD_UPDATE_CHECK),
     codex: !env.HABBLAUD_CODEX?.trim() || isTruthy(env.HABBLAUD_CODEX),
+    opencode: isTruthy(env.HABBLAUD_OPENCODE),
+    opencodeProjects: (env.HABBLAUD_OPENCODE_PROJECTS ?? '').split(',').map((p) => p.trim()).filter((p) => p.startsWith('/')),
   };
 }

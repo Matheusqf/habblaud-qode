@@ -1,5 +1,6 @@
 // Gaveta de detalhes (direita): agente ou sala selecionados. Agente do Codex: selo "Codex", textos dele (onde
 // responder, o terminal, a aprovação no lugar do modo de permissão, sem custo) e a dica dos hooks do Codex.
+import { originalNameShown } from '../../../shared/nicknames';
 import type { Activity, AgentInfo, FeedItem, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
 import { roomTheme } from '../art';
 import { createAvatarPlaceholder, updateAvatar } from './avatar';
@@ -38,6 +39,7 @@ import {
   taskProgress,
   visibleShells,
 } from './model';
+import { UNIFIED_ICON, UNIFIED_LABEL, currentFile, unifiedState } from '../../../shared/unified-state';
 import { isLocalHostname, PermissionCard } from './permission';
 import { canRenameRoom } from './roomrename';
 import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, providerOf } from './provider';
@@ -190,6 +192,7 @@ class AgentView {
   private avatar: HTMLElement;
   private name: HTMLElement;
   private role: HTMLElement;
+  private realName: HTMLElement;
   private title: HTMLElement;
   private accChip: HTMLElement;
   private accName: HTMLElement;
@@ -258,6 +261,7 @@ class AgentView {
     this.avatar = createAvatarPlaceholder('lg');
     this.name = h('h2', { class: 'ui-hero__name' });
     this.role = h('span', { class: 'ui-role' });
+    this.realName = h('div', { class: 'ui-hero__real', hidden: true });
     this.title = h('p', { class: 'ui-hero__title' });
     this.accChip = createAccountChip('md');
     this.accName = h('span', { class: 'ui-hero__acc-name' });
@@ -270,6 +274,7 @@ class AgentView {
       'div',
       { class: 'ui-hero__text' },
       h('div', { class: 'ui-hero__line' }, this.name, this.character.button, this.role),
+      this.realName,
       h('div', { class: 'ui-hero__acc' }, this.accChip, this.accName, this.accProv, this.accEmail),
       h('div', { class: 'ui-hero__where' }, h('span', { class: 'ui-muted', text: 'Sala' }), this.roomBtn),
     );
@@ -366,6 +371,8 @@ class AgentView {
     this.linesPlus = h('span', { class: 'ui-plus' });
     this.linesMinus = h('span', { class: 'ui-minus' });
     this.stats = new KvList<StatKey>([
+      ['ustate', 'Estado'],
+      ['file', 'Ficheiro atual'],
       ['tools', 'Chamadas de ferramenta'],
       ['tokensIn', 'Tokens de entrada'],
       ['tokensOut', 'Tokens de saída'],
@@ -469,6 +476,9 @@ class AgentView {
     updateAvatar(this.avatar, a, 'lg');
     setStyleVar(this.avatar, '--acc', account?.color ?? '#8b98b3');
     setText(this.name, a.name);
+    const real = originalNameShown(a);
+    setText(this.realName, real ? `Nome real: ${real}` : '');
+    setHidden(this.realName, !real);
     this.character.render(a, !!live);
     setText(this.role, roleLabel(a));
     setVariant(this.role, 'ui-role--', a.kind);
@@ -650,10 +660,13 @@ class AgentView {
   private renderStats(a: AgentInfo, now: number): void {
     const s = a.stats;
     const st = this.stats;
+    const us = unifiedState(a);
+    st.set('ustate', `${UNIFIED_ICON[us]} ${UNIFIED_LABEL[us]}`);
+    st.set('file', currentFile(a));
     st.set('tools', formatInt(s.toolCalls));
     st.set('tokensIn', formatTokens(s.tokensIn));
     st.set('tokensOut', formatTokens(s.tokensOut));
-    st.set('cost', s.costUSD !== undefined ? formatUSD(s.costUSD) : null);
+    st.set('cost', s.costUSD !== undefined ? formatUSD(s.costUSD) : 'indisponível');
     const codex = providerOf(a) === 'codex';
     const hasLines = s.linesAdded !== undefined || s.linesRemoved !== undefined;
     st.show('lines', hasLines);
@@ -674,7 +687,7 @@ class AgentView {
   }
 }
 
-type StatKey = 'tools' | 'tokensIn' | 'tokensOut' | 'cost' | 'lines' | 'subs' | 'model' | 'branch' | 'perm' | 'session' | 'start' | 'duration' | 'bg';
+type StatKey = 'ustate' | 'file' | 'tools' | 'tokensIn' | 'tokensOut' | 'cost' | 'lines' | 'subs' | 'model' | 'branch' | 'perm' | 'session' | 'start' | 'duration' | 'bg';
 
 /** Lista chave/valor de linhas fixas: cada linha é criada uma vez e só tem o texto/visibilidade atualizados. */
 class KvList<K extends string> {

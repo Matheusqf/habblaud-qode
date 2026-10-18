@@ -24,9 +24,14 @@ export interface CloudObservation {
   /** Estado nativo, já reduzido a [A-Z_]{1,32}. */
   nativeState: string;
   state: CloudState;
-  /** Última atualização reportada pelo provedor (epoch ms). */
+  /** Horário NATIVO reportado pelo provedor para o estado observado (ex. Cursor: o do run, não o do agente). */
   updatedAt: number;
-  /** Até quando esta observação vale (epoch ms); depois vira 'stale'. */
+  /**
+   * Instante LOCAL em que ESTE item foi confirmado (resposta recebida para ele), epoch ms. Separado de updatedAt
+   * (horário do provedor) e do fim do poll (que só serve para agendamento/backoff).
+   */
+  confirmedAt: number;
+  /** Até quando esta observação vale: confirmedAt + TTL (epoch ms); depois vira 'stale'. */
   expiresAt: number;
   /** Link validado para abrir o agente no provedor, ou ausente. */
   link?: string;
@@ -143,6 +148,8 @@ function toMs(v: unknown): number | undefined {
 /**
  * Sanitiza um item cru. Devolve undefined (descarta) se o projeto não está na allowlist ou o id é inválido.
  * Só os campos de CloudObservation sobrevivem — o resto do item cru é ignorado por construção.
+ * `now` = instante local em que ESTE item foi confirmado (o coletor passa o relógio de quando recebeu a resposta
+ * dele, não o início nem o fim do poll): vira confirmedAt, e o TTL conta a partir dele.
  */
 export function sanitize(provider: CloudProvider, raw: RawCloudItem, cfg: Pick<CloudConfig, 'projects' | 'ttlMs'>, now: number): CloudObservation | undefined {
   const project = normalizeProject(raw.project);
@@ -160,6 +167,7 @@ export function sanitize(provider: CloudProvider, raw: RawCloudItem, cfg: Pick<C
     nativeState: nativeState || 'UNKNOWN',
     state,
     updatedAt: updatedAt ?? now,
+    confirmedAt: now,
     expiresAt: now + cfg.ttlMs,
   };
   const link = validLink(provider, raw.link);

@@ -12,6 +12,7 @@ import type { OfficeStore } from '../net/store';
 import type { Selection, WorldApi } from '../world/api';
 import type { PanelName, UiComponent, UiContext } from './context';
 import { DayLauncher } from './daystats-launcher';
+import { DeskPanel } from './desk-panel';
 import { RoomRenamer } from './roomrename';
 import { h } from './dom';
 import { Drawer } from './drawer';
@@ -167,6 +168,9 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   const renamer = new RoomRenamer(ctx);
   ctx.renameRoom = (id, at) => renamer.open(id, at);
   world.onRoomContextMenu?.((id, at) => renamer.open(id, at));
+  // Monitor da mesa clicável (PR2): painel só leitura de quem está sentado (o canvas devolve o foco ao fechar).
+  const desk = new DeskPanel(ctx, document.getElementById('world'));
+  world.onDeskClick?.((e) => desk.onDeskClick(e.agentId, e.at));
   const empty = new EmptyState(ctx);
   const banner = new ConnectionBanner(ctx);
   const update = new UpdateBanner(store);
@@ -176,7 +180,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   const scrim = h('div', { class: 'ui-scrim', attrs: { 'aria-hidden': 'true' }, on: { click: () => ctx.togglePanel('sidebar', false) } });
 
   root.classList.add('ui-root');
-  root.append(timelapse.vignette, topbar.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, timelapse.el, timelapse.badge, toasts.el, banner.el, update.el, empty.el, tip.el, settings.el, history.el, help.el, renamer.el, live, splash.el);
+  root.append(timelapse.vignette, topbar.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, timelapse.el, timelapse.badge, toasts.el, banner.el, update.el, empty.el, tip.el, desk.el, desk.tip, settings.el, history.el, help.el, renamer.el, live, splash.el);
   mountContinuityPanel(root);
   mountTaskPanel(root);
   area = new FreeArea(world, { root, topbar: topbar.el, sidebar: sidebar.el, drawer: drawer.el, feed: feed.el }, () => ({
@@ -187,7 +191,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   }));
   drawer.onLayoutChange = () => applyLayout();
 
-  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, history, feed, toasts, settings, empty, banner, tip, notifier, splash, timelapse, sound, day, updateToaster];
+  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, history, feed, toasts, settings, empty, banner, tip, desk, notifier, splash, timelapse, sound, day, updateToaster];
 
   // ---------------------------------------------------------------- renderização agrupada por quadro
   let rafId = 0;
@@ -269,8 +273,12 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'Escape') {
       if (help.isOpen || settings.isOpen || history.isOpen) return; // diálogo/popover tratam o próprio Esc
-      // O terminal flutua sobre tudo: fecha primeiro (a busca dele, depois ele; a gaveta continua aberta).
-      if (terminal.isOpen) {
+      // Painel do monitor da mesa (só leitura): fecha e devolve o foco ao canvas.
+      if (desk.isOpen) {
+        desk.close();
+        e.preventDefault();
+      } else if (terminal.isOpen) {
+        // O terminal flutua sobre tudo: fecha primeiro (a busca dele, depois ele; a gaveta continua aberta).
         terminal.escape();
         e.preventDefault();
       } else if (ctx.isNarrow() && panels.sidebar) {
@@ -322,6 +330,13 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
       case 'O':
         e.preventDefault();
         ctx.camera('overview');
+        break;
+      case 'v':
+      case 'V':
+        // Painel só leitura (o mesmo do monitor da mesa) para o agente selecionado — entrada por teclado.
+        e.preventDefault();
+        if (selection?.type === 'agent') desk.openFor(selection.id);
+        else ctx.announce('Selecione um agente para ver o painel só leitura.');
         break;
       case 'm':
       case 'M':

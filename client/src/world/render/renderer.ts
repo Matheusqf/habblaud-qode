@@ -7,6 +7,9 @@ import type { WorldAssets } from '../assets';
 import type { Camera } from '../camera';
 import { BUILDING_H, COL_W, CORE_COLS, CORRIDOR_Y } from '../constants';
 import { layoutExterior, slotShell, type ExteriorLayout, type SlotShell } from '../layout/exterior';
+import { currentGarden, currentOfficePreset } from '../season';
+
+const GARDEN = currentGarden();
 import { slotAt } from '../layout/geometry';
 import type { ExteriorProp } from '../layout/types';
 import { screenModeFor } from '../sim/behavior';
@@ -15,13 +18,14 @@ import type { RoomState } from '../sim/room-state';
 import { cobwebScale, hourglassIcon, HOURGLASS_FLIP_MS, STORM_LIFT } from '../sim/shell';
 import type { Sim } from '../sim/sim';
 import { buildAnim, furnitureScale, NO_ANIM, sweepDelay, type BuildAnim } from './anim';
+import { CloudLayer } from './clouds';
 import { daylightModeOf, parseHourParam } from './daylight';
 import { RoomFxRenderer } from './github-fx';
 import { Lighting } from './lighting';
 import { Particles } from './particles';
 import { carSprite, propSprite, shadowSprite } from './props';
 import { countBadge, fallbackIcon } from './shell-sprites';
-import { buildAreaVis, furnitureSprites, opaqueBounds, paintShell, toWallVis, WALL_MARGIN, wallItemOrigin, wallSprites, type AreaVis, type FurnVis, type WallVis } from './scene';
+import { buildAreaVis, furnitureSprites, opaqueBounds, paintGardenDecor, paintShell, toWallVis, WALL_MARGIN, wallItemOrigin, wallSprites, type AreaVis, type FurnVis, type WallVis } from './scene';
 
 const enum K {
   FurnBase,
@@ -96,6 +100,8 @@ export class Renderer {
   private icons: { x: number; y: number; name: IconName; bounce: number; alpha: number; badge: number }[] = [];
   /** Pipoca, confete e chuva (pool fixo). */
   readonly particles = new Particles();
+  /** Nuvens de parallax no exterior (só no presete gather; fora dele, nem criadas). */
+  private clouds: CloudLayer | null;
   /** Festa e alarme das salas (eventos do GitHub). */
   private readonly roomFx = new RoomFxRenderer();
   /** dt do frame atual (s), para as partículas emitidas durante o desenho. */
@@ -122,7 +128,8 @@ export class Renderer {
     private readonly camera: Camera,
   ) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
-    this.exterior = layoutExterior(sim.building.cols);
+    this.exterior = layoutExterior(sim.building.cols, { garden: GARDEN });
+    this.clouds = currentOfficePreset() === 'gather' ? new CloudLayer(this.exterior) : null;
     this.lighting = new Lighting(art, sim);
   }
 
@@ -171,7 +178,8 @@ export class Renderer {
   private buildBase(): void {
     const cols = this.sim.building.cols;
     this.baseCols = cols;
-    this.exterior = layoutExterior(cols);
+    this.exterior = layoutExterior(cols, { garden: GARDEN });
+    this.clouds = currentOfficePreset() === 'gather' ? new CloudLayer(this.exterior) : null;
     const b = this.exterior.bounds;
     this.baseX = b.x * TILE;
     this.baseY = b.y * TILE;
@@ -182,6 +190,7 @@ export class Renderer {
     ctx.imageSmoothingEnabled = false;
     ctx.translate(-this.baseX, -this.baseY);
     paintShell(this.art, ctx, this.exterior.floors, []);
+    paintGardenDecor(ctx, this.exterior.decor);
     // faixas da rua
     const ly = this.exterior.streetY + Math.round(this.exterior.streetH / 2) - 1;
     ctx.fillStyle = 'rgba(255,236,170,0.75)';
@@ -488,6 +497,8 @@ export class Renderer {
     this.roomFx.emit(this.particles, this.sim, now, dt, view);
     this.particles.update(dt);
     this.particles.draw(ctx, vx0, vy0, vx1, vy1, now);
+    // nuvens de parallax sobre o exterior (antes do mapa de luz: escurecem junto à noite)
+    if (this.clouds) this.clouds.draw(ctx, now, this.lighting.ambient.night, view);
 
     // ---- luz: noite, salas apagadas, brilhos
     this.night = this.lighting.night;
@@ -980,6 +991,7 @@ export class Renderer {
       if (!head || !head.visible || now - e.at > 1500) continue;
       if (e.kind === 'confetti') this.particles.confetti(head.x, head.y - 4);
       else if (e.kind === 'sparkle') this.particles.sparkle(head.x, head.y + 4);
+      else if (e.kind === 'tumble') this.particles.sparkle(head.x, head.y - 2, 6);
       else if (e.kind === 'coins') {
         const to = this.heads.get(e.toId);
         if (to && to.visible) this.particles.coins(head.x, head.y + 2, to.x, to.y + 2);

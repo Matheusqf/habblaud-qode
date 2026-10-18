@@ -1,6 +1,7 @@
 // Tipos do layout do escritório. Módulos de layout são PUROS (sem DOM): geram descrições
 // que o render transforma em pixels e a simulação usa para caminhos e pontos de interesse.
 import type { Dir, FloorKind, FurnitureKind, WallStyle } from '../../art/api';
+import type { FloorLabel, ZoneDef } from './zones';
 
 export type AreaKind = 'reception' | 'restroom' | 'cafe' | 'lounge' | 'room' | 'corridor';
 
@@ -152,6 +153,10 @@ export interface AreaLayout {
   shade?: { x: number; y: number; w: number; h: number };
   /** Retângulo (px) da placa com o nome. */
   signId?: string;
+  /** Zonas da planta (G1; só metadados, não mudam caminhos). */
+  zones?: ZoneDef[];
+  /** Rótulos pintados no chão (ex.: nome do projeto na frente da ilha). */
+  floorLabels?: FloorLabel[];
 }
 
 /** Elemento decorativo externo (árvore, arbusto, poste...) desenhado pelo próprio mundo. */
