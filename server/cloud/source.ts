@@ -102,8 +102,10 @@ export class CloudSource {
 
   /** Um ciclo: consulta os coletores vencidos (com backoff exponencial) e reconcilia o Office. */
   async tick(): Promise<void> {
-    const now = this.now();
     for (const s of this.states) {
+      // Relógio ATUAL no início de CADA poll: coletores sequenciais não herdam o `now` do primeiro (um poll de 240 s
+      // não atrasa a confirmação do seguinte). A confirmação continua por item (confirmedAt, carimbado pelo coletor).
+      const now = this.now();
       if (now < s.nextAt || this.busy.has(s)) continue;
       // Reserva ANTES do await: ticks concorrentes (setInterval + coletor lento) não sobrepõem polls.
       this.busy.add(s);

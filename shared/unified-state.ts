@@ -28,7 +28,7 @@ export const UNIFIED_ICON: Readonly<Record<UnifiedState, string>> = {
   inferred: '❔',
 };
 
-type AgentLike = Pick<AgentInfo, 'status' | 'activity'> & { provider?: string; observed?: AgentInfo['observed'] };
+type AgentLike = Pick<AgentInfo, 'status' | 'activity'> & { provider?: string; observed?: AgentInfo['observed']; cloud?: AgentInfo['cloud'] };
 type Adapter = (a: AgentLike) => UnifiedState;
 
 const KIND_TO_STATE: Partial<Record<ActivityKind, UnifiedState>> = {
@@ -88,7 +88,19 @@ const cursor: Adapter = (a) => {
 
 const ADAPTERS: Record<string, Adapter> = { claude: base, codex, cursor };
 
+/**
+ * Agente cloud (server/cloud): o status do personagem é só observacional (idle = "não está a correr"), NUNCA prova de
+ * conclusão. Por isso é tratado ANTES do fallback idle→'done' da base: stale/IDLE/CREATING/unknown e até running
+ * (sem detalhe ao vivo do que faz) ficam 'inferred'; 'error' só com evidência explícita do provedor (estado nativo de
+ * erro, ex. RUN_ERROR) numa confirmação em dia (não stale).
+ */
+function cloudState(c: NonNullable<AgentInfo['cloud']>): UnifiedState {
+  if (c.state !== 'stale' && /(^|_)(ERROR|FAILED)$/.test(c.nativeState)) return 'error';
+  return 'inferred';
+}
+
 export function unifiedState(a: AgentLike): UnifiedState {
+  if (a.cloud) return cloudState(a.cloud);
   return (ADAPTERS[a.provider ?? 'claude'] ?? base)(a);
 }
 
