@@ -1,8 +1,15 @@
 // Entrada remota SÓ-LEITURA (plano ZikaBOT fatia 4). Desligada por padrão; pensada para ficar atrás de um proxy
 // privado (Tailscale Serve, sem Funnel) numa porta própria em loopback — nunca 0.0.0.0.
 //
-// - Sessão própria: cookie `qode_ro` assinado (HMAC) com audiência 'qode-ro', validade curta e geração de revogação.
-//   O cookie do operador (B4) NÃO vale aqui e este cookie não vale na entrada do operador.
+// - Sessão própria: cookie `qode_ro` assinado (HMAC) com audiência 'qode-ro', validade curta, geração de revogação e
+//   a `generation` do auth.json: trocar a senha ou o auth.json ficar ausente/inválido invalida a sessão no PRÓPRIO
+//   pedido (e os SSE abertos no sweep). O cookie do operador (B4) NÃO vale aqui e este cookie não vale no operador.
+// - Privacidade QODE obrigatória: com HABBLAUD_REMOTE_RO ligado, o preflight exige qode.config.json válido
+//   (independente de HABBLAUD_QODE_REQUIRED) antes de fontes/listeners.
+// - Dados só pelo DTO remoto (remote-dto.ts) e por uma vista própria (remote-view.ts): o viewer remoto não é cliente
+//   do Hub (não desvia permissões) e nunca recebe o snapshot do operador cru.
+// - Shell/login no navegador: o cliente estático (sem dados) é servido sem sessão; /api/auth/status|login|logout
+//   respondem aqui no formato do gate do cliente (auth-gate.ts), com readOnly: true.
 // - Token de hooks / Authorization nunca atravessa: qualquer Authorization é recusado.
 // - Só GET/HEAD em caminhos da allowlist; hooks, terminal, mensagens, permissões, decisões, ops → 403.
 // - Headers X-Forwarded-* ignorados (o proxy local chega como loopback; não confiar neles).
@@ -10,7 +17,9 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { isTruthy } from '../config';
+import { qodePreflight } from '../qode/preflight';
 import { parseCookies, verifyPassword, type PasswordRecord } from './auth';
+import type { RemoteView } from './remote-view';
 
 export const RO_COOKIE = 'qode_ro';
 export const RO_AUD = 'qode-ro';
@@ -20,7 +29,8 @@ const MAX_LOGIN_BODY = 4096;
 export const RO_RL_MAX = 5;
 export const RO_RL_WINDOW_MS = 15 * 60_000;
 
-const READ_API = [/^\/api\/snapshot$/, /^\/api\/stream$/, /^\/api\/updates$/, /^\/api\/stats(\/[a-z0-9-]+)?$/];
+// Só o que passa pelo DTO remoto (snapshot/stream) e a versão. /api/stats ("Meu dia") não passa pelo DTO: fica fora.
+const READ_API = [/^\/api\/snapshot$/, /^\/api\/stream$/, /^\/api\/updates$/];
 
 export interface RemoteRoConfig {
   enabled: boolean;
@@ -39,9 +49,21 @@ export const RO_HOST = '127.0.0.1';
  * Preflight real com HABBLAUD_REMOTE_RO ligado (fail-closed): produção (não --dev/demo), origem HTTPS canónica
  * (HABBLAUD_REMOTE_RO_ORIGIN = só hostname, sem esquema/porta/caminho) e bind do operador em loopback.
  */
-export function remoteRoPreflight(o: { env: NodeJS.ProcessEnv; dev: boolean; demo?: boolean; host: string }): string[] {
+export interface RemoteRoPreflightInput {
+  env: NodeJS.ProcessEnv;
+  dev: boolean;
+  demo?: boolean;
+  host: string;
+  /** Para validar a privacidade QODE (obrigatória com o RO ligado, independente de HABBLAUD_QODE_REQUIRED). */
+  qode: { dataDir: string; home: string; inDocker: boolean; allowedHosts: ReadonlySet<string> };
+}
+
+export function remoteRoPreflight(o: RemoteRoPreflightInput): string[] {
   if (!isTruthy(o.env.HABBLAUD_REMOTE_RO)) return [];
   const p: string[] = [];
+  // P1: sem qode.config.json válido o Office emite sem filtro de privacidade — o RO não arranca.
+  for (const e of qodePreflight({ env: o.env, dataDir: o.qode.dataDir, home: o.qode.home, host: o.host, inDocker: o.qode.inDocker, allowedHosts: o.qode.allowedHosts }))
+    p.push(`HABBLAUD_REMOTE_RO exige privacidade QODE válida: ${e}`);
   if (!loadRemoteRoConfig(o.env).enabled) p.push('HABBLAUD_REMOTE_RO=1 exige HABBLAUD_REMOTE_RO_PORT válida (1025-65535).');
   if (o.dev || o.demo) p.push('HABBLAUD_REMOTE_RO só em produção (sem --dev/demo).');
   const origin = o.env.HABBLAUD_REMOTE_RO_ORIGIN?.trim() ?? '';
@@ -62,8 +84,17 @@ export function roPathAllowed(path: string): boolean {
 export interface RoRouterOptions {
   /** Senha do B4 (auth.json); undefined = login recusado (fail-closed). */
   password: () => PasswordRecord | undefined;
-  /** O handler interno (api + estáticos) para pedidos já autorizados. */
-  inner: (req: IncomingMessage, res: ServerResponse, url: URL) => void;
+  /**
+   * `generation` ATUAL do auth.json (lida a cada pedido). A sessão guarda a do login: diferente (senha trocada) ou
+   * ausente (auth.json removido/inválido) = sessão inválida e login recusado.
+   */
+  authGeneration: () => string | undefined;
+  /** Snapshot/SSE remotos (DTO + vista própria, fora do Hub). */
+  view: Pick<RemoteView, 'snapshot' | 'attach'>;
+  /** Cliente estático (dist/client; sem dados), servido mesmo sem sessão para o login funcionar no navegador. */
+  shell: (req: IncomingMessage, res: ServerResponse, url: URL) => void;
+  /** Corpo de GET /api/updates (versão). */
+  updates?: () => unknown;
   /** Host:porta públicos esperados no Origin do login (ex. "office.tailnet.ts.net"); undefined = só mesmo Host. */
   expectedOrigin?: string;
   ttlMs?: number;
@@ -76,6 +107,8 @@ export interface RoRouter {
   handle(req: IncomingMessage, res: ServerResponse): void;
   /** Revoga todas as sessões e fecha os streams abertos. */
   revokeAll(): void;
+  /** Fecha os streams cuja sessão deixou de valer (expirou, revogada, auth.json trocado/ausente). */
+  sweep(): void;
   openStreams(): number;
 }
 
@@ -88,7 +121,7 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
   const ttl = opts.ttlMs ?? RO_TTL_MS;
   const now = () => opts.now?.() ?? Date.now();
   let gen = 1;
-  type Stream = { res: ServerResponse; timer: NodeJS.Timeout; sid: string };
+  type Stream = { res: ServerResponse; timer: NodeJS.Timeout; sid: string; cookie: string };
   const streams = new Set<Stream>();
   /** Sessões vivas no servidor (nonce -> exp): logout/revogação apagam aqui, cookie copiado deixa de valer. */
   const live = new Map<string, number>();
@@ -103,12 +136,12 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
   };
 
   const sign = (payload: string) => createHmac('sha256', secret).update(payload).digest('base64url');
-  const mint = (): { value: string; exp: number } => {
+  const mint = (ag: string): { value: string; exp: number } => {
     const exp = now() + ttl;
     const n = randomBytes(16).toString('hex');
     for (const [k, e] of live) if (e <= now()) live.delete(k);
     live.set(n, exp);
-    const body = b64(JSON.stringify({ aud: RO_AUD, exp, gen, n }));
+    const body = b64(JSON.stringify({ aud: RO_AUD, exp, gen, ag, n }));
     return { value: `${body}.${sign(body)}`, exp };
   };
   const verify = (v: string | undefined): { exp: number; sid: string } | undefined => {
@@ -119,8 +152,11 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
     const got = Buffer.from(mac);
     if (want.length !== got.length || !timingSafeEqual(want, got)) return undefined;
     try {
-      const p = JSON.parse(Buffer.from(body, 'base64url').toString()) as { aud?: unknown; exp?: unknown; gen?: unknown; n?: unknown };
+      const p = JSON.parse(Buffer.from(body, 'base64url').toString()) as { aud?: unknown; exp?: unknown; gen?: unknown; ag?: unknown; n?: unknown };
       if (p.aud !== RO_AUD || p.gen !== gen || typeof p.exp !== 'number' || p.exp <= now()) return undefined;
+      // Ligada ao auth.json: generation tem de existir e ser a mesma do login.
+      const ag = opts.authGeneration();
+      if (!ag || typeof p.ag !== 'string' || p.ag !== ag) return undefined;
       if (typeof p.n !== 'string' || !live.has(p.n)) return undefined;
       return { exp: p.exp, sid: p.n };
     } catch {
@@ -175,25 +211,38 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
     req.on('end', () => {
       release();
       const rec = opts.password();
+      const ag = opts.authGeneration();
       let pw: unknown;
       try {
         pw = (JSON.parse(Buffer.concat(chunks).toString()) as { password?: unknown }).password;
       } catch {
         /* inválido */
       }
-      if (!rec || typeof pw !== 'string' || !verifyPassword(pw, rec)) {
+      if (!rec || !ag || typeof pw !== 'string' || !verifyPassword(pw, rec)) {
         const l = failures.get(ip);
         if (l) l.push(now());
         else failures.set(ip, [now()]);
         return deny(res, 401, 'credenciais inválidas');
       }
       failures.delete(ip);
-      const { value } = mint();
+      const { value } = mint(ag);
       const attrs = ['Path=/', 'HttpOnly', 'SameSite=Strict', `Max-Age=${Math.floor(ttl / 1000)}`];
       if (opts.secureCookie) attrs.push('Secure');
       res.writeHead(204, { 'Set-Cookie': `${RO_COOKIE}=${value}; ${attrs.join('; ')}`, 'Cache-Control': 'no-store' });
       res.end();
     });
+  }
+
+  function logout(req: IncomingMessage, res: ServerResponse): void {
+    // Revoga no servidor: o nonce sai de `live` e os streams desta sessão fecham.
+    const sess = verify(parseCookies(req.headers.cookie).get(RO_COOKIE));
+    if (sess) {
+      live.delete(sess.sid);
+      for (const st of [...streams]) if (st.sid === sess.sid) closeStream(st);
+    }
+    req.resume();
+    res.writeHead(204, { 'Set-Cookie': `${RO_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict`, 'Cache-Control': 'no-store' });
+    res.end();
   }
 
   return {
@@ -205,34 +254,43 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
         return deny(res, 400, 'url');
       }
       const path = url.pathname;
+      const method = req.method ?? 'GET';
       if (req.headers.authorization) return deny(res, 401, 'authorization não aceito nesta entrada');
-      if (path === '/ro/login' && req.method === 'POST') return login(req, res);
-      if (path === '/ro/logout' && req.method === 'POST') {
-        // Revoga no servidor: o nonce sai de `live` e os streams desta sessão fecham.
-        const sess = verify(parseCookies(req.headers.cookie).get(RO_COOKIE));
-        if (sess) {
-          live.delete(sess.sid);
-          for (const st of [...streams]) if (st.sid === sess.sid) closeStream(st);
-        }
-        res.writeHead(204, { 'Set-Cookie': `${RO_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict` });
-        return void res.end();
-      }
-      if (req.method !== 'GET' && req.method !== 'HEAD') return deny(res, 405, 'só leitura');
-      const session = verify(parseCookies(req.headers.cookie).get(RO_COOKIE));
-      if (!session) return deny(res, 401, 'login necessário');
-      if (!roPathAllowed(path)) return deny(res, 403, 'fora da entrada só-leitura');
-      // Nada do proxy chega ao handler interno como identidade.
+      // Login/logout: as rotas próprias e as do gate do cliente (/api/auth/*) com a MESMA semântica (Origin, JSON,
+      // limitador antes do scrypt, sessão qode_ro). Nunca a sessão do operador.
+      if (path === '/ro/login' || path === '/api/auth/login') return method === 'POST' ? login(req, res) : deny(res, 405, 'método não permitido');
+      if (path === '/ro/logout' || path === '/api/auth/logout') return method === 'POST' ? logout(req, res) : deny(res, 405, 'método não permitido');
+      if (method !== 'GET' && method !== 'HEAD') return deny(res, 405, 'só leitura');
+      // Nada do proxy chega a quem atende como identidade.
       for (const h of Object.keys(req.headers)) if (h.startsWith('x-forwarded-') || h === 'forwarded' || h === 'x-real-ip') delete req.headers[h];
+      const session = verify(parseCookies(req.headers.cookie).get(RO_COOKIE));
+      if (path === '/api/auth/status') {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        return void res.end(JSON.stringify({ authRequired: true, authenticated: !!session, readOnly: true }));
+      }
+      const isApi = path === '/api' || path.startsWith('/api/');
+      if (!roPathAllowed(path)) return deny(res, isApi || session ? 403 : 401, isApi || session ? 'fora da entrada só-leitura' : 'login necessário');
+      // Shell (cliente estático, sem dados): sem sessão, para o gate de login do navegador poder arrancar.
+      if (!isApi) return opts.shell(req, res, url);
+      if (!session) return deny(res, 401, 'login necessário');
       if (path === '/api/stream') {
-        const s: Stream = { res, sid: session.sid, timer: setTimeout(() => closeStream(s), Math.max(0, session.exp - now())) };
+        const cookie = parseCookies(req.headers.cookie).get(RO_COOKIE) ?? '';
+        const s: Stream = { res, sid: session.sid, cookie, timer: setTimeout(() => closeStream(s), Math.max(0, session.exp - now())) };
         s.timer.unref?.();
         streams.add(s);
         res.on('close', () => {
           clearTimeout(s.timer);
           streams.delete(s);
         });
+        return opts.view.attach(req, res);
       }
-      opts.inner(req, res, url);
+      if (path === '/api/snapshot') return opts.view.snapshot(res);
+      // /api/updates
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(opts.updates?.() ?? { state: 'off', available: false }));
+    },
+    sweep() {
+      for (const st of [...streams]) if (!verify(st.cookie)) closeStream(st);
     },
     revokeAll() {
       gen++;

@@ -47,6 +47,7 @@ para dar a letra de cada conta). Nada sai do computador: o QODE Office não lê 
 - [Desenvolvimento](#desenvolvimento)
 - [Solução de problemas](#solução-de-problemas)
 - [Aviso](#aviso)
+- [Projetos de referência / inspiração](#projetos-de-referência--inspiração)
 - [Licença](#licença)
 - [Vida social](#vida-social)
 
@@ -951,6 +952,28 @@ O QODE Office é um projeto independente, **não afiliado, patrocinado nem endos
 Para mostrar os agentes, o QODE Office lê apenas arquivos locais que o próprio Claude Code grava na sua máquina
 (registros das sessões abertas, transcripts e configurações das contas). Esse formato não é documentado e pode mudar entre versões do Claude Code:
 depois de uma atualização, o QODE Office pode deixar de funcionar, total ou parcialmente, até ser ajustado.
+
+## Projetos de referência / inspiração
+
+Projetos e assets que usamos como inspiração (e, quando a licença permite, como base de ideias ou código).
+Detalhes, backlog e regras de reaproveitamento: [`docs/QODE-REFERENCIAS.md`](docs/QODE-REFERENCIAS.md).
+
+- [marmottajr/habblaud](https://github.com/marmottajr/habblaud) — **MIT**. Upstream do Habblaud; base deste fork.
+- [pixel-agents-hq/pixel-agents](https://github.com/pixel-agents-hq/pixel-agents) — **MIT**. Escritório pixel-art para sessões Claude Code (áreas por pasta, editor de layout).
+- [rolandal/pixel-agents-standalone](https://github.com/rolandal/pixel-agents-standalone) — **MIT**. Fork web do Pixel Agents (Express + WebSocket).
+- [acost1a/vibeoffice](https://github.com/acost1a/vibeoffice) — **MIT**. Escritório PixiJS com animações de estado (café, erro, confetes).
+- [trjh/pixtuoid](https://github.com/trjh/pixtuoid) — **MIT**. Escritório de agentes no terminal, multi-andar.
+- [zep-ia/pixel-agent-desk](https://github.com/zep-ia/pixel-agent-desk) — código **MIT**, arte restritiva. App Electron com heatmap e custo por agente.
+- [a16z-infra/ai-town](https://github.com/a16z-infra/ai-town) — **MIT**. Cidade simulada de agentes LLM.
+- [kevinshen56714/SkyOffice](https://github.com/kevinshen56714/SkyOffice) — **MIT**. Clone open-source estilo Gather (Phaser + Colyseus).
+- [workadventure/workadventure](https://github.com/workadventure/workadventure) — **AGPL** (só ideias). Mapas Tiled e áreas com propriedades.
+- [lass-machen/meetropolis](https://github.com/lass-machen/meetropolis) — **AGPL + MIT** (só ideias). Multi-tenant / brand loader.
+- [mateuseap/pixelhub](https://github.com/mateuseap/pixelhub) — **MIT**. Hub pixel com texturas geradas em código.
+- [mapeditor/tiled](https://github.com/mapeditor/tiled) — **GPL** (editor). Editor de mapas `.tmj` usado por clones do Gather.
+- [morluto/rea](https://github.com/morluto/rea) — **MIT**. REA: engenharia reversa assistida por agentes (só em software próprio/MIT).
+- [Gather.town](https://www.gather.town/) — **proprietário** (só inspiração). Escritório virtual 2D; mapas e assets não se copiam.
+- [2dPig Pixel Office](https://2dpig.itch.io/pixel-office) — **CC0**. Tileset de escritório (móveis, PCs, plantas).
+- [Office 8x8 (OpenGameArt)](https://opengameart.org/content/office-8x8-tileset) — **CC0**. Tileset pequeno de escritório 8×8.
 
 ## Licença
 

@@ -82,4 +82,19 @@ describe('CodexCloudCollector', () => {
     await c.poll(FIX_NOW);
     expect(c.lastPartial).toBe(false);
   });
+  it('TTL por confirmação individual: cada tarefa carimbada quando a SUA página chega (não no início/fim do lote)', async () => {
+    let clock = 9_000_000;
+    const t = (id: string) => ({ id, url: `https://chatgpt.com/codex/tasks/${id}`, status: 'in_progress', updated_at: '2026-10-16T12:59:00Z', environment_id: 'env1' });
+    const pages: Record<string, unknown> = { '': { tasks: [t('task_e_p1a')], cursor: 'c2' }, c2: { tasks: [t('task_e_p2a')], cursor: null } };
+    const c = new CodexCloudCollector({
+      bin: '/x/codex', cfg, envs, pinnedVersion: PIN, clock: () => clock,
+      run: pinned(async (_b, a) => { clock += 50_000; const i = a.indexOf('--cursor'); return JSON.stringify(pages[i < 0 ? '' : a[i + 1]]); }),
+    });
+    const out = await c.poll(FIX_NOW);
+    const p1 = out.find((o) => o.id === 'task_e_p1a')!;
+    const p2 = out.find((o) => o.id === 'task_e_p2a')!;
+    expect(p2.confirmedAt - p1.confirmedAt).toBe(50_000);
+    expect(p1.expiresAt).toBe(p1.confirmedAt + cfg.ttlMs);
+    expect(p1.updatedAt).toBe(Date.parse('2026-10-16T12:59:00Z'));
+  });
 });

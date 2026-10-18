@@ -7,6 +7,7 @@ import { computeCounters, shellLine, shellWaitIn, shellWaitingAgents, waitingAge
 import { TIMELAPSE_ICONS } from './timelapse';
 import { focusPermission, nextPermissionAgent, permissionAgents } from './permission';
 import { UsageCards } from './usage';
+import { packLogoImg } from './theme';
 import { VersionChip } from './version';
 import { wordmark } from './widgets';
 
@@ -46,13 +47,18 @@ export class TopBar implements UiComponent {
   readonly panelGroup: HTMLElement;
 
   constructor(private ctx: UiContext) {
-    // Marca: usa o logo do projeto se existir; senão, o prédio em pixels.
+    // Marca: logotipo do pacote de tema (SVG inline); sem o dele, o logo do projeto se existir; senão, o prédio em pixels.
     const mark = h('span', { class: 'ui-brand__mark' });
-    const logo = h('img', { attrs: { src: '/assets/brand/logo-mark.png', srcset: '/assets/brand/logo-mark@4x.png 4x', alt: '', width: 32, height: 32, draggable: 'false' } });
-    logo.addEventListener('error', () => {
-      mark.innerHTML = FALLBACK_MARK;
-    });
-    mark.append(logo);
+    const packLogo = packLogoImg(32);
+    if (packLogo) {
+      mark.append(packLogo);
+    } else {
+      const logo = h('img', { attrs: { src: '/assets/brand/logo-mark.png', srcset: '/assets/brand/logo-mark@4x.png 4x', alt: '', width: 32, height: 32, draggable: 'false' } });
+      logo.addEventListener('error', () => {
+        mark.innerHTML = FALLBACK_MARK;
+      });
+      mark.append(logo);
+    }
 
     this.pillText = h('span', { class: 'ui-pill__text' });
     this.pill = h('span', { class: 'ui-pill', role: 'status', attrs: { 'aria-live': 'polite' } }, h('span', { class: 'ui-pill__dot' }), this.pillText);

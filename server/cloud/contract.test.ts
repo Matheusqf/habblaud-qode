@@ -21,6 +21,11 @@ describe('cloud contract', () => {
     expect(normalizeState('cursor', 'ACTIVE')).toBe('unknown');
     expect(normalizeState('cursor', 'CREATING')).toBe('unknown');
     expect(normalizeState('cursor', 'RUNNING')).toBe('running');
+    // estado do RUN: terminal ≠ fim do agente ≠ sucesso (idle, não ended); CREATING/desconhecido → unknown
+    for (const t of ['RUN_FINISHED', 'RUN_ERROR', 'RUN_CANCELLED', 'RUN_EXPIRED']) expect(normalizeState('cursor', t)).toBe('idle');
+    expect(normalizeState('cursor', 'RUN_RUNNING')).toBe('running');
+    expect(normalizeState('cursor', 'RUN_CREATING')).toBe('unknown');
+    expect(normalizeState('cursor', 'RUN_UNKNOWN')).toBe('unknown');
     expect(normalizeState('cursor', 'WHATEVER')).toBe('unknown');
     expect(normalizeState('codex-cloud', 'pending')).toBe('unknown');
     expect(normalizeState('codex-cloud', 'queued')).toBe('unknown');
@@ -29,7 +34,7 @@ describe('cloud contract', () => {
   it('allowlist antes de tudo e só campos do contrato', () => {
     const raw = { id: 'bc-abcdef12', project: 'https://github.com/Matheusqf/habblaud-qode', nativeState: 'ACTIVE', updatedAt: FIX_NOW - 1000, link: 'https://cursor.com/agents/bc-abcdef12?token=x#y', name: CANARY, prompt: CANARY } as RawCloudItem;
     const o = sanitize('cursor', raw, cfg, FIX_NOW)!;
-    expect(Object.keys(o).sort()).toEqual(['expiresAt', 'id', 'link', 'nativeState', 'project', 'provider', 'state', 'updatedAt']);
+    expect(Object.keys(o).sort()).toEqual(['confirmedAt', 'expiresAt', 'id', 'link', 'nativeState', 'project', 'provider', 'state', 'updatedAt']);
     expect(o.link).toBe('https://cursor.com/agents/bc-abcdef12');
     expect(JSON.stringify(o)).not.toContain(CANARY);
     expect(sanitize('cursor', { ...raw, project: 'outro/repo' }, cfg, FIX_NOW)).toBeUndefined();

@@ -92,14 +92,18 @@ describe('CursorCollector', () => {
     expect(cache.some((v) => v && /https?:|github\.com/.test(v))).toBe(false);
     expect(cache).toContain(null); // repo fora da allowlist
   });
-  it('ACTIVE só é execução se o run estiver RUNNING; IDLE > 24 h vai para lastWindowExcluded', async () => {
+  it('ACTIVE só é execução se o run estiver RUNNING; horário = o do RUN (nunca o do agente)', async () => {
     const list = { items: [
       { id: 'bc-act0000001', status: 'ACTIVE', updatedAt: '2026-10-16T12:59:00Z', latestRunId: 'run-r1' },
       { id: 'bc-act0000002', status: 'ACTIVE', updatedAt: '2026-10-16T12:59:00Z', latestRunId: 'run-r2' },
       { id: 'bc-act0000003', status: 'ACTIVE', updatedAt: '2026-10-16T12:59:00Z' },
-      { id: 'bc-old0000009', status: 'IDLE', updatedAt: '2026-10-01T00:00:00Z' },
+      { id: 'bc-act0000004', status: 'ACTIVE', updatedAt: '2026-10-16T12:59:00Z', latestRunId: 'run-r4' },
     ] };
-    const runs: Record<string, unknown> = { 'run-r1': { status: 'RUNNING', result: CANARY }, 'run-r2': { status: 'CREATING' } };
+    const runs: Record<string, unknown> = {
+      'run-r1': { status: 'RUNNING', updatedAt: '2026-10-16T12:58:30Z', result: CANARY },
+      'run-r2': { status: 'CREATING', updatedAt: '2026-10-16T12:58:00Z' },
+      'run-r4': { status: 'RUNNING' }, // sem horário do run: unknown, não herda o do agente
+    };
     const f: FetchLike = async (url, init) => {
       expect(init.method).toBe('GET');
       const p = new URL(url).pathname.split('/');
@@ -108,9 +112,74 @@ describe('CursorCollector', () => {
     };
     const c = new CursorCollector({ apiKey: 'k', cfg, fetch: f });
     const out = await c.poll(FIX_NOW);
-    expect(out.map((o) => [o.id, o.state])).toEqual([['bc-act0000001', 'running'], ['bc-act0000002', 'unknown'], ['bc-act0000003', 'unknown']]);
+    expect(out.map((o) => [o.id, o.state, o.nativeState])).toEqual([
+      ['bc-act0000001', 'running', 'RUN_RUNNING'],
+      ['bc-act0000002', 'unknown', 'RUN_CREATING'],
+      ['bc-act0000003', 'unknown', 'ACTIVE'],
+      ['bc-act0000004', 'unknown', 'RUN_RUNNING'],
+    ]);
+    expect(out[0].updatedAt).toBe(Date.parse('2026-10-16T12:58:30Z'));
+    expect(out[1].updatedAt).toBe(Date.parse('2026-10-16T12:58:00Z'));
     expect(JSON.stringify(out)).not.toContain(CANARY);
-    expect([...c.lastWindowExcluded]).toEqual(['bc-old0000009']);
+  });
+  it('run terminal (ERROR/FINISHED/CANCELLED/EXPIRED): estado do run preservado, NÃO vira IDLE genérico nem encerra o agente', async () => {
+    const st = ['ERROR', 'FINISHED', 'CANCELLED', 'EXPIRED'];
+    const list = { items: st.map((_, i) => ({ id: `bc-term000000${i}`, status: 'ACTIVE', updatedAt: '2026-10-16T12:59:59Z', latestRunId: `run-t${i}` })) };
+    const f: FetchLike = async (url) => {
+      const p = new URL(url).pathname.split('/');
+      const body = p.length === 3 ? list : p[4] === 'runs' ? { status: st[Number(p[5].slice(5))], updatedAt: '2026-10-16T12:40:00Z' } : { repos: [{ url: 'https://github.com/matheusqf/habblaud-qode' }] };
+      return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+    };
+    const out = await new CursorCollector({ apiKey: 'k', cfg, fetch: f }).poll(FIX_NOW);
+    expect(out.map((o) => o.nativeState)).toEqual(st.map((x) => `RUN_${x}`));
+    // run terminal ≠ fim do agente (não 'ended', não sai da sala) ≠ sucesso; horário = o do run
+    expect(out.every((o) => o.state === 'idle' && o.updatedAt === Date.parse('2026-10-16T12:40:00Z'))).toBe(true);
+  });
+  it('estado do run, horário nativo do run e instante local de confirmação ficam separados (carimbo por item)', async () => {
+    let clock = 5_000_000;
+    const list = { items: [
+      { id: 'bc-conf000001', status: 'ACTIVE', updatedAt: '2026-10-16T12:59:00Z', latestRunId: 'run-c1' },
+      { id: 'bc-conf000002', status: 'IDLE', updatedAt: '2026-10-16T12:30:00Z' },
+    ] };
+    const f: FetchLike = async (url) => {
+      const p = new URL(url).pathname.split('/');
+      clock += p[4] === 'runs' ? 40_000 : 1_000; // GET do run demora 40 s
+      const body = p.length === 3 ? list : p[4] === 'runs' ? { status: 'RUNNING', updatedAt: '2026-10-16T12:55:00Z' } : { repos: [{ url: 'https://github.com/matheusqf/habblaud-qode' }] };
+      return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+    };
+    const out = await new CursorCollector({ apiKey: 'k', cfg, fetch: f, clock: () => clock }).poll(FIX_NOW);
+    const run = out.find((o) => o.id === 'bc-conf000001')!;
+    const idle = out.find((o) => o.id === 'bc-conf000002')!;
+    expect(run.updatedAt).toBe(Date.parse('2026-10-16T12:55:00Z')); // horário nativo do run
+    expect(idle.confirmedAt).toBe(FIX_NOW + 1_000); // confirmado quando a página chegou
+    expect(run.confirmedAt).toBeGreaterThanOrEqual(FIX_NOW + 41_000); // confirmado quando o GET do run chegou
+    expect(run.expiresAt).toBe(run.confirmedAt + cfg.ttlMs);
+    expect(idle.expiresAt).toBe(idle.confirmedAt + cfg.ttlMs);
+  });
+  it('lastWindowExcluded: allowlist ANTES de reter (canário fora da allowlist / id inválido / desconhecido não fica no Set)', async () => {
+    let old = false;
+    const ts = () => (old ? '2026-10-01T00:00:00Z' : '2026-10-16T12:30:00Z');
+    const list = () => ({ items: [
+      { id: 'bc-okay000001', status: 'IDLE', updatedAt: ts() },
+      { id: 'bc-priv000001', status: 'IDLE', updatedAt: ts(), name: CANARY },
+      { id: '../CANARIO', status: 'IDLE', updatedAt: '2026-10-01T00:00:00Z' },
+      { id: 'bc-nunca00001', status: 'IDLE', updatedAt: '2026-10-01T00:00:00Z' },
+    ] });
+    const det: Record<string, unknown> = {
+      'bc-okay000001': { repos: [{ url: 'https://github.com/matheusqf/habblaud-qode' }] },
+      'bc-priv000001': { repos: [{ url: 'https://github.com/alguem/privado' }] },
+    };
+    const f: FetchLike = async (url) => {
+      const p = new URL(url).pathname.split('/');
+      return { ok: true, status: 200, text: async () => JSON.stringify(p.length === 3 ? list() : det[p[3]] ?? {}) };
+    };
+    const c = new CursorCollector({ apiKey: 'k', cfg, fetch: f });
+    expect((await c.poll(FIX_NOW)).map((o) => o.id)).toEqual(['bc-okay000001']);
+    expect([...c.lastWindowExcluded]).toEqual([]); // os antigos nunca autorizados não entram
+    old = true;
+    await c.poll(FIX_NOW);
+    expect([...c.lastWindowExcluded]).toEqual(['bc-okay000001']);
+    expect(JSON.stringify([...c.lastWindowExcluded])).not.toMatch(/priv|CANARIO|nunca/);
   });
   it('multirepo: todos os repos têm de estar na allowlist', async () => {
     const list = { items: [

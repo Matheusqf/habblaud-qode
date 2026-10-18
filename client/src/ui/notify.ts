@@ -7,7 +7,7 @@ import type { SoundBoard } from '../audio/board';
 import type { UiComponent, UiContext } from './context';
 import { computeCounters } from './model';
 
-const BASE_TITLE = PRODUCT_NAME;
+
 
 export type NotificationState = 'unsupported' | 'default' | 'granted' | 'denied';
 
@@ -40,7 +40,7 @@ export class Notifier implements UiComponent {
   render(): void {
     // Ao vivo, mesmo durante o timelapse: o título da aba avisa quem precisa de você agora.
     const waiting = computeCounters(this.ctx.store.liveSnapshot).waiting;
-    const title = waiting > 0 ? `(${waiting}) ${BASE_TITLE}` : BASE_TITLE;
+    const title = waiting > 0 ? `(${waiting}) ${PRODUCT_NAME}` : PRODUCT_NAME; // live binding: segue o pacote de tema
     if (title !== this.lastTitle) {
       this.lastTitle = title;
       document.title = title;

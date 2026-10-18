@@ -3,11 +3,12 @@
 import * as artModule from '../art';
 import { TILE, type ArtModule } from '../art/api';
 import type { OfficeStore } from '../net/store';
-import { DEFAULT_WORLD_OPTIONS, type Selection, type SocialEvent, type SoundCue, type WorldApi, type WorldOptions, type WorldPlayback } from './api';
+import { DEFAULT_WORLD_OPTIONS, type DeskClick, type Selection, type SocialEvent, type SoundCue, type WorldApi, type WorldOptions, type WorldPlayback } from './api';
 import { loadWorldAssets, type WorldAssets } from './assets';
 import { Camera, overviewFrame } from './camera';
 import { createDebug, type WorldDebug } from './debug';
 import { BUILDING_H, COL_W } from './constants';
+import { pickDeskMonitor } from './desks';
 import { inRect } from './layout/geometry';
 import { attachInput, type Hit } from './input';
 import { rebaseSnapshot } from './playback';
@@ -37,6 +38,7 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore): Worl
   const socialCbs = new Set<(e: SocialEvent) => void>();
   const soundCbs = new Set<(c: SoundCue) => void>();
   const roomMenuCbs = new Set<(roomId: string, at: { x: number; y: number }) => void>();
+  const deskCbs = new Set<(e: DeskClick) => void>();
   let cues = new SoundCues(sim, camera);
   let selection: Selection = null;
   let hover: string | null = null;
@@ -174,9 +176,34 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore): Worl
     hoverCbs.forEach((cb) => cb(id));
   };
 
+  // ---------------------------------------------------------------- hit-test de mesa (só no clique)
+
+  /** Monitor de mesa sob o ponto da tela (px CSS): o lugar que a mesa serve, ou null. Computado só no clique. */
+  const pickDeskSpot = (sx: number, sy: number) => {
+    const w = camera.screenToWorld(sx, sy);
+    return pickDeskMonitor(sim.rooms.values(), w.x, w.y, Math.max(1, 3 / camera.zoom));
+  };
+
   const detachInput = attachInput(canvas, camera, {
     pick,
-    click: (hit) => setSelection(hit),
+    click: (hit, at) => {
+      if (hit?.type === 'agent') {
+        setSelection(hit);
+        return;
+      }
+      // Monitor da mesa clicável: quem está sentado vem pelo id do agente dono do lugar no estado
+      // das mesas (nunca por sprite ou nome); mesa livre (ninguém ou saindo) chega null e a UI
+      // mostra só a dica "Mesa livre". Fora de mesa, o fluxo de seleção segue como antes.
+      const desk = pickDeskSpot(at.x, at.y);
+      if (desk) {
+        const owner = sim.spots.ownerOf(desk.id);
+        const ch = owner !== undefined ? sim.chars.get(owner) : undefined;
+        const e: DeskClick = { agentId: ch && !ch.leaving ? ch.id : null, at };
+        deskCbs.forEach((cb) => cb(e));
+        return;
+      }
+      setSelection(hit);
+    },
     doubleClick: (hit) => {
       if (hit?.type === 'agent') {
         setSelection(hit);
@@ -384,6 +411,10 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore): Worl
       roomMenuCbs.add(cb);
       return () => void roomMenuCbs.delete(cb);
     },
+    onDeskClick: (cb) => {
+      deskCbs.add(cb);
+      return () => void deskCbs.delete(cb);
+    },
     onSocialEvent: (cb) => {
       socialCbs.add(cb);
       return () => void socialCbs.delete(cb);
@@ -409,6 +440,8 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore): Worl
       hoverCbs.clear();
       socialCbs.clear();
       soundCbs.clear();
+      roomMenuCbs.clear();
+      deskCbs.clear();
     },
     get debug() {
       return debug;
