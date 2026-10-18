@@ -21,6 +21,11 @@ describe('cloud contract', () => {
     expect(normalizeState('cursor', 'ACTIVE')).toBe('unknown');
     expect(normalizeState('cursor', 'CREATING')).toBe('unknown');
     expect(normalizeState('cursor', 'RUNNING')).toBe('running');
+    // estado do RUN: terminal ≠ fim do agente ≠ sucesso (idle, não ended); CREATING/desconhecido → unknown
+    for (const t of ['RUN_FINISHED', 'RUN_ERROR', 'RUN_CANCELLED', 'RUN_EXPIRED']) expect(normalizeState('cursor', t)).toBe('idle');
+    expect(normalizeState('cursor', 'RUN_RUNNING')).toBe('running');
+    expect(normalizeState('cursor', 'RUN_CREATING')).toBe('unknown');
+    expect(normalizeState('cursor', 'RUN_UNKNOWN')).toBe('unknown');
     expect(normalizeState('cursor', 'WHATEVER')).toBe('unknown');
     expect(normalizeState('codex-cloud', 'pending')).toBe('unknown');
     expect(normalizeState('codex-cloud', 'queued')).toBe('unknown');

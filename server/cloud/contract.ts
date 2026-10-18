@@ -106,7 +106,10 @@ export function normalizeState(provider: CloudProvider, native: string): CloudSt
   if (provider === 'cursor') {
     // Só um RUN em RUNNING é execução. ACTIVE (agente) cobre também "à espera"/"prestes a começar"; CREATING ainda
     // não executa: ambos ficam 'unknown' (conservador).
-    if (n === 'RUNNING') return 'running';
+    if (n === 'RUNNING' || n === 'RUN_RUNNING') return 'running';
+    // Estado do RUN (coletor Cursor): terminal do run NÃO é fim do agente (não fecha) nem sucesso → idle, com o estado
+    // nativo preservado (RUN_ERROR, RUN_FINISHED…) para a UI. RUN_CREATING/RUN_UNKNOWN → unknown.
+    if (n === 'RUN_FINISHED' || n === 'RUN_ERROR' || n === 'RUN_CANCELLED' || n === 'RUN_EXPIRED') return 'idle';
     if (n === 'IDLE') return 'idle';
     if (n === 'ARCHIVED' || n === 'FINISHED' || n === 'ERROR' || n === 'CANCELLED' || n === 'EXPIRED') return 'ended';
     return 'unknown';

@@ -236,6 +236,23 @@ describe('CloudSource', () => {
     await s.tick();
     expect(closes).toEqual(['cloud:cursor:bc-aaaaaa02']);
   });
+  it('inventário parcial: ausência não encerra o agente', async () => {
+    const { office, agents } = fakeOffice();
+    let list = [obs('bc-aaaaaa01', 'RUNNING'), obs('bc-aaaaaa02', 'RUNNING')];
+    const col = { provider: 'cursor' as const, lastPartial: false, poll: async () => list };
+    let now = FIX_NOW;
+    const s = new CloudSource({ office, collectors: [col], now: () => now });
+    await s.tick();
+    col.lastPartial = true;
+    list = [obs('bc-aaaaaa01', 'RUNNING', FIX_NOW + 31_000)];
+    now += 31_000;
+    await s.tick();
+    expect(agents.has('cloud:cursor:bc-aaaaaa02')).toBe(true);
+    col.lastPartial = false;
+    now += 31_000;
+    await s.tick();
+    expect(agents.has('cloud:cursor:bc-aaaaaa02')).toBe(false);
+  });
 });
 
 // Regressão com o Office REAL (snapshot/feed/avisos): o fakeOffice não apanha a síntese de "Concluiu".
