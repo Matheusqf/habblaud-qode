@@ -29,7 +29,7 @@ describe('cloud contract', () => {
   it('allowlist antes de tudo e só campos do contrato', () => {
     const raw = { id: 'bc-abcdef12', project: 'https://github.com/Matheusqf/habblaud-qode', nativeState: 'ACTIVE', updatedAt: FIX_NOW - 1000, link: 'https://cursor.com/agents/bc-abcdef12?token=x#y', name: CANARY, prompt: CANARY } as RawCloudItem;
     const o = sanitize('cursor', raw, cfg, FIX_NOW)!;
-    expect(Object.keys(o).sort()).toEqual(['expiresAt', 'id', 'link', 'nativeState', 'project', 'provider', 'state', 'updatedAt']);
+    expect(Object.keys(o).sort()).toEqual(['confirmedAt', 'expiresAt', 'id', 'link', 'nativeState', 'project', 'provider', 'state', 'updatedAt']);
     expect(o.link).toBe('https://cursor.com/agents/bc-abcdef12');
     expect(JSON.stringify(o)).not.toContain(CANARY);
     expect(sanitize('cursor', { ...raw, project: 'outro/repo' }, cfg, FIX_NOW)).toBeUndefined();

@@ -21,7 +21,8 @@ export interface CloudCollector {
 /** O pedaço do Office que a fonte usa (facilita testes). */
 export interface CloudOffice {
   addMain(p: MainInput): void;
-  setStatus(id: string, status: 'working' | 'idle'): void;
+  /** Só observacional: nunca sintetiza "Concluiu"/aviso de sucesso (Office.setObservedStatus). */
+  setObservedStatus(id: string, status: 'working' | 'idle'): void;
   closeMain(id: string): void;
   has(id: string): boolean;
   setCloudMeta?(id: string, meta: NonNullable<AgentInfo['cloud']>, role: string): void;
@@ -108,9 +109,17 @@ export class CloudSource {
       this.busy.add(s);
       try {
         const list = await s.c.poll(now);
-        // Relógio PÓS-await: a consulta pode demorar minutos; TTL, nextAt e backoff contam a partir do fim.
+        // Relógio PÓS-await só para agendamento/backoff (nextAt). O TTL é POR CONFIRMAÇÃO: cada item vale a partir do
+        // instante em que ele próprio foi confirmado (confirmedAt, carimbado pelo coletor), nunca renovado pelo fim
+        // do lote. Só limita carimbos no futuro (relógio do coletor adiantado) ao fim do poll.
         const done = this.now();
-        for (const o of list) o.expiresAt = done + Math.max(0, o.expiresAt - now);
+        for (const o of list) {
+          if (!(o.confirmedAt <= done)) {
+            const ttl = Math.max(0, o.expiresAt - o.confirmedAt);
+            o.confirmedAt = done;
+            o.expiresAt = done + ttl;
+          }
+        }
         // Inventário completo SEM corte (o teto MAX_AGENTS é só visual, aplicado no reconcile).
         const next = new Map(list.map((o) => [o.id, o]));
         s.complete = !s.c.lastPartial;
@@ -172,6 +181,7 @@ export class CloudSource {
     for (const [id, o] of want) {
       const st = effectiveState(o, now) as 'running' | 'idle' | 'stale' | 'unknown';
       // O personagem só "trabalha" com running; stale/unknown ficam parados MAS o estado real vai para a UI (cloud.state).
+      // Mudança só OBSERVACIONAL: perder RUNNING (stale/unknown/IDLE/CREATING) nunca vira "Concluiu" nem aviso success.
       const status = st === 'running' ? 'working' : 'idle';
       if (!this.present.has(id) || !office.has(id)) {
         office.addMain({
@@ -184,7 +194,7 @@ export class CloudSource {
           status,
         });
         this.present.add(id);
-      } else office.setStatus(id, status);
+      } else office.setObservedStatus(id, status);
       office.setCloudMeta?.(id, { provider: o.provider, state: st, nativeState: o.nativeState, updatedAt: o.updatedAt, ...(o.link ? { link: o.link } : {}) }, `${LABEL[o.provider]} · ${STATE_LABEL[st]}`);
     }
   }

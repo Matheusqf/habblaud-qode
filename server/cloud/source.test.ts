@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { log } from '../log';
-import type { MainInput } from '../model/office';
+import { NameStore } from '../model/names';
+import { Office, type MainInput } from '../model/office';
 import { sanitize, type CloudObservation } from './contract';
 import { FIX_NOW } from './fixtures';
 import { CloudSource, officeId, type CloudOffice } from './source';
@@ -9,7 +10,7 @@ function fakeOffice() {
   const agents = new Map<string, MainInput & { status: string; cloud?: { state: string } }>();
   const office: CloudOffice = {
     addMain: (p) => void agents.set(p.id, { ...p }),
-    setStatus: (id, s) => void (agents.get(id) && (agents.get(id)!.status = s)),
+    setObservedStatus: (id, s) => void (agents.get(id) && (agents.get(id)!.status = s)),
     closeMain: (id) => void agents.delete(id),
     has: (id) => agents.has(id),
     setCloudMeta: (id, meta, role) => void (agents.get(id) && Object.assign(agents.get(id)!, { cloud: meta, role })),
@@ -153,16 +154,18 @@ describe('CloudSource', () => {
     expect(agents.get('cloud:cursor:bc-aaaaaa02')?.cloud?.state).toBe('stale');
     expect(agents.has('cloud:cursor:bc-aaaaaa02')).toBe(true);
   });
-  it('relógio pós-await: poll de 165 s não nasce vencido (TTL 180 s conta do fim) e nextAt/backoff usam o fim', async () => {
+  it('relógio pós-await só agenda: poll de 165 s, item confirmado no fim vale TTL a partir da SUA confirmação; nextAt/backoff usam o fim', async () => {
     const { office, agents } = fakeOffice();
     let now = FIX_NOW;
     let fail = false;
     const s = new CloudSource({
       office,
-      collectors: [{ provider: 'cursor', poll: async (t) => { now += 165_000; if (fail) throw new Error('x'); return [sanitize('cursor', { id: 'bc-aaaaaa03', project: 'matheusqf/habblaud-qode', nativeState: 'RUNNING', updatedAt: t }, cfg, t)!]; } }],
+      // O coletor carimba cada item quando a resposta DELE chega (aqui: no fim da consulta de 165 s).
+      collectors: [{ provider: 'cursor', poll: async () => { now += 165_000; if (fail) throw new Error('x'); return [sanitize('cursor', { id: 'bc-aaaaaa03', project: 'matheusqf/habblaud-qode', nativeState: 'RUNNING', updatedAt: now }, cfg, now)!]; } }],
       now: () => now,
     });
     await s.tick();
+    expect(s.observations()[0].confirmedAt).toBe(FIX_NOW + 165_000);
     expect(s.observations()[0].expiresAt).toBe(FIX_NOW + 165_000 + 180_000);
     expect(agents.get('cloud:cursor:bc-aaaaaa03')?.cloud?.state).toBe('running');
     // próximo poll agenda a partir do fim: um tick logo a seguir não chama de novo
@@ -177,6 +180,38 @@ describe('CloudSource', () => {
     now = failedAt + 30_000;
     await s.tick();
     expect(now).toBe(failedAt + 30_000);
+  });
+  it('TTL por confirmação individual: o fim do lote não renova evidência antiga (5 agentes, 1.º confirmado há 240 s)', async () => {
+    const { office, agents } = fakeOffice();
+    let now = FIX_NOW;
+    const ids = Array.from({ length: 5 }, (_, i) => `bc-ttl0000${i}`);
+    const s = new CloudSource({
+      office,
+      collectors: [{
+        provider: 'cursor',
+        // Consulta lenta, um item de cada vez: cada um é carimbado quando chega (60 s entre eles).
+        poll: async () => ids.map((id) => { now += 60_000; return sanitize('cursor', { id, project: 'matheusqf/habblaud-qode', nativeState: 'RUNNING', updatedAt: now }, cfg, now)!; }),
+      }],
+      now: () => now,
+    });
+    await s.tick();
+    // fim do lote = FIX_NOW+300 s; o 1.º foi confirmado em FIX_NOW+60 s (há 240 s > TTL 180 s): já é stale.
+    expect(now).toBe(FIX_NOW + 300_000);
+    const o0 = s.observations().find((o) => o.id === ids[0])!;
+    expect(o0.expiresAt).toBe(FIX_NOW + 60_000 + 180_000);
+    expect(agents.get(`cloud:cursor:${ids[0]}`)?.cloud?.state).toBe('stale');
+    expect(agents.get(`cloud:cursor:${ids[0]}`)?.status).toBe('idle');
+    // os recentes (confirmados há ≤ 180 s) continuam running
+    expect(agents.get(`cloud:cursor:${ids[4]}`)?.cloud?.state).toBe('running');
+    expect(agents.get(`cloud:cursor:${ids[2]}`)?.cloud?.state).toBe('running');
+  });
+  it('carimbo de confirmação no futuro é limitado ao fim do poll (sem TTL inflado)', async () => {
+    const { office } = fakeOffice();
+    const now = FIX_NOW;
+    const s = new CloudSource({ office, collectors: [{ provider: 'cursor', poll: async () => [sanitize('cursor', { id: 'bc-aaaaaa07', project: 'matheusqf/habblaud-qode', nativeState: 'RUNNING', updatedAt: now }, cfg, now + 3_600_000)!] }], now: () => now });
+    await s.tick();
+    expect(s.observations()[0].confirmedAt).toBe(FIX_NOW);
+    expect(s.observations()[0].expiresAt).toBe(FIX_NOW + 180_000);
   });
   it('excluído por janela (IDLE > 24 h) num inventário completo não fecha', async () => {
     const { office: base, agents } = fakeOffice();
@@ -199,4 +234,55 @@ describe('CloudSource', () => {
     await s.tick();
     expect(closes).toEqual(['cloud:cursor:bc-aaaaaa02']);
   });
+});
+
+// Regressão com o Office REAL (snapshot/feed/avisos): o fakeOffice não apanha a síntese de "Concluiu".
+describe('CloudSource + Office real: perder RUNNING não é sucesso', () => {
+  function realOffice(clock: { t: number }) {
+    return new Office({ names: new NameStore(null), version: 't', startedAt: clock.t, accounts: () => [], sources: () => [], accountName: () => undefined, now: () => clock.t });
+  }
+  const id = 'cloud:cursor:bc-real0001';
+  const run = (st: string, t: number) => sanitize('cursor', { id: 'bc-real0001', project: 'matheusqf/habblaud-qode', nativeState: st, updatedAt: t }, cfg, t)!;
+  function noSuccess(office: Office, r: ReturnType<Office['commit']>) {
+    const feedText = r.feed.map((f) => JSON.stringify(f)).join('\n');
+    expect(feedText).not.toMatch(/Concluiu|concluiu/);
+    expect(r.notices.filter((n) => n.level === 'success')).toEqual([]);
+    expect(r.notices.map((n) => n.text).join('\n')).not.toMatch(/concluiu/);
+    const a = r.snapshot.agents.find((x) => x.id === id)!;
+    expect(a.activity?.kind).not.toBe('done');
+    expect(JSON.stringify(office.get(id))).not.toMatch(/Concluiu/);
+    return a;
+  }
+  it('falha de polling após TTL: cloud.state=stale, personagem parado, sem "Concluiu" nem aviso success', async () => {
+    const clock = { t: FIX_NOW };
+    const office = realOffice(clock);
+    let fail = false;
+    const s = new CloudSource({ office, collectors: [{ provider: 'cursor', poll: async () => { if (fail) throw new Error('x'); return [run('RUNNING', clock.t)]; } }], now: () => clock.t });
+    await s.tick();
+    let r = office.commit();
+    expect(r.snapshot.agents.find((x) => x.id === id)?.status).toBe('working');
+    fail = true;
+    clock.t += 200_000; // > TTL 180 s sem confirmação
+    await s.tick();
+    r = office.commit();
+    const a = noSuccess(office, r);
+    expect(a.status).toBe('idle');
+    expect(a.cloud?.state).toBe('stale');
+  });
+  for (const next of ['IDLE', 'CREATING', 'NOVO_ESTADO']) {
+    it(`RUNNING → ${next}: atualização só observacional (sem síntese de conclusão)`, async () => {
+      const clock = { t: FIX_NOW };
+      const office = realOffice(clock);
+      let st = 'RUNNING';
+      const s = new CloudSource({ office, collectors: [{ provider: 'cursor', poll: async () => [run(st, clock.t)] }], now: () => clock.t });
+      await s.tick();
+      office.commit();
+      st = next;
+      clock.t += 31_000;
+      await s.tick();
+      const a = noSuccess(office, office.commit());
+      expect(a.status).toBe('idle');
+      expect(a.cloud?.state).toBe(next === 'IDLE' ? 'idle' : 'unknown');
+    });
+  }
 });

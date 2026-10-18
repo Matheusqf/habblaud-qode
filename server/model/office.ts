@@ -462,6 +462,26 @@ export class Office {
   }
 
   /**
+   * Status OBSERVADO de fora (agentes cloud, server/cloud): só muda o estado do personagem. Nunca sintetiza atividade
+   * ("Concluiu em …"), aviso de sucesso nem balão de espera: perder um RUNNING (stale/unknown/IDLE/CREATING) não é
+   * prova de conclusão. O estado real vai para a UI por setCloudMeta (cloud.state).
+   */
+  setObservedStatus(id: string, status: 'working' | 'idle'): void {
+    const rec = this.agents.get(id);
+    if (!rec || rec.info.status === 'offline') return;
+    const info = rec.info;
+    if (info.status === status && info.waitingFor === undefined) return;
+    if (info.status !== status) {
+      info.status = status;
+      info.statusSince = this.now();
+    }
+    delete info.waitingFor;
+    // Sem turno: um "working→idle" futuro por setStatus não deve medir/anunciar um turno que nunca observámos.
+    delete rec.turnStart;
+    this.markDirty();
+  }
+
+  /**
    * Ocupado, mas o transcript não diz nada novo há um tempo (a última atividade é o fim do turno
    * anterior — ex.: esperando subagentes em segundo plano): mostra algo coerente com "trabalhando".
    */
