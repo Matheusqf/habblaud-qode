@@ -5,6 +5,12 @@ import { currentThemePack } from '../../../shared/theme-packs';
 export interface AuthStatus {
   authRequired: boolean;
   authenticated: boolean;
+  /**
+   * Entrada remota só-leitura (server/http/remote-ro.ts): o mesmo gate funciona lá — /api/auth/status|login|logout
+   * são atendidos pelo router RO (sessão qode_ro, nunca a do operador) e o snapshot remoto traz terminal/mensagens
+   * desligados.
+   */
+  readOnly?: boolean;
 }
 
 export async function fetchAuthStatus(f: typeof fetch = fetch): Promise<AuthStatus> {
