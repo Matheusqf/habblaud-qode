@@ -31,7 +31,7 @@ Sem interface pública oficial de listagem/status: **observação automática in
 
 ## Cursor — estados e janela (review ZikaBOT 16/10)
 - Agente `ACTIVE` não é execução: o coletor lê só `status` e `updatedAt` do run `latestRunId` (`GET /v1/agents/{id}/runs/{runId}`). Estado do run preservado com prefixo `RUN_` (`RUN_RUNNING` → running; `RUN_CREATING`/outros → unknown; `RUN_FINISHED`/`RUN_ERROR`/`RUN_CANCELLED`/`RUN_EXPIRED` → idle: run terminal ≠ fim do agente ≠ sucesso, o agente continua na sala com o estado nativo visível). `updatedAt` = horário **do run** (sem horário do run → unknown; nunca o do agente); `confirmedAt` = instante local em que a resposta desse run chegou.
-- `lastWindowExcluded` (IDLE > 24 h): só entra um id válido cujo projeto já foi autorizado (todos os repos na allowlist); id cru, desconhecido ou fora da allowlist nunca fica retido.
+- `lastWindowExcluded` (IDLE > 24 h): projeto/multirepo **revalidado** em cada poll (cache ou GET de detalhe), sem depender de o id ainda estar no cache; só entra um id válido autorizado (todos os repos na allowlist). Id cru, desconhecido ou fora da allowlist nunca fica retido. Se o detalhe falhar, o inventário fica **parcial** (incerteza ≠ ausência). Cache de projeto com teto acima do inventário máximo de um poll.
 - Multirepo: o agente só passa se **todos** os `repos` estiverem na allowlist.
 - IDLE > 24 h sai do inventário por janela (`lastWindowExcluded`): filtro visual, **não** término — não fecha agentes já na sala.
 - TTL/nextAt/backoff contam a partir do fim da consulta (relógio pós-await).

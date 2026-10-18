@@ -15,6 +15,7 @@ const RECENT_MS = 24 * 3_600_000;
 const TIMEOUT_MS = 60_000;
 const MAX_BODY = 512 * 1024;
 const ID_RE = /^bc-[A-Za-z0-9-]{6,64}$/;
+const PROJECT_CACHE_MAX = 2 * MAX_PAGES * PAGE_LIMIT;
 const RUN_STATES = new Set(['CREATING', 'RUNNING', 'FINISHED', 'ERROR', 'CANCELLED', 'EXPIRED']);
 /** Estado nativo + horário nativo + instante local de confirmação, guardados separados. */
 interface Native {
@@ -110,15 +111,25 @@ export class CursorCollector implements CloudCollector {
     } while (cursor && page < MAX_PAGES);
     this.lastPartial = !!cursor;
     const excluded = new Set<string>();
+    const old: string[] = [];
     const candidates = items.filter(({ it }) => {
       if (typeof it.id !== 'string') return false;
       const updated = Date.parse(String(it.updatedAt));
       const keep = it.status === 'ACTIVE' || now - updated <= RECENT_MS;
-      // Allowlist ANTES de reter: só entra no Set um id válido cujo projeto JÁ foi autorizado (cache de detalhe, todos
-      // os repos na allowlist). Id cru, inválido, desconhecido ou fora da allowlist nunca fica retido.
-      if (!keep && ID_RE.test(it.id) && typeof this.projectOf.get(it.id) === 'string') excluded.add(it.id);
+      if (!keep && ID_RE.test(it.id)) old.push(it.id);
       return keep;
     });
+    // Exclusão por janela: projeto/multirepo REVALIDADO agora (cache ou GET de detalhe), nunca dependente de o id
+    // ainda estar no cache (pode ter sido expulso). Allowlist ANTES de reter: id inválido ou fora da allowlist nunca
+    // entra no Set. Se não der para autorizar (detalhe falhou), a incerteza NÃO vira ausência: inventário parcial.
+    for (let i = 0; i < old.length; i += DETAIL_CONCURRENCY) {
+      const batch = old.slice(i, i + DETAIL_CONCURRENCY);
+      const res = await Promise.all(batch.map((id) => this.project(id).then((p) => ({ ok: true as const, p }), () => ({ ok: false as const, p: undefined }))));
+      res.forEach((r, k) => {
+        if (!r.ok) this.lastPartial = true;
+        else if (r.p) excluded.add(batch[k]!);
+      });
+    }
     this.lastWindowExcluded = excluded;
     const out: CloudObservation[] = [];
     for (let i = 0; i < candidates.length; i += DETAIL_CONCURRENCY) {
@@ -168,7 +179,8 @@ export class CursorCollector implements CloudCollector {
     const ps = repos.map((r) => normalizeProject(typeof r?.url === 'string' ? r.url : undefined));
     const allowed = ps.length > 0 && ps.every((p) => !!p && this.deps.cfg.projects.has(p)) ? ps[0]! : null;
     this.projectOf.set(id, allowed);
-    if (this.projectOf.size > 500) this.projectOf.delete(this.projectOf.keys().next().value!);
+    // Teto acima do inventário máximo de um poll (MAX_PAGES × PAGE_LIMIT): uma página cheia não expulsa o resto.
+    if (this.projectOf.size > PROJECT_CACHE_MAX) this.projectOf.delete(this.projectOf.keys().next().value!);
     return allowed ?? undefined;
   }
 }
