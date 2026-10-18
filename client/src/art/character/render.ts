@@ -1107,6 +1107,7 @@ function drawTorso(dc: Dc): void {
         break;
     }
     drawLanyard(dc);
+    drawKitBadge(dc);
     return;
   }
   // Frente / costas: x 8..15.
@@ -1190,7 +1191,7 @@ function drawTorso(dc: Dc): void {
       b.rect(7, y + 5, 10, 1, t.dk);
       b.set(7, y + 5, t.base);
       break;
-    case 'polo':
+      case 'polo':
       if (front) {
         b.set(9, y, ac.lt);
         b.set(10, y, ac.base);
@@ -1204,6 +1205,7 @@ function drawTorso(dc: Dc): void {
       break;
   }
   drawLanyard(dc);
+  drawKitBadge(dc);
 }
 
 function drawLanyard(dc: Dc): void {
@@ -1236,6 +1238,30 @@ function drawLanyard(dc: Dc): void {
     b.rect(8 + lx, y + 3, 2, 3, card);
     b.set(8 + lx, y + 3, shade(col, -0.05));
     b.set(9 + lx, y + 3, shade(col, -0.05));
+  }
+}
+
+/**
+ * Broche de terminal do kit do OpenCode (Appearance.kit === 'opencode'): plaquinha 3x3 no peito
+ * direito (de frente) ou 2x2 na frente do peito (de perfil), com um pixel de prompt verde e o cursor
+ * claro — um terminalzinho apagado no crachá. De costas não aparece (está no peito).
+ */
+const KIT_BADGE_CASE = '#161d29';
+const KIT_BADGE_LED = '#4fd8a4';
+const KIT_BADGE_LED_HI = '#a6f2cf';
+
+function drawKitBadge(dc: Dc): void {
+  if (dc.a.kit !== 'opencode') return;
+  const { b, r } = dc;
+  const y = 18 + r.ub;
+  if (r.view === 'down') {
+    b.rect(13, y + 1, 3, 3, KIT_BADGE_CASE);
+    b.set(13, y + 2, KIT_BADGE_LED);
+    b.set(14, y + 3, KIT_BADGE_LED_HI);
+  } else if (r.view === 'side') {
+    const lx = r.lean;
+    b.rect(8 + lx, y + 1, 2, 2, KIT_BADGE_CASE);
+    b.set(8 + lx, y + 2, KIT_BADGE_LED);
   }
 }
 

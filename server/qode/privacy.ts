@@ -41,6 +41,7 @@ export const AGENT_RULES: Record<keyof AgentInfo, Rule> = {
   background: 'keep',
   permission: 'drop',
   canMessage: 'drop',
+  observed: 'keep',
 };
 
 export const ACTIVITY_RULES: Record<keyof Activity, Rule> = {

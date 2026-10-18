@@ -129,6 +129,12 @@ describe('utilidades', () => {
     expect(matchesQuery(a, rooms[1], accounts[0], 'marina loja')).toBe(false);
     expect(matchesQuery(a, rooms[1], accounts[0], '   ')).toBe(true);
   });
+  it('matchesQuery acha o mesmo agente pelo apelido e pelo nome original', () => {
+    const shown = { ...agents[0], name: 'Shrek', canonicalName: agents[0].name };
+    expect(matchesQuery(shown, rooms[1], accounts[0], 'shrek')).toBe(true);
+    expect(matchesQuery(shown, rooms[1], accounts[0], agents[0].name)).toBe(true);
+    expect(matchesQuery(shown, rooms[1], accounts[0], 'neo')).toBe(false);
+  });
   it('roleLabel', () => {
     expect(roleLabel({ kind: 'main', role: 'Agente principal' })).toBe('Agente principal');
     expect(roleLabel({ kind: 'sub', role: '' })).toBe('Subagente');

@@ -112,6 +112,8 @@ export interface RegistryPoll {
 interface Cached {
   mtimeMs: number;
   size: number;
+  /** Conteúdo lido (a comparação é por conteúdo, não por stat). */
+  raw?: string;
   entry: RegistryEntry | undefined;
 }
 
@@ -150,14 +152,22 @@ export class RegistryReader {
         continue;
       }
       let cached = this.cache.get(file);
-      if (!cached || cached.mtimeMs !== st.mtimeMs || cached.size !== st.size) {
+      // mtime+size não bastam: em sistemas de arquivos com mtime grosso (ext2/ext3, ~4 ms) duas gravações seguidas do
+      // mesmo tamanho ("busy" -> "idle") têm o mesmo stat. O arquivo é minúsculo: relê sempre e só reparseia se mudou.
+      let raw: string | undefined;
+      try {
+        raw = readFileSync(file, 'utf8');
+      } catch {
+        raw = undefined;
+      }
+      if (!cached || cached.raw !== raw) {
         let entry: RegistryEntry | undefined;
         try {
-          entry = parseRegistryEntry(readFileSync(file, 'utf8'));
+          entry = raw === undefined ? undefined : parseRegistryEntry(raw);
         } catch {
           entry = undefined;
         }
-        if (entry) cached = { mtimeMs: st.mtimeMs, size: st.size, entry };
+        if (entry) cached = { mtimeMs: st.mtimeMs, size: st.size, entry, raw };
         // JSON inválido (arquivo sendo gravado): mantém a última versão boa e tenta de novo no próximo ciclo.
         else cached = cached ? { ...cached } : { mtimeMs: 0, size: -1, entry: undefined };
         this.cache.set(file, cached);

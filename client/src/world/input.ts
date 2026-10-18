@@ -5,7 +5,8 @@ export type Hit = { type: 'agent'; id: string } | { type: 'room'; id: string } |
 
 export interface InputHandlers {
   pick(sx: number, sy: number): Hit;
-  click(hit: Hit): void;
+  /** Clique/toque: o hit e o ponto (px CSS, relativos ao canvas; ex.: hit-test de mesa só no clique). */
+  click(hit: Hit, at: { x: number; y: number }): void;
   doubleClick(hit: Hit): void;
   hover(sx: number, sy: number, inside: boolean): void;
   /** O usuário mexeu na câmera (cancela "seguir"). */
@@ -121,7 +122,7 @@ export function attachInput(canvas: HTMLCanvasElement, camera: Camera, h: InputH
       }
       lastTap = { t: now, x: p.x, y: p.y };
     }
-    h.click(hit);
+    h.click(hit, p);
   };
 
   const onCancel = (e: PointerEvent) => {
