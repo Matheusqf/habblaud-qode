@@ -14,6 +14,14 @@ const RECENT_MS = 24 * 3_600_000;
 // Medido no :4320 (16/10): pedidos reais à API até ~27 s até aos headers → poll_failed=TimeoutError com 10 s/30 s. 60 s por pedido.
 const TIMEOUT_MS = 60_000;
 const MAX_BODY = 512 * 1024;
+const ID_RE = /^bc-[A-Za-z0-9-]{6,64}$/;
+const RUN_STATES = new Set(['CREATING', 'RUNNING', 'FINISHED', 'ERROR', 'CANCELLED', 'EXPIRED']);
+/** Estado nativo + horário nativo + instante local de confirmação, guardados separados. */
+interface Native {
+  state: unknown;
+  updatedAt: unknown;
+  confirmedAt: number;
+}
 
 export type FetchLike = (url: string, init: { method: 'GET'; headers: Record<string, string>; signal?: AbortSignal; redirect: 'manual' }) => Promise<{
   ok: boolean;
@@ -58,7 +66,7 @@ export class CursorCollector implements CloudCollector {
   lastWindowExcluded: ReadonlySet<string> = new Set();
 
   constructor(
-    private readonly deps: { apiKey: string; cfg: Pick<CloudConfig, 'projects' | 'ttlMs'>; fetch?: FetchLike },
+    private readonly deps: { apiKey: string; cfg: Pick<CloudConfig, 'projects' | 'ttlMs'>; fetch?: FetchLike; clock?: () => number },
   ) {
     if (!deps.apiKey) throw new Error(`${CURSOR_KEY_ENV} ausente`);
   }
@@ -81,7 +89,12 @@ export class CursorCollector implements CloudCollector {
   }
 
   async poll(now: number): Promise<CloudObservation[]> {
-    const items: Array<Record<string, unknown>> = [];
+    // Instante LOCAL de cada confirmação, na escala de `now` (início do poll) + tempo decorrido: cada item é carimbado
+    // quando a resposta DELE chega (página da listagem ou GET do run), nunca no fim do lote (CloudSource).
+    const clock = this.deps.clock ?? Date.now;
+    const t0 = clock();
+    const at = () => now + Math.max(0, clock() - t0);
+    const items: Array<{ it: Record<string, unknown>; seenAt: number }> = [];
     let cursor: string | undefined;
     let page = 0;
     // Pagina até ao fim (sem parar por item antigo: a ordem pode não ser estrita). Teto => inventário parcial.
@@ -89,52 +102,65 @@ export class CursorCollector implements CloudCollector {
       const q: Record<string, string> = { limit: String(PAGE_LIMIT), includeArchived: 'false' };
       if (cursor) q.cursor = cursor;
       const r = (await this.get('/v1/agents', q)) as { items?: unknown; nextCursor?: unknown };
+      const seenAt = at();
       if (!Array.isArray(r?.items)) throw new Error('cursor: formato inesperado');
-      for (const it of r.items) if (it && typeof it === 'object') items.push(it as Record<string, unknown>);
+      for (const it of r.items) if (it && typeof it === 'object') items.push({ it: it as Record<string, unknown>, seenAt });
       cursor = typeof r.nextCursor === 'string' && r.nextCursor ? r.nextCursor : undefined;
       page++;
     } while (cursor && page < MAX_PAGES);
     this.lastPartial = !!cursor;
     const excluded = new Set<string>();
-    const candidates = items.filter((it) => {
+    const candidates = items.filter(({ it }) => {
       if (typeof it.id !== 'string') return false;
       const updated = Date.parse(String(it.updatedAt));
       const keep = it.status === 'ACTIVE' || now - updated <= RECENT_MS;
-      if (!keep) excluded.add(it.id);
+      // Allowlist ANTES de reter: só entra no Set um id válido cujo projeto JÁ foi autorizado (cache de detalhe, todos
+      // os repos na allowlist). Id cru, inválido, desconhecido ou fora da allowlist nunca fica retido.
+      if (!keep && ID_RE.test(it.id) && typeof this.projectOf.get(it.id) === 'string') excluded.add(it.id);
       return keep;
     });
     this.lastWindowExcluded = excluded;
     const out: CloudObservation[] = [];
     for (let i = 0; i < candidates.length; i += DETAIL_CONCURRENCY) {
       const batch = candidates.slice(i, i + DETAIL_CONCURRENCY);
-      const projects = await Promise.all(batch.map((it) => this.project(it.id as string)));
-      // ACTIVE (agente) não é execução: só o estado do run mais recente decide (GET do run; só `status` é lido).
-      const native = await Promise.all(batch.map((it, k) => (projects[k] && it.status === 'ACTIVE' ? this.runState(it) : Promise.resolve(it.status))));
-      batch.forEach((it, k) => {
+      const projects = await Promise.all(batch.map(({ it }) => this.project(it.id as string)));
+      // ACTIVE (agente) não é execução: o estado e o horário vêm do RUN mais recente (GET do run; só status/updatedAt).
+      const native = await Promise.all(
+        batch.map(({ it, seenAt }, k): Promise<Native> =>
+          projects[k] && it.status === 'ACTIVE' ? this.runState(it, at) : Promise.resolve({ state: it.status, updatedAt: it.updatedAt, confirmedAt: seenAt }),
+        ),
+      );
+      batch.forEach(({ it }, k) => {
         const project = projects[k];
         if (!project) return;
-        const o = sanitize('cursor', { id: it.id, project, nativeState: native[k], updatedAt: it.updatedAt, link: it.url }, this.deps.cfg, now);
+        const n = native[k];
+        const o = sanitize('cursor', { id: it.id, project, nativeState: n.state, updatedAt: n.updatedAt, link: it.url }, this.deps.cfg, n.confirmedAt);
         if (o) out.push(o);
       });
     }
     return out;
   }
 
-  /** RUNNING → execução; CREATING/outros/sem run → ACTIVE (unknown). Terminal do run ≠ fim do agente → IDLE. */
-  private async runState(it: Record<string, unknown>): Promise<string> {
+  /**
+   * Estado do RUN preservado (prefixo RUN_: RUN_RUNNING, RUN_CREATING, RUN_FINISHED, RUN_ERROR, RUN_CANCELLED,
+   * RUN_EXPIRED — run terminal ≠ fim do agente ≠ sucesso, ver normalizeState), com o horário NATIVO do run
+   * (run.updatedAt; nunca o do agente) e o instante local da confirmação. Sem run → ACTIVE (unknown) com o horário
+   * do agente (é o estado do agente que se reporta).
+   */
+  private async runState(it: Record<string, unknown>, at: () => number): Promise<Native> {
     const run = typeof it.latestRunId === 'string' && /^run-[A-Za-z0-9-]{1,64}$/.test(it.latestRunId) ? it.latestRunId : undefined;
-    if (!run) return 'ACTIVE';
-    const r = (await this.get(`/v1/agents/${it.id as string}/runs/${run}`)) as { status?: unknown };
+    if (!run) return { state: 'ACTIVE', updatedAt: it.updatedAt, confirmedAt: at() };
+    const r = (await this.get(`/v1/agents/${it.id as string}/runs/${run}`)) as { status?: unknown; updatedAt?: unknown };
+    const confirmedAt = at();
     const st = typeof r?.status === 'string' ? r.status.toUpperCase() : '';
-    if (st === 'RUNNING') return 'RUNNING';
-    if (st === 'CREATING') return 'CREATING';
-    if (st === 'FINISHED' || st === 'ERROR' || st === 'CANCELLED' || st === 'EXPIRED') return 'IDLE';
-    return 'ACTIVE';
+    const state = RUN_STATES.has(st) ? `RUN_${st}` : 'RUN_UNKNOWN';
+    // Sem horário do run → sanitize marca unknown (não cai para o updatedAt do agente).
+    return { state, updatedAt: typeof r?.updatedAt === 'string' || typeof r?.updatedAt === 'number' ? r.updatedAt : undefined, confirmedAt };
   }
 
   private async project(id: string): Promise<string | undefined> {
     if (this.projectOf.has(id)) return this.projectOf.get(id) ?? undefined;
-    if (!/^bc-[A-Za-z0-9-]{6,64}$/.test(id)) return undefined;
+    if (!ID_RE.test(id)) return undefined;
     const d = (await this.get(`/v1/agents/${id}`)) as { repos?: Array<{ url?: unknown }> };
     // Multirepo: verifica TODOS os repos; o agente só passa se TODOS estiverem na allowlist (um repo privado fora
     // dela basta para o esconder). Projeto mostrado = o primeiro. Allowlist ANTES do cache; nunca guarda URLs.

@@ -1,18 +1,18 @@
 // Avatares dos agentes para a UI: gerados pelo módulo de arte uma única vez e reaproveitados como data URL.
 import { partsKey } from '../../../shared/appearance';
-import type { AgentInfo } from '../../../shared/types';
+import type { AgentInfo, Provider } from '../../../shared/types';
 import { avatarCanvas } from '../art';
 import { h } from './dom';
 
 const cache = new Map<string, { url: string; w: number; h: number }>();
 
-type AvatarSource = Pick<AgentInfo, 'seed' | 'look' | 'kind' | 'parts'>;
+type AvatarSource = Pick<AgentInfo, 'seed' | 'look' | 'kind' | 'parts'> & { provider?: Provider };
 
 function avatarData(agent: AvatarSource, scale: number): { url: string; w: number; h: number } {
-  const key = `${agent.seed}|${agent.look}|${agent.kind}|${scale}|${partsKey(agent.parts)}`;
+  const key = `${agent.seed}|${agent.look}|${agent.kind}|${scale}|${partsKey(agent.parts)}|${agent.provider ?? '-'}`;
   let entry = cache.get(key);
   if (!entry) {
-    const c = avatarCanvas(agent.seed, { look: agent.look, sub: agent.kind === 'sub', scale, parts: agent.parts });
+    const c = avatarCanvas(agent.seed, { look: agent.look, sub: agent.kind === 'sub', scale, parts: agent.parts, provider: agent.provider });
     entry = { url: c.toDataURL('image/png'), w: c.width, h: c.height };
     cache.set(key, entry);
   }
@@ -36,9 +36,9 @@ export function createAvatarPlaceholder(size: AvatarSize): HTMLElement {
   return h('span', { class: `ui-avatar ui-avatar--${size}`, attrs: { 'aria-hidden': 'true' } });
 }
 
-/** Atualiza o avatar só se a aparência (semente, look, peças) mudou. */
+/** Atualiza o avatar só se a aparência (semente, look, peças, ferramenta) mudou. */
 export function updateAvatar(box: HTMLElement, agent: AvatarSource, size: AvatarSize): void {
-  const sig = `${agent.seed}|${agent.look}|${agent.kind}|${partsKey(agent.parts)}`;
+  const sig = `${agent.seed}|${agent.look}|${agent.kind}|${partsKey(agent.parts)}|${agent.provider ?? '-'}`;
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   let img = box.querySelector('img');

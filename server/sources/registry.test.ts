@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { tempDir } from '../test/fixtures';
@@ -55,6 +55,20 @@ describe('registro de sessões', () => {
     expect(reader.poll().entries.map((e) => e.pid)).toEqual([10]);
     const docker = new RegistryReader(tmp.dir, { checkPid: false });
     expect(docker.poll().entries.map((e) => e.pid).sort()).toEqual([10, 11]);
+  });
+
+  it('determinístico: mesmo tamanho e mesmo mtime (FS de mtime grosso) — a mudança de conteúdo vale', () => {
+    const file = join(sessions, '30.json');
+    writeFileSync(file, entry(30, { status: 'busy' }));
+    utimesSync(file, 1_700_000_000, 1_700_000_000);
+    const st = statSync(file);
+    const reader = new RegistryReader(tmp.dir, { checkPid: false });
+    expect(reader.poll().entries[0].status).toBe('busy');
+    writeFileSync(file, entry(30, { status: 'idle' }));
+    utimesSync(file, 1_700_000_000, 1_700_000_000);
+    expect(statSync(file).size).toBe(st.size);
+    expect(statSync(file).mtimeMs).toBe(st.mtimeMs);
+    expect(reader.poll().entries[0].status).toBe('idle');
   });
 
   it('JSON inválido (gravação em andamento) mantém a última versão boa', () => {

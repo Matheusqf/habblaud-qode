@@ -1,5 +1,6 @@
-// B4 L1: gate mínimo da SPA. Com HABBLAUD_AUTH desligado, /api/auth/status dá 404 e nada muda.
+// B4 L1: gate mínimo da SPA. Com HABBLAUD_AUTH desligado, /api/auth/status dá {authRequired:false} (404 de servidores antigos também é aceite).
 // Com auth ligada e sem sessão, mostra um formulário de senha e só arranca o escritório depois do login.
+import { currentThemePack } from '../../../shared/theme-packs';
 
 export interface AuthStatus {
   authRequired: boolean;
@@ -27,7 +28,7 @@ export async function ensureAuthenticated(root: HTMLElement): Promise<void> {
     box.style.cssText =
       'position:fixed;inset:0;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;background:#111;color:#eee;z-index:9999;font:14px system-ui';
     const title = document.createElement('div');
-    title.textContent = 'QODE Office — entrar';
+    title.textContent = `${currentThemePack().brand.text} — entrar`;
     const input = document.createElement('input');
     input.type = 'password';
     input.autocomplete = 'current-password';

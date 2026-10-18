@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OfficeSnapshot } from '../../../shared/types';
+import type { AgentInfo, OfficeSnapshot } from '../../../shared/types';
 import { mockOptionsFrom, OfficeStore, pageBuild, reconnectDelay, type EventSourceLike } from './store';
 
 /** EventSource falso: o teste dispara open/error e muda o readyState. */
@@ -218,6 +218,7 @@ describe('fonte alternativa (timelapse)', () => {
     vi.setSystemTime(10_000);
     try {
       const store = new OfficeStore();
+      store.nicknames = false; // identidade dos snapshots (os apelidos têm teste próprio abaixo)
       const seen: number[] = [];
       store.on('snapshot', (s) => seen.push(s.rev));
       const apply = (s: OfficeSnapshot) => (store as unknown as { applySnapshot(s: OfficeSnapshot): void }).applySnapshot(s);
@@ -279,5 +280,49 @@ describe('personagem do projeto (store)', () => {
     const calls = fetchMock.mock.calls.length;
     expect(await new OfficeStore({ mock: true }).resetCharacter('a')).toMatch(/ao vivo/);
     expect(fetchMock.mock.calls.length).toBe(calls);
+  });
+});
+
+describe('apelidos (só exibição)', () => {
+  it('troca o nome exibido, guarda o real e mantém o id', () => {
+    const store = new OfficeStore();
+    const ag = (id: string, name: string) => ({ id, name, look: 'f', kind: 'main', roomId: 'r', role: 'x', sessionId: id, account: '.claude', status: 'idle' }) as unknown as AgentInfo;
+    const base = { ...snap(1), agents: [ag('acc:1', 'Ana'), ag('acc:2', 'Bruno')] };
+    const realNames = base.agents.map((a) => a.name);
+    (store as unknown as { applySnapshot(s: OfficeSnapshot): void }).applySnapshot(base);
+    const got = store.snapshot!.agents;
+    expect(got.map((a) => a.id)).toEqual(base.agents.map((a) => a.id));
+    expect(got.map((a) => (a as { canonicalName?: string }).canonicalName)).toEqual(realNames);
+    expect(base.agents.map((a) => a.name)).toEqual(realNames);
+    expect(got.map((a) => a.name)).not.toEqual(realNames);
+    expect(new Set(got.map((a) => a.name)).size).toBe(2);
+  });
+  it('desligado: snapshot intacto', () => {
+    const store = new OfficeStore();
+    store.nicknames = false;
+    const base = snap(1);
+    (store as unknown as { applySnapshot(s: OfficeSnapshot): void }).applySnapshot(base);
+    expect(store.snapshot).toBe(base);
+  });
+});
+
+describe('apelidos nunca vão para o servidor (regressão #16 P1)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('editar a roupa com o apelido no campo nome envia o nome canônico', async () => {
+    const fetchMock = vi.fn(async () => new Response('{"ok":true}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const store = new OfficeStore();
+    store.nicknames = true;
+    const ag = { id: 'acc:1', name: 'Ana', look: 'f', kind: 'main', roomId: 'r', role: 'x', sessionId: 's', account: '.claude', status: 'idle' } as unknown as AgentInfo;
+    (store as unknown as { applySnapshot(s: OfficeSnapshot): void }).applySnapshot({ ...snap(1), agents: [ag] });
+    const shown = store.snapshot!.agents[0];
+    expect(shown.name).not.toBe('Ana');
+    expect((shown as { canonicalName?: string }).canonicalName).toBe('Ana');
+    await store.saveCharacter('acc:1', { name: shown.name, seed: 3, parts: {} });
+    expect(JSON.parse((fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body).name).toBe('Ana');
+    // renomear de propósito continua possível
+    await store.saveCharacter('acc:1', { name: 'Aninha', seed: 3, parts: {} });
+    expect(JSON.parse((fetchMock.mock.calls[1] as unknown as [string, { body: string }])[1].body).name).toBe('Aninha');
   });
 });

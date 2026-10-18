@@ -9,6 +9,17 @@ import { assembleBuilding, type BuildingLayout } from '../layout/building';
 import { RECEPTION_ID } from '../layout/core';
 import { columnsFor, inRect } from '../layout/geometry';
 import { layoutProjectRoom } from '../layout/room';
+import { currentRoomStyle, currentSeason } from '../season';
+
+const SEASON = currentSeason();
+const ROOM_STYLE = currentRoomStyle();
+const VIBE = vibeEnabled();
+const AREAS = parseAreas(buildAreasJson());
+/** Nome exibido da sala: a área configurada (se houver) ou o nome do servidor. */
+function withArea(r: RoomInfo): RoomInfo {
+  const a = AREAS.length ? areaFor(r.path, AREAS) : undefined;
+  return a && a.name !== r.name ? { ...r, name: a.name } : r;
+}
 import type { SpotDef, SpotKind } from '../layout/types';
 import { PathFinder } from '../path/astar';
 import { BLOCKED, FREE, SEAT } from '../path/grid';
@@ -34,6 +45,8 @@ import { RoomFxState } from './github';
 import { RoomState } from './room-state';
 import { countShells, latestShellDone, shellLabel, shellStage, shellWaitSince, spinDir, spinPhase, yawnPhase } from './shell';
 import { SpotRegistry } from './spots';
+import { vibeEnabled, vibeForActivity, vibeForMode, buildAreasJson } from '../fx/vibe';
+import { areaFor, parseAreas } from '../../../../shared/areas';
 import type { Step } from './steps';
 
 /**
@@ -43,7 +56,9 @@ import type { Step } from './steps';
 export type WorldEffect =
   | { kind: 'confetti'; charId: string; at: number }
   | { kind: 'coins'; charId: string; toId: string; at: number }
-  | { kind: 'sparkle'; charId: string; at: number };
+  | { kind: 'sparkle'; charId: string; at: number }
+  /** vibe: tombo ao erro (estrelinhas de tontura em volta da cabeça). */
+  | { kind: 'tumble'; charId: string; at: number };
 
 export { SHELL_DONE_TOOL } from './shell';
 /** Comemoração (shell concluído) e lamento (falhou/morto). */
@@ -79,8 +94,8 @@ function between(rng: () => number, a: number, b: number): number {
   return a + rng() * (b - a);
 }
 
-/** O que define a aparência de um personagem (muda quando o personagem é editado). */
-const lookSig = (a: AgentInfo): string => `${a.seed}|${a.look}|${partsKey(a.parts)}`;
+/** O que define a aparência de um personagem (muda quando o personagem é editado ou troca de ferramenta). */
+const lookSig = (a: AgentInfo): string => `${a.seed}|${a.look}|${partsKey(a.parts)}|${a.provider ?? ''}`;
 
 export class Sim {
   readonly chars = new Map<string, Character>();
@@ -150,7 +165,7 @@ export class Sim {
     let layoutDirty = false;
     const listed = new Set<string>();
     // na ordem de chegada (slot do servidor): na carga inicial as salas ocupam as vagas 0, 1, 2... nessa ordem
-    for (const r of [...snap.rooms].sort((a, b) => a.slot - b.slot)) {
+    for (const r of [...snap.rooms].map(withArea).sort((a, b) => a.slot - b.slot)) {
       if (this.hiddenRooms.has(r.id)) continue;
       listed.add(r.id);
       const rs = this.rooms.get(r.id);
@@ -232,7 +247,7 @@ export class Sim {
     }
     // a primeira vaga livre do prédio (o slot do servidor só dá a ordem de chegada)
     const slot = this.freeSlot();
-    const layout = layoutProjectRoom({ id: r.id, slot, seed: r.seed }, theme);
+    const layout = layoutProjectRoom({ id: r.id, slot, seed: r.seed, season: SEASON, style: ROOM_STYLE }, theme);
     const rs = new RoomState(r, theme, layout, first ? 'ready' : 'building', now, first, slot);
     this.rooms.set(r.id, rs);
     return rs;
@@ -254,7 +269,7 @@ export class Sim {
     ch.info = a;
     if (lookSig(a) !== prevLook) {
       try {
-        ch.appearance = this.art.appearanceFromSeed(a.seed, { look: a.look, sub: a.kind === 'sub', parts: a.parts });
+        ch.appearance = this.art.appearanceFromSeed(a.seed, { look: a.look, sub: a.kind === 'sub', parts: a.parts, provider: a.provider });
       } catch {
         // Arte com problema: fica a aparência que já estava.
       }
@@ -274,6 +289,9 @@ export class Sim {
         ch.activityChangedAt = now;
         if (act.kind === 'done') ch.setIcon('check', 2600, now);
         if (act.kind === 'error') ch.setIcon('sweat', 2200, now);
+        const vibe = VIBE ? vibeForActivity(act.kind, ch.info.kind === 'main') : null;
+        if (vibe === 'tumble') this.pushEffect({ kind: 'tumble', charId: ch.id, at: now });
+        else if (vibe === 'confetti') this.pushEffect({ kind: 'confetti', charId: ch.id, at: now });
         if (act.kind === 'delegate' && ch.info.kind === 'main' && a.status === 'working') this.planDelegate(ch, now);
         // pedido atendido: moedinhas pelo trabalho
         if (act.kind === 'done' && ch.info.kind === 'main') this.social.turnDone(ch, now);
@@ -297,6 +315,7 @@ export class Sim {
     if (mode === ch.mode) return;
     const prev = ch.mode;
     ch.mode = mode;
+    if (VIBE && vibeForMode(prev, mode) === 'coffee') ch.setIcon('coffee', 3000, this.now);
     if (prev === 'idle' && mode !== 'idle') ch.nextOutingAt = 0;
     if (ch.icon === 'zzz') ch.setIcon(null, 0, this.now);
     this.refreshShell(ch, this.now);
@@ -391,7 +410,7 @@ export class Sim {
   private spawn(a: AgentInfo, first: boolean, now: number): Character | null {
     let appearance;
     try {
-      appearance = this.art.appearanceFromSeed(a.seed, { look: a.look, sub: a.kind === 'sub', parts: a.parts });
+      appearance = this.art.appearanceFromSeed(a.seed, { look: a.look, sub: a.kind === 'sub', parts: a.parts, provider: a.provider });
     } catch {
       return null;
     }
@@ -642,7 +661,7 @@ export class Sim {
   moveRoom(room: RoomState, slot: number, now: number): void {
     const before = room.layout;
     const ghostId = `${room.id}#mudança${++this.moveSeq}`;
-    const ghostLayout = layoutProjectRoom({ id: ghostId, slot: room.slot, seed: room.seed }, room.theme);
+    const ghostLayout = layoutProjectRoom({ id: ghostId, slot: room.slot, seed: room.seed, season: SEASON, style: ROOM_STYLE }, room.theme);
     const ghost = new RoomState({ ...room.info, id: ghostId, seed: room.seed }, room.theme, ghostLayout, 'ready', now, false, room.slot);
     ghost.ghost = true;
     ghost.listed = false;
@@ -658,7 +677,7 @@ export class Sim {
     });
 
     room.slot = slot;
-    room.layout = layoutProjectRoom({ id: room.id, slot, seed: room.seed }, room.theme);
+    room.layout = layoutProjectRoom({ id: room.id, slot, seed: room.seed, season: SEASON, style: ROOM_STYLE }, room.theme);
     room.setPhase('building', now);
     room.lightOn = false;
     room.lightAt = -1e9;

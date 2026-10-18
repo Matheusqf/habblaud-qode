@@ -466,7 +466,15 @@ export function createAuth(opts: AuthOptions): Auth {
       for (const k of [...sessions.keys()]) drop(k);
     },
     handle(req, res, path) {
-      if (!opts.enabled || !path.startsWith('/api/')) return false;
+      if (!opts.enabled) {
+        // Auth desligada: responde 200 em vez de 404 para não sujar a consola do browser (o gate trata ambos).
+        if (path === '/api/auth/status') {
+          json(res, 200, { authRequired: false, authenticated: true });
+          return true;
+        }
+        return false;
+      }
+      if (!path.startsWith('/api/')) return false;
       const method = req.method ?? 'GET';
       if (path === '/api/auth/status') {
         // authenticated = sessão do operador; Bearer é principal de máquina, não UI.
