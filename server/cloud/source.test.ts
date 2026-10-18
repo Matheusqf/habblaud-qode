@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { log } from '../log';
+import { buildCards } from '../../client/src/ui/cards-model';
+import { unifiedState } from '../../shared/unified-state';
 import { NameStore } from '../model/names';
 import { Office, type MainInput } from '../model/office';
 import { sanitize, type CloudObservation } from './contract';
@@ -285,4 +287,62 @@ describe('CloudSource + Office real: perder RUNNING não é sucesso', () => {
       expect(a.cloud?.state).toBe(next === 'IDLE' ? 'idle' : 'unknown');
     });
   }
+});
+
+describe('CloudSource: relógio atual no início de cada poll (coletores sequenciais)', () => {
+  it('1.º coletor demora 240 s; o 2.º recebe o relógio do SEU início e não nasce stale', async () => {
+    const { office, agents } = fakeOffice();
+    let now = FIX_NOW;
+    const seen: number[] = [];
+    const slow = { provider: 'cursor' as const, poll: async (t: number) => { seen.push(t); now += 240_000; return [sanitize('cursor', { id: 'bc-slow00001', project: 'matheusqf/habblaud-qode', nativeState: 'RUNNING', updatedAt: now }, cfg, now)!]; } };
+    const fast = { provider: 'codex-cloud' as const, poll: async (t: number) => { seen.push(t); now += 1_000; return [sanitize('codex-cloud', { id: 'task_e_fast01', project: 'matheusqf/habblaud-qode', nativeState: 'RUNNING', updatedAt: t }, cfg, t + 1_000)!]; } };
+    const s = new CloudSource({ office, collectors: [slow, fast], now: () => now });
+    await s.tick();
+    expect(seen).toEqual([FIX_NOW, FIX_NOW + 240_000]);
+    const o = s.observations().find((x) => x.id === 'task_e_fast01')!;
+    expect(o.confirmedAt).toBe(FIX_NOW + 241_000);
+    expect(agents.get('cloud:codex-cloud:task_e_fast01')?.cloud?.state).toBe('running');
+  });
+});
+
+describe('Cadeia fonte → Office real → unifiedState/cartões: cloud nunca é «Feito»', () => {
+  const realOffice = (clock: { t: number }) => new Office({ names: new NameStore(null), version: 't', startedAt: clock.t, accounts: () => [], sources: () => [], accountName: () => undefined, now: () => clock.t });
+  const cases: Array<[string, 'RUNNING' | 'IDLE' | 'CREATING' | 'RUN_ERROR' | 'STALE', string]> = [
+    ['running', 'RUNNING', 'inferred'],
+    ['IDLE', 'IDLE', 'inferred'],
+    ['CREATING', 'CREATING', 'inferred'],
+    ['stale (falha de polling após TTL)', 'STALE', 'inferred'],
+    ['RUN_ERROR (evidência explícita do provedor)', 'RUN_ERROR', 'error'],
+  ];
+  for (const [label, st, want] of cases) {
+    it(`RUNNING → ${label}: snapshot e cartão = ${want}, nunca done`, async () => {
+      const clock = { t: FIX_NOW };
+      const office = realOffice(clock);
+      let native: string = 'RUNNING';
+      let fail = false;
+      const s = new CloudSource({ office, collectors: [{ provider: 'cursor', poll: async () => { if (fail) throw new Error('x'); return [sanitize('cursor', { id: 'bc-chain0001', project: 'matheusqf/habblaud-qode', nativeState: native, updatedAt: clock.t }, cfg, clock.t)!]; } }], now: () => clock.t });
+      await s.tick();
+      office.commit();
+      if (st === 'STALE') {
+        fail = true;
+        clock.t += 200_000;
+      } else {
+        native = st;
+        clock.t += 31_000;
+      }
+      await s.tick();
+      const snap = office.commit().snapshot;
+      const a = snap.agents.find((x) => x.id === 'cloud:cursor:bc-chain0001')!;
+      expect(a.status).toBe(st === 'RUNNING' ? 'working' : 'idle');
+      expect(unifiedState(a)).toBe(want);
+      const card = buildCards(snap).flatMap((r) => r.cards).find((c) => c.agent.id === a.id)!;
+      expect(card.state).toBe(want);
+      expect(card.state).not.toBe('done');
+      // RUN_ERROR conta no filtro "precisa de atenção"; os inferidos não.
+      expect(buildCards(snap, { attentionOnly: true }).flatMap((r) => r.cards).some((c) => c.agent.id === a.id)).toBe(want === 'error');
+    });
+  }
+  it('RUN_ERROR numa confirmação vencida (stale) não vira erro', () => {
+    expect(unifiedState({ status: 'idle', cloud: { provider: 'cursor', state: 'stale', nativeState: 'RUN_ERROR', updatedAt: FIX_NOW } })).toBe('inferred');
+  });
 });

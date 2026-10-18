@@ -18,6 +18,8 @@ Plano ZikaBOT (#poc-habblaud, 16/10/2026), fatias 1–3. **Observe-only. Desliga
 - Estados: `running` | `idle` (IDLE ≠ sucesso) | `ended` (sai da sala) | `stale` (sem confirmação dentro do TTL, ou atualização antiga) | `unknown`.
 - TTL **por confirmação individual**: cada item vale a partir do seu próprio `confirmedAt`; o fim do poll serve só para agendamento/backoff e nunca renova evidência antiga.
 - Mudança de estado do personagem é **só observacional** (`Office.setObservedStatus`): perder RUNNING (stale/unknown/IDLE/CREATING) nunca gera "Concluiu" nem aviso de sucesso.
+- Estado unificado/cartões (`shared/unified-state.ts`): agente cloud é tratado antes do fallback idle→«Feito» — fica `inferred` (running, idle, stale, CREATING, unknown); `error` só com estado nativo de erro (ex. `RUN_ERROR`) numa confirmação em dia.
+- Cada poll recebe o relógio atual do seu início (coletores sequenciais não herdam o `now` do primeiro).
 - Tokens ficam no coletor (servidor). Erros de coletor são genéricos (sem corpo/headers).
 - QODE não cria, responde, cancela nem arquiva agentes. Sem webhooks (v1 "coming soon"; não criar agentes para receber notificações).
 
