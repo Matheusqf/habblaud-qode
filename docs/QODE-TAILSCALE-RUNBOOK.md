@@ -7,13 +7,14 @@ Estado: **inerte**. Nada aqui é executado por scripts. Ativação real só com 
 - Nome do dispositivo **não sensível** (o certificado HTTPS publica `<device>.<tailnet>.ts.net` em Certificate Transparency).
 - **Consentimento HTTPS + MagicDNS**: ativar MagicDNS e "HTTPS Certificates" no admin é uma decisão explícita (publica o nome em CT). Sem consentimento, parar aqui.
 - Senha B4 definida: `npm run auth:set-password`.
+- **Privacidade QODE válida (obrigatória)**: `qode.config.json` presente e válido, com `"privado"` explícito em cada projeto. Com `HABBLAUD_REMOTE_RO=1` o servidor **recusa arrancar** sem isto — antes de qualquer fonte/listener e **independentemente** de `HABBLAUD_QODE_REQUIRED`. Não contornar: sem config válida, parar aqui.
 
 ## 0. Inspecionar antes de mexer (guardar o "antes")
 ```
 tailscale serve status --json  > /tmp/serve-before.json
 tailscale funnel status --json > /tmp/funnel-before.json
 ```
-- Se já houver handlers de outros serviços: **não** sobrescrever; escolher outra porta HTTPS ou parar e decidir com o Matheus.
+- Se a 443 já tiver um handler (de qualquer serviço): **não** sobrescrever e **PARAR** — decidir a configuração com o Matheus antes de continuar. **Não** usar outra porta HTTPS: o login só-leitura valida o Origin como `https://<HABBLAUD_REMOTE_RO_ORIGIN>` (só hostname, sem porta), por isso uma porta HTTPS diferente da 443 é incompatível com a validação atual de origem host:porta.
 - Conferir que nenhum `AllowFunnel` está `true` (nem para outros serviços) antes de continuar.
 
 ## 1. Política e identidade
@@ -21,7 +22,7 @@ tailscale funnel status --json > /tmp/funnel-before.json
 2. Tag do dispositivo: `tag:qode-office`.
 
 ## 2. Office
-`HABBLAUD_REMOTE_RO=1 HABBLAUD_REMOTE_RO_PORT=4320 HABBLAUD_REMOTE_RO_ORIGIN=<device>.<tailnet>.ts.net` com `HABBLAUD_HOST=127.0.0.1` e sem `--dev`. O preflight recusa arrancar se faltar algo (produção, origem HTTPS canónica, bind loopback). O operador continua em 127.0.0.1:4319 e **não** é servido.
+`HABBLAUD_REMOTE_RO=1 HABBLAUD_REMOTE_RO_PORT=4320 HABBLAUD_REMOTE_RO_ORIGIN=<device>.<tailnet>.ts.net` com `HABBLAUD_HOST=127.0.0.1` e sem `--dev`. O preflight recusa arrancar se faltar algo (produção, origem HTTPS canónica, bind loopback, **privacidade QODE válida**). O operador continua em 127.0.0.1:4319 e **não** é servido.
 
 ## 3. Serve
 `tailscale serve --bg --https=443 http://127.0.0.1:4320` (equivale a `deploy/tailscale/serve.inert.json`).
@@ -31,9 +32,9 @@ tailscale funnel status --json > /tmp/funnel-before.json
 ## 4. Verificação (depois)
 - `tailscale serve status --json` → só `${host}:443` `/` → `http://127.0.0.1:4320`; comparar com `/tmp/serve-before.json` (só esta entrada é nova).
 - `tailscale funnel status --json` → nenhum `AllowFunnel: true` (verificar a config efetiva, não apenas "vazio").
-- Do dispositivo do Matheus: `/` → login; `POST /api/rooms/rename` → 405; `/api/hooks` → 403. De outro membro do tailnet: sem acesso à 443. Fora do tailnet: não conecta.
+- Do dispositivo do Matheus: `/` → página com o formulário de login (HTML, sem dados); `GET /api/auth/status` → `{"authRequired":true,"authenticated":false,"readOnly":true}`; depois do login o escritório abre só-leitura (sem terminal/mensagens). `POST /api/rooms/rename` → 405; `/api/hooks` e `/api/stats` → 403. De outro membro do tailnet: sem acesso à 443. Fora do tailnet: não conecta.
 - `ss -ltnp`: 4319 e 4320 só em 127.0.0.1.
-- Revogação: `npm run auth:set-password` (nova senha) → streams abertos fecham em ≤5 s; ou `kill -USR2 <pid>`.
+- Revogação: `npm run auth:set-password` (nova senha) → a sessão só-leitura deixa de valer no próximo pedido (ligada à `generation` do auth.json) e os streams abertos fecham em ≤5 s; auth.json ausente/inválido = sem login; ou `kill -USR2 <pid>`.
 
 ## Rollback seletivo (não usar `serve reset`, que apaga handlers de outros serviços)
 1. Antes: `tailscale serve status --json > /tmp/serve-pre-rollback.json`.

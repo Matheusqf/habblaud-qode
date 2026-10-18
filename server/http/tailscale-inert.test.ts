@@ -33,4 +33,12 @@ describe('config Tailscale inerte', () => {
     expect(neg.accept).toBeUndefined();
     expect(neg.deny).toContain('tag:qode-office:443');
   });
+  it('runbook: 443 ocupada = parar e decidir (nunca outra porta HTTPS) e privacidade QODE obrigatória', () => {
+    const rb = readFileSync(join(root, 'docs/QODE-TAILSCALE-RUNBOOK.md'), 'utf8');
+    expect(rb).not.toMatch(/escolher outra porta HTTPS/i);
+    expect(rb).toMatch(/\*\*PARAR\*\*/);
+    expect(rb).toMatch(/Não\*\* usar outra porta HTTPS/);
+    expect(rb).toMatch(/qode\.config\.json/);
+    expect(rb).toMatch(/independentemente\*\* de `HABBLAUD_QODE_REQUIRED`/);
+  });
 });
