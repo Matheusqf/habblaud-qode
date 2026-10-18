@@ -161,6 +161,11 @@ export interface AgentInfo {
   role: string;
   /** Título da sessão (principal) ou descrição da tarefa (sub). */
   title?: string;
+  /**
+   * Agente cloud (server/cloud): só metadados do contrato de observação. state preserva stale/unknown (não vira
+   * idle na UI); link é https em host do provedor.
+   */
+  cloud?: { provider: 'cursor' | 'codex-cloud' | 'claude-web'; state: 'running' | 'idle' | 'stale' | 'unknown'; nativeState: string; updatedAt: number; link?: string };
   sessionId: string;
   /** Conta de origem = AccountInfo.id (basename do config dir, ex.: ".claude", ".claude-conta2"). */
   account: string;

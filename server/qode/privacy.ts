@@ -18,6 +18,8 @@ export const AGENT_RULES: Record<keyof AgentInfo, Rule> = {
   look: 'keep',
   role: 'generic',
   title: 'drop',
+  // Agente cloud: já sanitizado pelo contrato server/cloud (allowlist + só id/estado/hora/link validado).
+  cloud: 'keep',
   sessionId: 'keep',
   account: 'keep',
   status: 'keep',

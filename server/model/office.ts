@@ -371,6 +371,17 @@ export class Office {
     this.markDirty();
   }
 
+  /** Metadados de agente cloud (contrato server/cloud): estado preservado (stale/unknown) e papel legível. */
+  setCloudMeta(id: string, meta: NonNullable<AgentInfo['cloud']>, role: string): void {
+    const rec = this.agents.get(id);
+    if (!rec) return;
+    const cur = rec.info.cloud;
+    if (cur && cur.state === meta.state && cur.nativeState === meta.nativeState && cur.updatedAt === meta.updatedAt && cur.link === meta.link && rec.info.role === role) return;
+    rec.info.cloud = { ...meta };
+    rec.info.role = role;
+    this.markDirty();
+  }
+
   /** Mesmo processo, sessão nova (/clear, /resume): o personagem continua, tarefas e números zeram. */
   switchSession(id: string, sessionId: string): void {
     const rec = this.agents.get(id);
@@ -447,6 +458,26 @@ export class Office {
       }
       this.notice('done', id, 'success', `✅ ${info.name} concluiu em ${room}`, info.roomId);
     }
+    this.markDirty();
+  }
+
+  /**
+   * Status OBSERVADO de fora (agentes cloud, server/cloud): só muda o estado do personagem. Nunca sintetiza atividade
+   * ("Concluiu em …"), aviso de sucesso nem balão de espera: perder um RUNNING (stale/unknown/IDLE/CREATING) não é
+   * prova de conclusão. O estado real vai para a UI por setCloudMeta (cloud.state).
+   */
+  setObservedStatus(id: string, status: 'working' | 'idle'): void {
+    const rec = this.agents.get(id);
+    if (!rec || rec.info.status === 'offline') return;
+    const info = rec.info;
+    if (info.status === status && info.waitingFor === undefined) return;
+    if (info.status !== status) {
+      info.status = status;
+      info.statusSince = this.now();
+    }
+    delete info.waitingFor;
+    // Sem turno: um "working→idle" futuro por setStatus não deve medir/anunciar um turno que nunca observámos.
+    delete rec.turnStart;
     this.markDirty();
   }
 

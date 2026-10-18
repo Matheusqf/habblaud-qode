@@ -43,6 +43,9 @@ import { qodePreflight, qodeRequired } from './qode/preflight';
 import { setupContinuityFixture } from './qode/continuity-reader';
 import { setupTaskRegistry } from './qode/task-registry-reader';
 import { UpdateChecker } from './updates/checker';
+import { loadCloudConfig } from './cloud/contract';
+import { buildCloudCollectors } from './cloud/collectors';
+import { CloudSource } from './cloud/source';
 
 const config = loadConfig();
 const startedAt = Date.now();
@@ -132,6 +135,13 @@ const agents = new SourceSet([claude]);
 const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
 const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;
 if (codex) agents.add(codex);
+// Agentes cloud (server/cloud): observe-only, desligado por padrão (HABBLAUD_CLOUD=1 + allowlist HABBLAUD_CLOUD_PROJECTS).
+const cloudConfig = loadCloudConfig(process.env);
+if (cloudConfig.enabled) {
+  const collectors = buildCloudCollectors(cloudConfig, process.env);
+  if (!cloudConfig.projects.size) log.warn('Cloud: HABBLAUD_CLOUD=1 sem HABBLAUD_CLOUD_PROJECTS: nada será mostrado.');
+  agents.add(new CloudSource({ office, collectors }));
+}
 // OpenCode (sources/opencode/): opt-in (HABBLAUD_OPENCODE=1) + allowlist de projetos (HABBLAUD_OPENCODE_PROJECTS). Só
 // metadados (modelo, atividade inferida, tokens, custo), lidos do SQLite em modo somente leitura (reader.ts).
 if (config.opencode) {
