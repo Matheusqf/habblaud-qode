@@ -46,6 +46,8 @@ export class CodexCloudCollector implements CloudCollector {
       /** environment_id -> projeto (HABBLAUD_CLOUD_CODEX_ENVS). Sem entrada = tarefa descartada. */
       envs: ReadonlyMap<string, string>;
       run?: RunFixed;
+      /** Relógio local (testes); confirmedAt = `now` do poll + tempo decorrido até a página chegar. */
+      clock?: () => number;
     },
   ) {
     if (!deps.pinnedVersion?.trim()) throw new Error('codex cloud: HABBLAUD_CLOUD_CODEX_VERSION obrigatório');
@@ -56,6 +58,9 @@ export class CodexCloudCollector implements CloudCollector {
   }
 
   async poll(now: number): Promise<CloudObservation[]> {
+    // Cada tarefa é carimbada quando a página DELA chega (TTL por confirmação individual, ver CloudSource).
+    const clock = this.deps.clock ?? Date.now;
+    const t0 = clock();
     // Pin verificado em CADA execução (o binário pode ser trocado entre ciclos): diverge => falha fechada.
     const v = (await this.run(['--version'])).trim();
     this.versionOk = v === this.deps.pinnedVersion.trim();
@@ -66,13 +71,14 @@ export class CodexCloudCollector implements CloudCollector {
     do {
       const args = cursor ? [...CODEX_CLOUD_ARGS, '--cursor', cursor] : CODEX_CLOUD_ARGS;
       const parsed = JSON.parse(await this.run(args)) as { tasks?: unknown; cursor?: unknown };
+      const confirmedAt = now + Math.max(0, clock() - t0);
       if (!Array.isArray(parsed?.tasks)) throw new Error('codex cloud: formato inesperado');
       for (const t of parsed.tasks) {
         if (!t || typeof t !== 'object') continue;
         const r = t as Record<string, unknown>;
         const project = typeof r.environment_id === 'string' ? this.deps.envs.get(r.environment_id) : undefined;
         if (!project) continue;
-        const o = sanitize('codex-cloud', { id: r.id, project, nativeState: r.status, updatedAt: r.updated_at, link: r.url }, this.deps.cfg, now);
+        const o = sanitize('codex-cloud', { id: r.id, project, nativeState: r.status, updatedAt: r.updated_at, link: r.url }, this.deps.cfg, confirmedAt);
         if (o) out.push(o);
       }
       page++;
