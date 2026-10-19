@@ -1,0 +1,18 @@
+// INERTE — política de referência para o tailnet (colar no admin só após aprovação).
+// Um tailnet novo permite tudo até se restringir: substituir a regra padrão por esta.
+// Identidade EXPLÍCITA: só o grupo do Matheus (não autogroup:member). Substituir o e-mail placeholder pelo login
+// Tailscale real do Matheus no momento da ativação.
+{
+  "groups": { "group:qode-owner": ["MATHEUS_TAILSCALE_LOGIN@example.com"] },
+  "tagOwners": { "tag:qode-office": ["group:qode-owner"] },
+  "acls": [
+    // Só o grupo do Matheus, só a porta 443 do Office. Mais ninguém do tailnet.
+    { "action": "accept", "src": ["group:qode-owner"], "dst": ["tag:qode-office:443"] }
+  ],
+  "nodeAttrs": [],
+  "tests": [
+    { "src": "MATHEUS_TAILSCALE_LOGIN@example.com", "accept": ["tag:qode-office:443"], "deny": ["tag:qode-office:4319", "tag:qode-office:4320", "tag:qode-office:22"] },
+    // Teste negativo: outro membro do tailnet NÃO chega à 443.
+    { "src": "outro-membro@example.com", "deny": ["tag:qode-office:443", "tag:qode-office:4319", "tag:qode-office:4320"] }
+  ]
+}
