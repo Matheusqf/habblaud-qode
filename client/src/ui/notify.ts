@@ -6,6 +6,7 @@ import type { Notice } from '../../../shared/types';
 import type { SoundBoard } from '../audio/board';
 import type { UiComponent, UiContext } from './context';
 import { computeCounters } from './model';
+import { tr } from '../../../shared/i18n';
 
 
 
@@ -54,7 +55,7 @@ export class Notifier implements UiComponent {
     else if (n.level === 'success') this.sounds.play('pop');
     if (n.level === 'alert' && prefs.browserNotifications && document.hidden && notificationState() === 'granted') {
       try {
-        const notification = new Notification(`${PRODUCT_NAME} — precisa de você`, {
+        const notification = new Notification(tr('{0} — precisa de você', [PRODUCT_NAME]), {
           body: n.text,
           tag: n.agentId ?? n.id,
           icon: '/assets/brand/favicon-32.png',

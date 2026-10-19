@@ -119,6 +119,9 @@ export function createRemoteDto(secret: Buffer = randomBytes(32)): RemoteDto {
     terminal: () => false,
     messages: () => false,
     updates: 'keep',
+    // Upstream #31 (decisão fail-closed): terminal interativo e World não saem na entrada só-leitura.
+    pty: 'drop',
+    world: 'drop',
   };
   const SNAPSHOT: Rules<OfficeSnapshot> = {
     rev: 'keep',
@@ -127,6 +130,8 @@ export function createRemoteDto(secret: Buffer = randomBytes(32)): RemoteDto {
     agents: (v) => v.map((a) => pick(a, AGENT)),
     accounts: (v) => v.map((a) => pick(a, ACCOUNT)),
     meta: (v) => pick(v, META),
+    // Upstream #31: terminais (pid, cwd, conta) nunca saem.
+    ptys: 'drop',
   };
   const FEED: Rules<FeedItem> = {
     id: (v) => opaque('f', v),

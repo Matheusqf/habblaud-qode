@@ -4,7 +4,8 @@
 import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import { createHash, type Hash } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
-import type { Activity, AgentInfo, RecentSession } from '../../shared/types';
+import type { Activity, AgentInfo, PtyInfo, RecentSession } from '../../shared/types';
+import type { DeliveryIndexOptions } from '../deliveries/deliveries';
 import { log, setLogFilter } from '../log';
 import type { Office } from '../model/office';
 import type { RoomAliases } from '../model/room-aliases';
@@ -295,8 +296,14 @@ export interface QodeSetup {
   transcriptPathOf(inner: (id: string) => string | undefined): (id: string) => string | undefined;
   parserFor(inner: (id: string) => TerminalParser | undefined): (id: string) => TerminalParser | undefined;
   history(inner: SessionLookup): SessionLookup;
+  /** Filtro das entregas: sessão, texto e caminho passam pela mesma política do histórico. */
+  deliveries(inner: DeliveryIndexOptions): DeliveryIndexOptions;
   officeView(office: Office): OfficeView;
   permissionRoutes(inner: PermissionRegistry): Routes;
+  /** Pasta em que o PTY não pode abrir (projeto privado ou config inválida). */
+  blockedCwd(cwd: string): boolean;
+  /** Terminal que não lista nem transmite (agente, origem ou cwd privado). */
+  hiddenPty(info: PtyInfo): boolean;
 }
 
 export interface QodeOptions {
@@ -352,8 +359,11 @@ export function setupQode(o: QodeOptions): QodeSetup {
       transcriptPathOf: (inner) => inner,
       parserFor: (inner) => inner,
       history: (inner) => inner,
+      deliveries: (inner) => inner,
       officeView: (office) => office,
       permissionRoutes: (inner) => inner,
+      blockedCwd: () => false,
+      hiddenPty: () => false,
     };
   }
 
@@ -447,6 +457,46 @@ export function setupQode(o: QodeOptions): QodeSetup {
         };
       },
     }),
+    deliveries: (inner) => ({
+      ...inner,
+      sessions: async () => (await inner.sessions()).filter((s) => !sessionHidden(s)),
+      resolve: (account, sessionId) => {
+        if (!privacy.active) return inner.resolve(account, sessionId);
+        if (cfg.invalid || privacy.sessionPrivate(sessionId)) return undefined;
+        const src = inner.resolve(account, sessionId);
+        if (!src || !transcriptClean(src.path)) return undefined;
+        return {
+          path: src.path,
+          createParser: () => {
+            let blocked = false;
+            return guardParser(
+              src.createParser(),
+              privacy,
+              () => blocked,
+              () => void (blocked = true),
+            );
+          },
+        };
+      },
+      hideSession: (s) => sessionHidden(s),
+      hideText: (text) => privacy.mentions(text),
+      hidePath: (path) => privacy.mentions(path) || isPrivatePath(cfg, path),
+    }),
+    blockedCwd: (cwd) => {
+      if (!privacy.active) return false;
+      if (cfg.invalid) return true;
+      return isPrivatePath(cfg, cwd) || privacy.mentions(cwd);
+    },
+    hiddenPty: (info) => {
+      if (!privacy.active) return false;
+      if (cfg.invalid) return true;
+      if (privacy.mentions(info.cwd) || isPrivatePath(cfg, info.cwd)) return true;
+      if (info.resumed && privacy.sessionPrivate(info.resumed)) return true;
+      // Agente vivo: classificação atual. Ausente: origem/sessão já vistas, senão fail-closed.
+      if (privacy.originPrivate(info.agentId)) return true;
+      if (info.fromAgent && privacy.originPrivate(info.fromAgent)) return true;
+      return false;
+    },
     officeView: (office) => ({
       get: (id) => {
         const a = office.get(id);

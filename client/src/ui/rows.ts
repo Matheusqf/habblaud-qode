@@ -17,6 +17,7 @@ import {
   updateShellActivityLine,
   updateStatusDot,
 } from './widgets';
+import { tr } from '../../../shared/i18n';
 
 interface RowRefs {
   avatar: HTMLElement;
@@ -85,8 +86,8 @@ export function updateAgentRow(
   // Agente principal ocioso há 1 min ou mais: o tempo aparece no lugar do "Principal".
   const idleFor = agent.kind === 'main' && agent.status === 'idle' && agent.statusSince ? now - agent.statusSince : 0;
   const showIdle = idleFor >= 60_000;
-  setText(r.since, showIdle ? `ocioso ${formatDuration(idleFor)}` : '');
-  setTitle(r.since, showIdle ? `Ocioso há ${formatDuration(idleFor)}` : '');
+  setText(r.since, showIdle ? tr('ocioso {0}', [formatDuration(idleFor)]) : '');
+  setTitle(r.since, showIdle ? tr('Ocioso há {0}', [formatDuration(idleFor)]) : '');
   setHidden(r.since, !showIdle);
   setHidden(r.role, showIdle);
   // Esperando um shell (ou parado num comando longo): ampulheta no ponto e o cronômetro na linha de atividade.
@@ -103,10 +104,10 @@ export function updateAgentRow(
   row.classList.toggle('is-selected', selected);
   setAttr(row, 'aria-current', selected ? 'true' : null);
   // Para leitores de tela, o tempo em minutos (o cronômetro mudaria o rótulo a cada segundo).
-  const doing = wait ? `${shellLine(wait, now).label}, há ${formatDuration(now - wait.since)}` : (agent.activity?.text ?? observedLabel(agent.observed));
+  const doing = wait ? tr('{0}, há {1}', [shellLine(wait, now).label, formatDuration(now - wait.since)]) : (agent.activity?.text ?? observedLabel(agent.observed));
   setAttr(
     row,
     'aria-label',
-    `${agent.name}, ${agent.kind === 'main' ? 'agente principal' : `subagente ${agent.role}`}, ${account?.name ?? agent.account}${agent.provider === 'codex' ? ' (Codex)' : agent.provider === 'opencode' ? ' (OpenCode)' : ''}, ${statusLabel(status)} (${UNIFIED_LABEL[unifiedState(agent)]})${doing ? `: ${doing}` : ''}`,
+    `${agent.name}, ${agent.kind === 'main' ? tr('agente principal') : tr('subagente {0}', [agent.role])}, ${account?.name ?? agent.account}${agent.provider === 'codex' ? ' (Codex)' : agent.provider === 'opencode' ? ' (OpenCode)' : ''}, ${statusLabel(status)} (${UNIFIED_LABEL[unifiedState(agent)]})${doing ? `: ${doing}` : ''}`,
   );
 }

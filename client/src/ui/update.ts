@@ -3,6 +3,8 @@
 // Mostra o aviso e recarrega sozinha em alguns segundos (dá para adiar).
 import type { OfficeStore } from '../net/store';
 import { h, setHidden, setText } from './dom';
+import { PRODUCT_NAME } from '../../../shared/brand';
+import { tr } from '../../../shared/i18n';
 
 const RELOAD_IN_S = 5;
 
@@ -14,8 +16,8 @@ export class UpdateBanner {
 
   constructor(store: OfficeStore, private reload: () => void = () => location.reload()) {
     this.text = h('span');
-    const now = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: 'Recarregar agora', on: { click: () => this.reload() } });
-    const later = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: 'Depois', on: { click: () => this.postpone() } });
+    const now = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Recarregar agora'), on: { click: () => this.reload() } });
+    const later = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Depois'), on: { click: () => this.postpone() } });
     this.el = h(
       'div',
       { class: 'ui-banner ui-banner--update', role: 'status', hidden: true },
@@ -39,13 +41,13 @@ export class UpdateBanner {
       this.reload();
       return;
     }
-    setText(this.text, `O QODE Office foi atualizado. Recarregando em ${this.left} s…`);
+    setText(this.text, tr('O {0} foi atualizado. Recarregando em {1} s…', [PRODUCT_NAME, this.left]));
     this.left--;
   }
 
   private postpone(): void {
     this.stop();
-    setText(this.text, 'O QODE Office foi atualizado. Recarregue a página quando quiser.');
+    setText(this.text, tr('O {0} foi atualizado. Recarregue a página quando quiser.', [PRODUCT_NAME]));
   }
 
   private stop(): void {

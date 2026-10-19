@@ -15,7 +15,7 @@ export interface Usage {
 }
 
 /** Agente como a política de atenção o vê (o resto é da política do unifiedState). */
-type AttentionLike = Pick<AgentInfo, 'status' | 'activity' | 'permission'> & { provider?: string; observed?: AgentInfo['observed'] };
+type AttentionLike = Pick<AgentInfo, 'status' | 'activity' | 'permission'> & { provider?: string; observed?: AgentInfo['observed']; cloud?: AgentInfo['cloud'] };
 
 /**
  * Precisa de atenção: pedido de permissão PENDENTE de verdade (a mesma política da gaveta,

@@ -1,32 +1,14 @@
-// Ponto de entrada do cliente: store (dados) -> mundo (canvas) -> UI (painéis).
-import { OfficeStore } from './net/store';
-import { createWorld } from './world';
-import { createUI } from './ui';
-import { migrateLegacyKeys, safeLocalStorage } from './ui/prefs';
-import { ensureAuthenticated } from './net/auth-gate';
-import { applyViewMode } from './ui/view-mode';
-import { applyThemePack } from './ui/theme';
-import { currentThemePack } from '../../shared/theme-packs';
-import { mountCards } from './ui/cards';
+// Ponto de entrada do cliente: primeiro o dicionário do idioma ativo (só ele vai para o navegador), depois o app
+// (client/src/app.ts), porque vários módulos chamam tr() ao carregar. Se o dicionário não carregar, fica em português.
+import { getLocale, registerDictionary, type Locale } from '../../shared/i18n';
 
-// Antes de tudo: o mundo (carteiras) e a UI (preferências) leem o localStorage ao serem criados.
-migrateLegacyKeys(safeLocalStorage());
+const LOADERS: Partial<Record<Locale, () => Promise<Readonly<Record<string, string>>>>> = {
+  en: () => import('../../shared/locales/en').then((m) => m.EN),
+  es: () => import('../../shared/locales/es').then((m) => m.ES),
+  fr: () => import('../../shared/locales/fr').then((m) => m.FR),
+};
 
-// Pacote de tema (white-label): resolvido uma vez (?theme= > VITE_HABBLAUD_THEME > padrão) e
-// aplicado ao documento (título, marca do produto, paleta/fontes). Mundo e UI leem o pacote
-// resolvido; nada disso roda por frame.
-applyThemePack(currentThemePack(), document);
-
-// B4 L1: bloqueia até autenticar quando HABBLAUD_AUTH está ligado (sem auth: passa direto).
-await ensureAuthenticated(document.body);
-
-const params = new URLSearchParams(location.search);
-const viewMode = applyViewMode(document, location.search);
-const store = new OfficeStore({ mock: params.has('mock') });
-const world = createWorld(document.getElementById('world') as HTMLCanvasElement, store);
-createUI(document.getElementById('ui') as HTMLElement, store, world);
-if (viewMode === 'cards') mountCards(document.getElementById('ui') as HTMLElement, store, world);
-store.connect();
-
-// Facilita a depuração pelo console do navegador.
-Object.assign(window, { habblaud: { store, world } });
+const locale = getLocale();
+const load = LOADERS[locale];
+const dictionary = load ? load().then((d) => registerDictionary(locale, d)).catch(() => undefined) : Promise.resolve();
+void dictionary.then(() => import('./app')).then((app) => app.start());
