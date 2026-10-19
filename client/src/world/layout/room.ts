@@ -11,6 +11,8 @@
 // (descanso, impressão, verde, mesa de pé) e a coluna de apoio junto à parede.
 import { FURNITURE, type Dir, type FurnitureKind, type RoomTheme, type WallStyle } from '../../art/api';
 import { mulberry32 } from '../../../../shared/hash';
+import type { ThemePackDecorSet } from '../../../../shared/theme-packs';
+import { applyBrandDecor } from './brand-decor';
 import { DOOR_W, DOOR_X, TILE } from '../constants';
 import { AreaBuilder, type SpotOpts } from './builder';
 import { slotRect, slotSide } from './geometry';
@@ -25,6 +27,8 @@ export interface RoomInput {
   season?: Season;
   /** Força o estilo de planta (senão a semente sorteia). */
   style?: RoomStyle;
+  /** Decoração da marca (pôster/néon/mascotes; só decoração, nunca muda lugares nem caminhos). */
+  decor?: ThemePackDecorSet;
 }
 
 /** Tema sazonal opcional das salas. */
@@ -86,6 +90,7 @@ export function layoutProjectRoom(room: RoomInput, theme: RoomTheme): AreaLayout
   const style = room.style ?? roomStyle(room.seed);
   const area = style === 'gather' ? layoutGatherRoom(room, theme) : style === 'openspace' ? layoutOpenspaceRoom(room, theme) : layoutIslandRoom(room, theme);
   if (room.season === 'halloween') applyHalloween(area, room.slot);
+  if (room.decor) applyBrandDecor(area, room.decor);
   return area;
 }
 
