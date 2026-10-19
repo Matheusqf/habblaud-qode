@@ -20,6 +20,7 @@ do meio (0.**3**.0).
 ### Alterado
 
 - A marca visível passou a ser **QODE Office** (título da página, header, Sobre, avisos e título do README). Pacote, caminhos, `HABBLAUD_*` e identificadores de protocolo continuam iguais.
+- **Entrada remota só-leitura (endurecimento, review pós-#13/#14):** no viewer remoto, agentes e contas aparecem como pseudónimos estáveis (“Agente 1”, “Conta A”) em vez do nome escolhido no computador local; o login lê senha e geração do `auth.json` de uma vez só e revalida depois do scrypt; com `HABBLAUD_REMOTE_RO=1`, `auth.json` ausente ou corrompido impede o arranque.
 - **Sync upstream habblaud v1.0.3 (merge):** o fork recebe World, remoto do celular, PTY, i18n, tail/timelapse e mascaramento de segredos do upstream, sem rebase. Na QODE o **Habblaud World fica desligado** até `HABBLAUD_WORLD=1` (nada fala com `server.habblaud.com` sem opt-in). O remoto do celular do upstream só sobe com `HABBLAUD_REMOTE_CELL=1` (não confundir com `HABBLAUD_REMOTE=1` da auth B4). Terminal interativo e **Novo agente** continuam atrás de `HABBLAUD_PTY=1`. `node-pty` permanece em `optionalDependencies`. PRs #13/#14 (remoto só-leitura QODE) não entram neste merge.
 
 ## [1.0.3] - 2026-10-16

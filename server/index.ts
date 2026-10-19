@@ -11,7 +11,7 @@ import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard, isLoopbackHost } from './http/guard';
 import { authEnabled, createAuth, loadAuthFile, remoteEnabled } from './http/auth';
 import { securityPreflight } from './http/security-preflight';
-import { createReadOnlyRouter, loadRemoteRoConfig, remoteRoPreflight, RO_HOST } from './http/remote-ro';
+import { createReadOnlyRouter, loadRemoteRoConfig, remoteRoPreflight, roAuthFileSource, RO_HOST } from './http/remote-ro';
 import { createRemoteDto } from './http/remote-dto';
 import { createRemoteView } from './http/remote-view';
 import { createRemoteGate, isRemoteRequest, loadSecret, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
@@ -532,8 +532,8 @@ if (roConfig.enabled && roConfig.port) {
   // Vista própria, fora do Hub (não conta como página local → não desvia permissões), com o DTO remoto.
   const roView = createRemoteView({ hub, dto: createRemoteDto() });
   const ro = createReadOnlyRouter({
-    password: () => loadAuthFile(config.dataDir)?.password,
-    authGeneration: () => loadAuthFile(config.dataDir)?.generation,
+    // Uma leitura do auth.json por verificação (senha + generation do MESMO snapshot).
+    authFile: roAuthFileSource(config.dataDir),
     view: roView,
     shell: (req, res, url) => fallback(req, res, url),
     updates: () => ({ version: config.version, ...updates.status() }),

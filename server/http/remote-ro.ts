@@ -18,7 +18,8 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { isTruthy } from '../config';
 import { qodePreflight } from '../qode/preflight';
-import { parseCookies, verifyPassword, type PasswordRecord } from './auth';
+import { loadAuthFile, parseCookies, verifyPassword, type AuthFile } from './auth';
+import { authFileProblems } from './security-preflight';
 import type { RemoteView } from './remote-view';
 
 export const RO_COOKIE = 'qode_ro';
@@ -45,6 +46,11 @@ export function loadRemoteRoConfig(env: NodeJS.ProcessEnv): RemoteRoConfig {
 }
 export const RO_HOST = '127.0.0.1';
 
+/** Fonte de auth.json para o router: cada chamada é UMA leitura validada (senha + generation juntas). */
+export function roAuthFileSource(dataDir: string): () => AuthFile | undefined {
+  return () => loadAuthFile(dataDir);
+}
+
 /**
  * Preflight real com HABBLAUD_REMOTE_RO ligado (fail-closed): produção (não --dev/demo), origem HTTPS canónica
  * (HABBLAUD_REMOTE_RO_ORIGIN = só hostname, sem esquema/porta/caminho) e bind do operador em loopback.
@@ -64,6 +70,8 @@ export function remoteRoPreflight(o: RemoteRoPreflightInput): string[] {
   // P1: sem qode.config.json válido o Office emite sem filtro de privacidade — o RO não arranca.
   for (const e of qodePreflight({ env: o.env, dataDir: o.qode.dataDir, home: o.qode.home, host: o.host, inDocker: o.qode.inDocker, allowedHosts: o.qode.allowedHosts }))
     p.push(`HABBLAUD_REMOTE_RO exige privacidade QODE válida: ${e}`);
+  // P2 (review pós-#13/#14): o login RO depende do auth.json — ausente/corrompido recusa o boot (fail-closed).
+  for (const e of authFileProblems(o.qode.dataDir, 'HABBLAUD_REMOTE_RO')) p.push(`HABBLAUD_REMOTE_RO exige auth.json válido: ${e}`);
   if (!loadRemoteRoConfig(o.env).enabled) p.push('HABBLAUD_REMOTE_RO=1 exige HABBLAUD_REMOTE_RO_PORT válida (1025-65535).');
   if (o.dev || o.demo) p.push('HABBLAUD_REMOTE_RO só em produção (sem --dev/demo).');
   const origin = o.env.HABBLAUD_REMOTE_RO_ORIGIN?.trim() ?? '';
@@ -82,13 +90,13 @@ export function roPathAllowed(path: string): boolean {
 }
 
 export interface RoRouterOptions {
-  /** Senha do B4 (auth.json); undefined = login recusado (fail-closed). */
-  password: () => PasswordRecord | undefined;
   /**
-   * `generation` ATUAL do auth.json (lida a cada pedido). A sessão guarda a do login: diferente (senha trocada) ou
-   * ausente (auth.json removido/inválido) = sessão inválida e login recusado.
+   * Snapshot ATUAL do auth.json (senha + generation numa ÚNICA leitura; review ZikaBOT pós-#13/#14 P1). undefined =
+   * ausente/inválido: login recusado e sessões inválidas (fail-closed). Senha e generation nunca são lidas em
+   * separado: uma troca atómica do ficheiro entre duas leituras podia emitir sessão da geração NOVA com a senha ANTIGA.
+   * A sessão guarda a generation do login; diferente (senha trocada) ou ausente = sessão inválida.
    */
-  authGeneration: () => string | undefined;
+  authFile: () => AuthFile | undefined;
   /** Snapshot/SSE remotos (DTO + vista própria, fora do Hub). */
   view: Pick<RemoteView, 'snapshot' | 'attach'>;
   /** Cliente estático (dist/client; sem dados), servido mesmo sem sessão para o login funcionar no navegador. */
@@ -155,7 +163,7 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
       const p = JSON.parse(Buffer.from(body, 'base64url').toString()) as { aud?: unknown; exp?: unknown; gen?: unknown; ag?: unknown; n?: unknown };
       if (p.aud !== RO_AUD || p.gen !== gen || typeof p.exp !== 'number' || p.exp <= now()) return undefined;
       // Ligada ao auth.json: generation tem de existir e ser a mesma do login.
-      const ag = opts.authGeneration();
+      const ag = opts.authFile()?.generation;
       if (!ag || typeof p.ag !== 'string' || p.ag !== ag) return undefined;
       if (typeof p.n !== 'string' || !live.has(p.n)) return undefined;
       return { exp: p.exp, sid: p.n };
@@ -210,22 +218,25 @@ export function createReadOnlyRouter(opts: RoRouterOptions): RoRouter {
     });
     req.on('end', () => {
       release();
-      const rec = opts.password();
-      const ag = opts.authGeneration();
+      // Um único snapshot do auth.json: a senha verificada e a generation da sessão vêm do MESMO ficheiro.
+      const file = opts.authFile();
       let pw: unknown;
       try {
         pw = (JSON.parse(Buffer.concat(chunks).toString()) as { password?: unknown }).password;
       } catch {
         /* inválido */
       }
-      if (!rec || !ag || typeof pw !== 'string' || !verifyPassword(pw, rec)) {
+      const fail = () => {
         const l = failures.get(ip);
         if (l) l.push(now());
         else failures.set(ip, [now()]);
         return deny(res, 401, 'credenciais inválidas');
-      }
+      };
+      if (!file || typeof pw !== 'string' || !verifyPassword(pw, file.password)) return fail();
+      // Revalida DEPOIS do scrypt (como auth.ts): se o auth.json rodou entretanto, não emite sob a generation velha.
+      if (opts.authFile()?.generation !== file.generation) return fail();
       failures.delete(ip);
-      const { value } = mint(ag);
+      const { value } = mint(file.generation);
       const attrs = ['Path=/', 'HttpOnly', 'SameSite=Strict', `Max-Age=${Math.floor(ttl / 1000)}`];
       if (opts.secureCookie) attrs.push('Secure');
       res.writeHead(204, { 'Set-Cookie': `${RO_COOKIE}=${value}; ${attrs.join('; ')}`, 'Cache-Control': 'no-store' });

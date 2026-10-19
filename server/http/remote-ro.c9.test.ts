@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { hashPassword } from './auth';
+import { hashPassword, writePasswordFile } from './auth';
 import { createReadOnlyRouter, loadRemoteRoConfig, remoteRoPreflight, roPathAllowed, RO_COOKIE, RO_HOST, type RoRouter } from './remote-ro';
 
 const PASSWORD = 'senha-de-teste-c9-123';
@@ -25,16 +25,21 @@ async function listen(s: http.Server): Promise<number> {
   return (s.address() as AddressInfo).port;
 }
 
-/** generation do auth.json sintético (mutável nos testes: troca de senha / ficheiro ausente). */
-const auth: { generation: string | undefined } = { generation: 'g1' };
+/** auth.json sintético (mutável nos testes: troca de senha / ficheiro ausente). generation undefined = ausente. */
+const auth: { generation: string | undefined; rec: typeof rec } = { generation: 'g1', rec };
 
-async function setup(ttlMs = 60_000, onPassword?: () => void): Promise<Env> {
+/** `onRead` corre DEPOIS de tirar o snapshot da leitura (simula uma troca atómica logo a seguir a essa leitura). */
+async function setup(ttlMs = 60_000, onRead?: () => void): Promise<Env> {
   const innerHits: string[] = [];
   auth.generation = 'g1';
+  auth.rec = rec;
   const hit = (req: http.IncomingMessage, path: string) => innerHits.push(`${req.method} ${path} xff=${req.headers['x-forwarded-for'] ?? ''}`);
   const ro = createReadOnlyRouter({
-    password: () => (onPassword?.(), rec),
-    authGeneration: () => auth.generation,
+    authFile: () => {
+      const snap = auth.generation ? { password: auth.rec, generation: auth.generation } : undefined;
+      onRead?.();
+      return snap;
+    },
     ttlMs,
     expectedOrigin: 'office.example.ts.net',
     view: {
@@ -163,6 +168,42 @@ describe('C9 entrada remota só-leitura', () => {
     auth.generation = undefined; // auth.json removido/inválido
     expect((await req(env.proxyPort, 'GET', '/api/snapshot', { cookie: c2 })).status).toBe(401);
     expect((await req(env.proxyPort, 'POST', '/ro/login', { origin: 'https://office.example.ts.net', 'content-type': 'application/json' }, JSON.stringify({ password: PASSWORD }))).status).toBe(401);
+  });
+
+  it('P1 pós-#13/#14: troca atómica do auth.json entre leituras NÃO combina senha antiga com generation nova', async () => {
+    const NEW = 'senha-nova-c9-456';
+    let reads = 0;
+    // Troca atómica (auth:set-password) logo a seguir à 1.ª leitura do login: senha nova + generation nova.
+    env = await setup(60_000, () => {
+      if (++reads === 1) {
+        auth.rec = hashPassword(NEW);
+        auth.generation = 'g2';
+      }
+    });
+    const h = { origin: 'https://office.example.ts.net', 'content-type': 'application/json' };
+    // A senha ANTIGA confere com o snapshot lido, mas a generation mudou antes de emitir: 401, sem cookie.
+    const r = await req(env.proxyPort, 'POST', '/ro/login', h, JSON.stringify({ password: PASSWORD }));
+    expect(r.status).toBe(401);
+    expect(r.headers['set-cookie']).toBeUndefined();
+    expect(reads).toBe(2); // 1 snapshot + 1 revalidação depois do scrypt
+    // Já sob g2: a senha antiga deixa de valer; a nova emite sessão ligada a g2.
+    expect((await req(env.proxyPort, 'POST', '/ro/login', h, JSON.stringify({ password: PASSWORD }))).status).toBe(401);
+    const ok = await req(env.proxyPort, 'POST', '/ro/login', h, JSON.stringify({ password: NEW }));
+    expect(ok.status).toBe(204);
+    const c = String(ok.headers['set-cookie']).split(';')[0];
+    expect((await req(env.proxyPort, 'GET', '/api/snapshot', { cookie: c })).status).toBe(200);
+    auth.generation = 'g3';
+    expect((await req(env.proxyPort, 'GET', '/api/snapshot', { cookie: c })).status).toBe(401);
+  });
+
+  it('P1 pós-#13/#14: auth.json removido durante o scrypt → 401 (fail-closed)', async () => {
+    let reads = 0;
+    env = await setup(60_000, () => {
+      if (++reads === 1) auth.generation = undefined;
+    });
+    const r = await req(env.proxyPort, 'POST', '/ro/login', { origin: 'https://office.example.ts.net', 'content-type': 'application/json' }, JSON.stringify({ password: PASSWORD }));
+    expect(r.status).toBe(401);
+    expect(r.headers['set-cookie']).toBeUndefined();
   });
 
   it('cookie do operador, cookie forjado e Authorization (hooks) não valem', async () => {
@@ -310,6 +351,7 @@ describe('C9 entrada remota só-leitura', () => {
       const cfgFile = join(tmp, 'qode.config.json');
       writeFileSync(cfgFile, JSON.stringify({ projetos: [{ nome: 'Loja', caminhos: [join(tmp, 'loja')], privado: false }] }));
       const qode = { dataDir: tmp, home: tmp, inDocker: false, allowedHosts: new Set<string>() };
+      writePasswordFile(tmp, PASSWORD); // auth.json sintético (P2: o RO exige-o válido)
       const ok = { HABBLAUD_REMOTE_RO: '1', HABBLAUD_REMOTE_RO_PORT: '4320', HABBLAUD_REMOTE_RO_ORIGIN: 'office.tail1234.ts.net', HABBLAUD_QODE_CONFIG: cfgFile };
       expect(remoteRoPreflight({ env: {}, dev: true, host: '0.0.0.0', qode })).toEqual([]); // desligado: nada a verificar
       expect(remoteRoPreflight({ env: ok, dev: false, host: '127.0.0.1', qode })).toEqual([]);
@@ -328,6 +370,31 @@ describe('C9 entrada remota só-leitura', () => {
       const implicit = join(tmp, 'implicit.json');
       writeFileSync(implicit, JSON.stringify({ projetos: [{ nome: 'Loja', caminhos: [join(tmp, 'loja')] }] }));
       expect(remoteRoPreflight({ env: { ...ok, HABBLAUD_QODE_CONFIG: implicit }, dev: false, host: '127.0.0.1', qode }).join()).toMatch(/privado/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('P2 pós-#13/#14: preflight RO recusa boot com auth.json ausente/corrompido (só REMOTE_RO ligado)', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'qode-ro-auth-'));
+    try {
+      const cfgFile = join(tmp, 'qode.config.json');
+      writeFileSync(cfgFile, JSON.stringify({ projetos: [{ nome: 'Loja', caminhos: [join(tmp, 'loja')], privado: false }] }));
+      const qode = { dataDir: tmp, home: tmp, inDocker: false, allowedHosts: new Set<string>() };
+      const env = { HABBLAUD_REMOTE_RO: '1', HABBLAUD_REMOTE_RO_PORT: '4320', HABBLAUD_REMOTE_RO_ORIGIN: 'office.tail1234.ts.net', HABBLAUD_QODE_CONFIG: cfgFile };
+      expect(env).not.toHaveProperty('HABBLAUD_AUTH');
+      expect(env).not.toHaveProperty('HABBLAUD_REMOTE');
+      // ausente
+      expect(remoteRoPreflight({ env, dev: false, host: '127.0.0.1', qode }).join()).toMatch(/exige auth\.json válido: senha ausente/);
+      // corrompido
+      writeFileSync(join(tmp, 'auth.json'), 'nao-e-json');
+      expect(remoteRoPreflight({ env, dev: false, host: '127.0.0.1', qode }).join()).toMatch(/exige auth\.json válido: auth\.json inválido/);
+      // JSON sem generation
+      writeFileSync(join(tmp, 'auth.json'), JSON.stringify({ password: hashPassword(PASSWORD) }));
+      expect(remoteRoPreflight({ env, dev: false, host: '127.0.0.1', qode }).join()).toMatch(/auth\.json inválido/);
+      // válido → ok
+      writePasswordFile(tmp, PASSWORD);
+      expect(remoteRoPreflight({ env, dev: false, host: '127.0.0.1', qode })).toEqual([]);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

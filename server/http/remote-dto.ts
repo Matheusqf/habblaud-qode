@@ -6,6 +6,9 @@
 //   servem de id/path de sala (roomKey de projeto público ou cwd fora do qode.config) e ids de sessão não saem.
 // - Texto livre nunca sai: atividade = texto genérico do tipo (privateActivity), aviso = texto genérico do nível,
 //   sem títulos, tarefas, histórico, shells, modelo, branch, permissões, e-mails, configDir nem fontes.
+// - Nomes de agente e de conta também são texto livre (overrides do operador, e-mail, caminho): saem só como
+//   pseudónimos estáveis por processo ('Agente 1', 'Conta A'), com o mesmo rótulo no snapshot, SSE e feed (review
+//   ZikaBOT pós-#13/#14 P1). O nome de sala/projeto continua decidido pelo filtro QODE (exceção já aprovada).
 // - meta.terminal/messages = false: o cliente remoto não oferece ações operacionais.
 import { createHmac, randomBytes } from 'node:crypto';
 import type { AccountInfo, Activity, AgentInfo, FeedItem, Notice, NoticeLevel, OfficeSnapshot, RoomInfo } from '../../shared/types';
@@ -22,6 +25,13 @@ const NOTICE_TEXT: Record<NoticeLevel, string> = {
   warn: 'Aviso no escritório',
   alert: 'Um agente precisa de atenção no computador local',
 };
+
+/** 0 → 'A', 25 → 'Z', 26 → 'AA' (rótulo curto de conta: 1–3 caracteres até 18 278 contas). */
+function letters(n: number): string {
+  let s = '';
+  for (let i = n + 1; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + ((i - 1) % 26)) + s;
+  return s;
+}
 
 function pick<T extends object>(o: T, rules: Rules<T>): T {
   const out: Partial<T> = {};
@@ -44,6 +54,19 @@ export function createRemoteDto(secret: Buffer = randomBytes(32)): RemoteDto {
   const opaque = (prefix: string, v: string) => `${prefix}-${createHmac('sha256', secret).update(`${prefix}\0${v}`).digest('base64url').slice(0, 16)}`;
   const agentId = (v: string) => opaque('a', v);
   const roomId = (v: string) => opaque('s', v);
+  // Pseudónimos estáveis (por id bruto, só em memória): nunca derivados do nome/e-mail/caminho de origem.
+  const agentLabels = new Map<string, string>();
+  const accountLabels = new Map<string, string>();
+  const agentLabel = (id: string): string => {
+    let l = agentLabels.get(id);
+    if (!l) agentLabels.set(id, (l = `Agente ${agentLabels.size + 1}`));
+    return l;
+  };
+  const accountLetter = (id: string): string => {
+    let l = accountLabels.get(id);
+    if (!l) accountLabels.set(id, (l = letters(accountLabels.size)));
+    return l;
+  };
 
   const activity = (a: Activity): Activity => {
     const g = privateActivity(a);
@@ -57,7 +80,7 @@ export function createRemoteDto(secret: Buffer = randomBytes(32)): RemoteDto {
     provider: 'keep',
     parentId: (v) => (v ? agentId(v) : undefined),
     roomId: (v) => roomId(v),
-    name: 'keep',
+    name: (_v, a) => agentLabel(a.id),
     look: 'keep',
     // Papel: só o genérico (agente cloud mostra o rótulo do contrato, sem texto livre).
     role: (v, a) => (a.cloud ? v : a.kind === 'main' ? 'Agente principal' : 'Subagente'),
@@ -99,8 +122,8 @@ export function createRemoteDto(secret: Buffer = randomBytes(32)): RemoteDto {
   const ACCOUNT: Rules<AccountInfo> = {
     id: (v) => opaque('c', v),
     provider: 'keep',
-    short: 'keep',
-    name: 'keep',
+    short: (_v, a) => accountLetter(a.id),
+    name: (_v, a) => `Conta ${accountLetter(a.id)}`,
     email: 'drop',
     organization: 'drop',
     plan: 'drop',
@@ -137,7 +160,7 @@ export function createRemoteDto(secret: Buffer = randomBytes(32)): RemoteDto {
     id: (v) => opaque('f', v),
     agentId: (v) => agentId(v),
     roomId: (v) => roomId(v),
-    agentName: 'keep',
+    agentName: (_v, f) => agentLabel(f.agentId),
     roomName: 'keep',
     account: 'drop',
     activity: (v) => activity(v),
