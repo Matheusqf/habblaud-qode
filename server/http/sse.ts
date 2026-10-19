@@ -2,9 +2,11 @@
 // Eventos nomeados: snapshot | feed | notice (o `data` é o JSON do protocolo em shared/types.ts).
 // Snapshots saem com throttle (~200 ms); feed e avisos vão em lote logo depois do snapshot.
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { OfficeSnapshot } from '../../shared/types';
+import type { FeedItem, Notice, OfficeSnapshot } from '../../shared/types';
 import type { Office } from '../model/office';
 import { isLoopbackHost } from './guard';
+
+export type HubEvent = { type: 'snapshot'; data: OfficeSnapshot } | { type: 'feed'; data: FeedItem[] } | { type: 'notice'; data: Notice };
 
 /** Cliente lento demais (buffer acumulado acima disto) é desconectado; o EventSource reconecta. */
 const MAX_BUFFERED = 8 * 1024 * 1024;
@@ -18,6 +20,12 @@ export class Hub {
   private lastFlush = 0;
   private unsubscribe: (() => void) | null = null;
   private snapshotCbs = new Set<(snap: OfficeSnapshot) => void>();
+  /**
+   * Observadores passivos (ex. entrada remota só-leitura, http/remote-view.ts): recebem snapshot/feed/avisos já
+   * filtrados pela privacidade, mas NÃO são clientes — não contam em `size` nem em `localSize` (por isso nunca
+   * desviam pedidos de permissão do terminal: PermissionRegistry.viewers).
+   */
+  private observers = new Set<(ev: HubEvent) => void>();
   private readonly throttleMs: number;
   private readonly pingMs: number;
   /** Quem pode responder pelo escritório; padrão: Host local. A porta remota (http/remote.ts) troca a regra. */
@@ -57,6 +65,27 @@ export class Hub {
   onSnapshot(cb: (snap: OfficeSnapshot) => void): () => void {
     this.snapshotCbs.add(cb);
     return () => void this.snapshotCbs.delete(cb);
+  }
+
+  /** Observador passivo (ver `observers`). Devolve a função que o remove. */
+  observe(cb: (ev: HubEvent) => void): () => void {
+    this.observers.add(cb);
+    return () => void this.observers.delete(cb);
+  }
+
+  /** Últimos itens do feed (já filtrados pela privacidade), para o arranque de um observador. */
+  recentFeed(n: number): FeedItem[] {
+    return this.office.recentFeed(n);
+  }
+
+  private emit(ev: HubEvent): void {
+    for (const cb of this.observers) {
+      try {
+        cb(ev);
+      } catch {
+        // observador não atrapalha a transmissão
+      }
+    }
   }
 
   /** Páginas conectadas por um Host local (localhost/127.x): quem pode responder pelo escritório. */
@@ -104,8 +133,15 @@ export class Hub {
         }
       }
     }
-    if (r.feed.length) this.writeAll(frame('feed', r.feed));
-    for (const n of r.notices) this.writeAll(frame('notice', n));
+    if (r.changed) this.emit({ type: 'snapshot', data: r.snapshot });
+    if (r.feed.length) {
+      this.writeAll(frame('feed', r.feed));
+      this.emit({ type: 'feed', data: r.feed });
+    }
+    for (const n of r.notices) {
+      this.writeAll(frame('notice', n));
+      this.emit({ type: 'notice', data: n });
+    }
     return r.snapshot;
   }
 

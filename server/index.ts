@@ -11,6 +11,9 @@ import { createApiHandler, sendJson } from './http/app';
 import { createRequestGuard, isLoopbackHost } from './http/guard';
 import { authEnabled, createAuth, loadAuthFile, remoteEnabled } from './http/auth';
 import { securityPreflight } from './http/security-preflight';
+import { createReadOnlyRouter, loadRemoteRoConfig, remoteRoPreflight, RO_HOST } from './http/remote-ro';
+import { createRemoteDto } from './http/remote-dto';
+import { createRemoteView } from './http/remote-view';
 import { createRemoteGate, isRemoteRequest, loadSecret, RemoteSessions, startRemoteListener, type RemoteListener } from './http/remote';
 import { Hub } from './http/sse';
 import { createStaticHandler } from './http/static';
@@ -103,6 +106,22 @@ roomAliases.load();
     process.exit(1);
   }
 }
+// Entrada remota só-leitura: preflight ANTES de qualquer fonte/listener. Com HABBLAUD_REMOTE_RO ligado exige também
+// privacidade QODE válida (qode.config.json), independentemente de HABBLAUD_QODE_REQUIRED (review ZikaBOT #14 P1).
+const roConfig = loadRemoteRoConfig(process.env);
+{
+  const problems = remoteRoPreflight({
+    env: process.env,
+    dev: config.dev,
+    demo: config.demo,
+    host: config.host,
+    qode: { dataDir: config.dataDir, home: config.home, inDocker: config.inDocker, allowedHosts: config.allowedHosts },
+  });
+  if (problems.length) {
+    log.error(`Preflight da entrada só-leitura recusou iniciar:\n  - ${problems.join('\n  - ')}`);
+    process.exit(1);
+  }
+}
 // Fork QODE: com HABBLAUD_QODE_REQUIRED=1, recusa iniciar a ingestão se a config/bind não forem seguros.
 if (qodeRequired(process.env)) {
   const problems = qodePreflight({ env: process.env, dataDir: config.dataDir, home: config.home, host: config.host, inDocker: config.inDocker, allowedHosts: config.allowedHosts });
@@ -114,6 +133,11 @@ if (qodeRequired(process.env)) {
 }
 // Fork QODE (server/qode): uma sala por projeto e privacidade por allowlist, pelo qode.config.json. Sem ele, nada muda.
 const qode = setupQode({ env: process.env, dataDir: config.dataDir, home: config.home, inDocker: config.inDocker, roomAliases, office: () => office });
+// Defesa em profundidade (P1): o RO nunca arranca com o Office sem filtro de privacidade (setupQode sem config).
+if (roConfig.enabled && !qode.privacy) {
+  log.error('Entrada só-leitura: privacidade QODE não ficou ativa (qode.config.json ausente/ilegível). Recusado iniciar.');
+  process.exit(1);
+}
 
 // Office, contas e fontes de agentes se referenciam (avisos de mudança / fontes): ligação tardia.
 const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry; ptys?: PtyManager; ptyOff?: string } = {};
@@ -500,6 +524,44 @@ server.on('request', (req, res) => {
     else res.destroy();
   }
 });
+
+// Entrada remota só-leitura (fatia 4): desligada por padrão; porta própria SEMPRE em 127.0.0.1 (para um proxy
+// privado como Tailscale Serve à frente — nunca Funnel/0.0.0.0). Ver docs/QODE-REMOTE-RO.md.
+if (roConfig.enabled && roConfig.port) {
+  let roGeneration = loadAuthFile(config.dataDir)?.generation;
+  // Vista própria, fora do Hub (não conta como página local → não desvia permissões), com o DTO remoto.
+  const roView = createRemoteView({ hub, dto: createRemoteDto() });
+  const ro = createReadOnlyRouter({
+    password: () => loadAuthFile(config.dataDir)?.password,
+    authGeneration: () => loadAuthFile(config.dataDir)?.generation,
+    view: roView,
+    shell: (req, res, url) => fallback(req, res, url),
+    updates: () => ({ version: config.version, ...updates.status() }),
+    expectedOrigin: process.env.HABBLAUD_REMOTE_RO_ORIGIN?.trim() || undefined,
+    secureCookie: true,
+  });
+  // Senha trocada (auth:set-password) ou auth.json ausente/inválido: revoga e fecha streams abertos. Cada pedido já
+  // confere a generation; o sweep fecha os SSE abertos.
+  setInterval(() => {
+    const g = loadAuthFile(config.dataDir)?.generation;
+    if (g !== roGeneration) {
+      roGeneration = g;
+      ro.revokeAll();
+    }
+    ro.sweep();
+  }, 5_000).unref();
+  process.on('SIGUSR2', () => ro.revokeAll());
+  const roServer = http.createServer((req, res) => {
+    try {
+      ro.handle(req, res);
+    } catch (err) {
+      log.warn(`Entrada só-leitura: erro (${errMsg(err)}).`);
+      if (!res.headersSent) sendJson(res, 500, { error: 'erro interno' });
+      else res.destroy();
+    }
+  });
+  roServer.listen(roConfig.port, RO_HOST, () => log.info(`   Entrada só-leitura: http://${RO_HOST}:${roConfig.port} (atrás de proxy privado; sem Funnel).`));
+}
 
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') log.error(tr('A porta {0} já está em uso (defina HABBLAUD_PORT para usar outra).', [config.port]));

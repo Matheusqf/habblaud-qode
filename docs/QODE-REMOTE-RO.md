@@ -1,0 +1,22 @@
+# QODE Office — entrada remota só-leitura (fatias 4–5)
+
+**Desligada por padrão. Não ativa nada de rede sozinha.**
+
+- `HABBLAUD_REMOTE_RO=1` + `HABBLAUD_REMOTE_RO_PORT=<1025-65535>` abre uma **segunda** porta, sempre em `127.0.0.1` (não configurável → sem LAN/IPv6 direto).
+- `HABBLAUD_REMOTE_RO_ORIGIN=<host público do proxy>` (ex. `office.<tailnet>.ts.net`): Origin exigido no login (CSRF).
+- **Privacidade QODE obrigatória**: com `HABBLAUD_REMOTE_RO=1` o preflight exige `qode.config.json` válido (as mesmas regras do `HABBLAUD_QODE_REQUIRED`, mas **sempre**, independentemente dessa variável), antes de qualquer fonte/listener; e o servidor recusa arrancar se o filtro não ficar ativo.
+- Sessão própria `qode_ro` (HMAC, aud `qode-ro`, 12 h, HttpOnly, SameSite=Strict, Secure), **ligada à `generation` do auth.json**: senha trocada ou auth.json ausente/inválido invalida a sessão no próprio pedido; o sweep (5 s) fecha os SSE abertos; sem auth.json válido o login é recusado. Login `POST /ro/login {password}` (ou `POST /api/auth/login`, o que o cliente usa) com a senha do B4 (`npm run auth:set-password`).
+- **Shell/login no navegador**: o cliente estático (dist/client, sem dados) é servido sem sessão; `GET /api/auth/status` responde `{authRequired: true, authenticated, readOnly: true}` e `POST /api/auth/login|logout` usam a sessão `qode_ro` (mesmas defesas: Origin, JSON, limitador antes do scrypt). O gate do cliente (`auth-gate.ts`) funciona sem mudanças de fluxo.
+- O cookie do operador não vale aqui; qualquer `Authorization` (token de hooks) → 401.
+- Só GET/HEAD: `/api/snapshot`, `/api/stream`, `/api/updates` e o cliente estático. Hooks, terminal, mensagens, permissões, decisões, sessões, detalhe de agente, health, continuity, tasks, demo, timeline, `/api/stats` (não passa pelo DTO) e qualquer escrita → 403/405.
+- **DTO remoto** (`server/http/remote-dto.ts`): allowlist explícita para **todos** os agentes (locais, subagentes, cloud), por cima do filtro QODE. Ids opacos (HMAC), sem caminhos (o `path` da sala vira o nome), sem texto livre (atividade = texto genérico do tipo, aviso = texto genérico do nível), sem títulos/tarefas/histórico/shells/modelo/branch/permissões/e-mail/configDir/fontes; `meta.terminal`/`messages` = false.
+- **Viewer RO sem efeito operacional** (`server/http/remote-view.ts`): snapshot/SSE próprios, alimentados pelo Hub como observador passivo — o viewer remoto não é cliente do Hub (não conta em `localSize`), por isso nunca desvia pedidos de permissão do terminal (PermissionRegistry `viewers`).
+- `X-Forwarded-*`/`Forwarded`/`X-Real-IP` removidos antes do handler interno.
+- SSE: fechado na expiração da sessão e na revogação (troca de senha → nova `generation` no auth.json, verificado a cada 5 s; ou `kill -USR2 <pid>`).
+- Testes C9: `server/http/remote-ro.c9.test.ts` (router + proxy reais, Host reescrito, headers forjados, cookie/CSRF, negação de hooks/ops, SSE revogação/expiração/cliente lento/reconexão, shell/login, generation do auth.json) e `server/http/remote-ro.integration.test.ts` (integração **real**: Office + setupQode + Hub + PermissionRegistry + createAuth com auth.json sintético + API do operador; viewer pelo proxy não desvia permissões, DTO sem canários de agentes locais, cookies não se cruzam, troca de senha invalida a sessão).
+
+Limitação conhecida: o cliente web atual ainda pode chamar rotas de operação (renomear sala etc.) — na entrada só-leitura elas falham com 403/405 por desenho; terminal e mensagens já vêm desligados no snapshot remoto.
+
+## Review ZikaBOT (16/10)
+- `/ro/login` passa pelo limitador com a semântica do B4 (5 falhas / 15 min → 429; tentativas em curso reservadas antes de ler o body e antes do scrypt). Atrás do proxy todos chegam em loopback: o limite é efetivamente global.
+- `/ro/logout` revoga a sessão no servidor (o nonce sai do registo vivo, por isso um cookie copiado deixa de valer) e fecha os SSE abertos dessa sessão.
