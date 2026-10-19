@@ -8,7 +8,7 @@ import { sampleBuildingDetail } from '../../../../shared/world/visit-sample';
 import type { OfficeSnapshot } from '../../../../shared/types';
 import type { Appearance, ArtModule, RoomTheme } from '../../art/api';
 import { DEFAULT_WORLD_OPTIONS } from '../api';
-import { MISSING_DEBOUNCE_MS } from '../constants';
+import { MISSING_DEBOUNCE_MS, RUN_SPEED, TILE } from '../constants';
 import { inRect } from '../layout/geometry';
 import type { Character } from './character';
 import { Sim, type VisitLight } from './sim';
@@ -167,7 +167,7 @@ describe('visita a um prédio do mundo no Sim', () => {
     run(sim, clock, MISSING_DEBOUNCE_MS / 1000 + 1);
     expect(charByName(sim, 'Larissa').leaving).toBe(true);
     expect(charByName(sim, 'Gustavo').leaving).toBe(true);
-    run(sim, clock, 400, () => !sim.rooms.has('f_2c3d4e5f60') && camila.atSpot === camila.homeSpot && !!camila.homeSpot && !charByName(sim, 'Larissa'));
+    run(sim, clock, 180, () => !sim.rooms.has('f_2c3d4e5f60') && camila.atSpot === camila.homeSpot && !!camila.homeSpot && !charByName(sim, 'Larissa'));
     expect(sim.rooms.has('f_2c3d4e5f60')).toBe(false);
     expect(charByName(sim, 'Larissa')).toBeUndefined();
     expect(orion.phase).toBe('ready');
@@ -176,8 +176,40 @@ describe('visita a um prédio do mundo no Sim', () => {
     expect(insideOwnRoom(sim, camila)).toBe(true);
     expect(insideOwnRoom(sim, beatriz)).toBe(true);
     expect(beatriz.pose).toBe('type');
-    run(sim, clock, 400, () => !charByName(sim, 'Gustavo'));
+    run(sim, clock, 180, () => !charByName(sim, 'Gustavo'));
     expect([...sim.chars.values()].map((c) => c.info.name).sort()).toEqual(['Beatriz', 'Camila', 'Marina', 'Rafael', 'Thiago']);
+  });
+
+  it('trace da saída Larissa/Gustavo: caminhos válidos, sem teleporte', () => {
+    const { sim, clock, snap } = enter(sampleBuildingDetail());
+    run(sim, clock, 3);
+    const floors = sampleBuildingDetail().floors.filter((f) => f.label !== 'aurora');
+    const { snapshot } = applyBuildingPatch(snap, { rev: 13, floors }, clock.now);
+    sim.applySnapshot(snapshot, clock.now);
+    run(sim, clock, MISSING_DEBOUNCE_MS / 1000 + 1);
+    const names = ['Larissa', 'Gustavo'] as const;
+    const start = Object.fromEntries(names.map((n) => [n, { x: charByName(sim, n).x, y: charByName(sim, n).y }]));
+    const maxStep = RUN_SPEED / 30 + 2;
+    let steps = 0;
+    let maxJump = 0;
+    run(sim, clock, 180, () => {
+      steps++;
+      for (const n of names) {
+        const ch = charByName(sim, n);
+        if (!ch) continue;
+        const prev = start[n];
+        const jump = Math.hypot(ch.x - prev.x, ch.y - prev.y);
+        if (jump > maxJump) maxJump = jump;
+        expect(jump, `${n} salto`).toBeLessThanOrEqual(maxStep);
+        start[n] = { x: ch.x, y: ch.y };
+        const grid = sim.building.grid;
+        if (!ch.inside) expect(grid.walkable(ch.tx, ch.ty) || ch.leaving, `${n} tile`).toBe(true);
+      }
+      return names.every((n) => !charByName(sim, n));
+    });
+    expect(names.every((n) => !charByName(sim, n))).toBe(true);
+    expect(steps, 'saiu em tempo simulado curto').toBeLessThan(180 * 30);
+    expect(maxJump, 'sem teleporte').toBeLessThan(TILE * 2);
   });
 
   it('o prédio ficou discreto no meio da visita: todo mundo vai embora e as salas ficam', () => {
