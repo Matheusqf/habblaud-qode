@@ -6,6 +6,7 @@ import type { ThemePackDecorSet } from '../../../../shared/theme-packs';
 import { TILE } from '../constants';
 import { occludesWall } from './room';
 import type { AreaLayout, WallSegment } from './types';
+import { wallItemSpan } from './wall-extent';
 
 interface DecorSpec {
   /** Itens de parede em ordem de prioridade. */
@@ -35,12 +36,14 @@ function swapRank(f: { kind: FurnitureKind; variant?: string }): number {
 export const REPLACEABLE_WALL = new Set<FurnitureKind>(['poster', 'clock', 'dartboard', 'shelf_wall', 'bat_frame']);
 
 /**
- * Melhor centro (px) na face da parede para um item de `wTiles`: o trecho não pode ter passagem, item
- * não substituível nem móvel alto na frente; entre os válidos, o que tira menos itens decorativos.
+ * Melhor centro (px) na face da parede para o item (`kind`, `variant`): o trecho não pode ter passagem,
+ * item não substituível nem móvel alto na frente; entre os válidos, o que tira menos itens decorativos.
+ * As colisões usam os limites efetivamente desenhados (wall-extent: sombras, artes prontas e a placa
+ * brand/signage.png da recepção, maior que o footprint do `sign`), não só o footprint do catálogo.
  * Devolve o centro e os ids a remover, ou undefined.
  */
-function bestSpot(area: AreaLayout, face: WallSegment & { kind: 'face' }, wTiles: number, fromRight: boolean): { cx: number; remove: string[] } | undefined {
-  const half = (wTiles * TILE) / 2;
+function bestSpot(area: AreaLayout, face: WallSegment & { kind: 'face' }, kind: FurnitureKind, variant: string, fromRight: boolean): { cx: number; remove: string[] } | undefined {
+  const half = (FURNITURE[kind].footprint.w * TILE) / 2;
   const wallRow = Math.round(face.y / TILE) + 2;
   const baseY = face.y + 2 * TILE;
   const lo = face.x + half;
@@ -50,15 +53,14 @@ function bestSpot(area: AreaLayout, face: WallSegment & { kind: 'face' }, wTiles
   let best: { cx: number; remove: string[] } | undefined;
   for (let i = 0; i <= n; i++) {
     const cx = Math.round(fromRight ? hi - i * step : lo + i * step);
-    const x0 = cx - half;
-    const x1 = cx + half;
+    const [x0, x1] = wallItemSpan(kind, variant, cx, area.id);
     if (face.doorways?.some((d) => x0 < d.x + d.w + 2 && x1 > d.x - 2)) continue;
     let ok = true;
     const remove: string[] = [];
     for (const w of area.wallItems) {
       if (w.on !== 'face' || w.baseY !== baseY || w.kind === 'cobweb') continue;
-      const h = (FURNITURE[w.kind].footprint.w * TILE) / 2;
-      if (!(w.cx - h < x1 && w.cx + h > x0)) continue;
+      const [w0, w1] = wallItemSpan(w.kind, w.variant, w.cx, area.id);
+      if (!(w0 < x1 && w1 > x0)) continue;
       if (!REPLACEABLE_WALL.has(w.kind)) {
         ok = false;
         break;
@@ -89,9 +91,8 @@ export function applyBrandDecor(area: AreaLayout, set: ThemePackDecorSet): { wal
   let wall = 0;
   const items = [...spec.wall];
   const place = ([kind, variant]: [FurnitureKind, string], i: number) => {
-    const wTiles = FURNITURE[kind].footprint.w;
     for (const face of faces) {
-      const spot = bestSpot(area, face, wTiles, i % 2 === 1);
+      const spot = bestSpot(area, face, kind, variant, i % 2 === 1);
       if (!spot) continue;
       const cx = spot.cx;
       area.wallItems = area.wallItems.filter((w) => !spot.remove.includes(w.id));

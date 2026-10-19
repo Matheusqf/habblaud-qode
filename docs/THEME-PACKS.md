@@ -75,7 +75,10 @@ néon “WORK/TODO” com ✓, o pôster checklist e os mascotes Checko e Postit
 (`client/src/world/layout/brand-decor.ts`) é só decoração: na face da parede norte, cada item vai para um trecho
 sem passagem, sem quadro/janela/placa/interruptor e sem móvel alto na frente, podendo ocupar o lugar de pôsteres e
 relógios decorativos (o quadro da recepção, usado pela cena Visita, fica). Se nada de 2 tiles couber, entra a versão
-de 1 tile. Até 3 mascotes substituem lixeiras, vasinhos ou abóboras simples (mesmo footprint 1x1, mesmo bloqueio): os
+de 1 tile. As colisões usam os limites efetivamente desenhados (`client/src/world/layout/wall-extent.ts`), não só o
+footprint do catálogo: a placa da recepção (`brand/signage.png`, 64 px na escala do renderer, contra 48 px do `sign`),
+as artes prontas em tamanho nativo e as sombras dos sprites; `wall-extent.test.ts` confere esses números contra os PNGs
+e os sprites reais. Até 3 mascotes substituem lixeiras, vasinhos ou abóboras simples (mesmo footprint 1x1, mesmo bloqueio): os
 lugares, ids e caminhos são os mesmos com ou sem `decor`. O pacote neutro não tem `decor`; o `qode` decora o núcleo e
 as salas `qode`, `qode office`, `qode-office`, `habblaud-qode` e `worktodo`.
 
