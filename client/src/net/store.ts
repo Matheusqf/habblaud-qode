@@ -9,6 +9,8 @@ import type { Activity, AgentDetail, AgentInfo, FeedItem, Notice, OfficeSnapshot
 import { DemoSimulator } from '../../../shared/demo/simulator';
 import { applyNicknames, nicknamesEnabled as nicknamesFor, type NicknamedAgent } from '../../../shared/nicknames';
 import { currentThemePack } from '../../../shared/theme-packs';
+import { PRODUCT_NAME } from '../../../shared/brand';
+import { tr } from '../../../shared/i18n';
 
 function nicknamesEnabled(): boolean {
   let storage: Storage | undefined;
@@ -115,6 +117,9 @@ export class OfficeStore {
   private retryAt: number | null = null;
   /** Desligado de propósito (disconnect()): não reconecta sozinho. */
   private stopped = true;
+  private readonly onOnline = () => {
+    if (!this.stopped && this.connection === 'closed') this.reconnectNow();
+  };
   /** Timelapse ligado: `snapshot` é o reconstruído; o último ao vivo fica em `live` (com a hora em que chegou). */
   private replay = false;
   private live: { snap: OfficeSnapshot; at: number } | null = null;
@@ -123,12 +128,6 @@ export class OfficeStore {
     this.mock = !!opts.mock;
     this.search = opts.search ?? (typeof location !== 'undefined' ? location.search : '');
     this.openStream = opts.eventSource ?? ((url) => new EventSource(url));
-    // Rede de volta (Wi-Fi, VPN): não espera o próximo intervalo para religar.
-    if (typeof addEventListener === 'function' && !this.mock) {
-      addEventListener('online', () => {
-        if (!this.stopped && this.connection === 'closed') this.reconnectNow();
-      });
-    }
   }
 
   on<K extends keyof StoreEvents>(event: K, cb: Listener<K>): () => void {
@@ -139,6 +138,7 @@ export class OfficeStore {
   }
 
   connect(): void {
+    if (!this.stopped) return;
     this.stopped = false;
     if (this.mock) return this.startMock();
     this.startSSE();
@@ -146,6 +146,7 @@ export class OfficeStore {
 
   disconnect(): void {
     this.stopped = true;
+    if (typeof removeEventListener === 'function') removeEventListener('online', this.onOnline);
     this.clearRetry();
     this.closeSource();
     if (this.mockTimer) clearInterval(this.mockTimer);
@@ -262,7 +263,7 @@ export class OfficeStore {
   async decidePermission(id: string, d: PermissionDecision): Promise<string | undefined> {
     if (this.mock) {
       const sim = this.mockSim;
-      if (!sim?.decidePermission(id, d)) return 'Este pedido já foi respondido.';
+      if (!sim?.decidePermission(id, d)) return tr('Este pedido já foi respondido.');
       this.applySnapshot(sim.snapshot());
       return undefined;
     }
@@ -278,7 +279,7 @@ export class OfficeStore {
     } catch {
       // Resposta sem JSON (ex.: guard): usa a mensagem padrão.
     }
-    return `Não foi possível responder (erro ${res.status}).`;
+    return tr('Não foi possível responder (erro {0}).', [res.status]);
   }
 
   /**
@@ -298,7 +299,7 @@ export class OfficeStore {
   }
 
   private async characterRequest(id: string, method: 'PUT' | 'DELETE', body: object): Promise<string | undefined> {
-    if (this.mock || this.replay) return 'Editar o personagem só funciona com o escritório ao vivo.';
+    if (this.mock || this.replay) return tr('Editar o personagem só funciona com o escritório ao vivo.');
     let res: Response;
     try {
       res = await fetch(`/api/agents/${encodeURIComponent(id)}/character`, {
@@ -307,7 +308,7 @@ export class OfficeStore {
         body: JSON.stringify(body),
       });
     } catch {
-      return 'Sem conexão com o QODE Office.';
+      return tr('Sem conexão com o {0}.', [PRODUCT_NAME]);
     }
     if (res.ok) return undefined;
     try {
@@ -316,7 +317,7 @@ export class OfficeStore {
     } catch {
       // Resposta sem JSON (ex.: guard): usa a mensagem padrão.
     }
-    return `Não foi possível salvar o personagem (erro ${res.status}).`;
+    return tr('Não foi possível salvar o personagem (erro {0}).', [res.status]);
   }
 
   // ---------------------------------------------------------------- mensagens pelo escritório
@@ -337,7 +338,7 @@ export class OfficeStore {
     }
     if (res.status === 201 && body && typeof body === 'object') return { message: body as OutboxMessage };
     const error = (body as { error?: unknown } | undefined)?.error;
-    return { error: typeof error === 'string' ? error : `erro ${res.status}` };
+    return { error: typeof error === 'string' ? error : tr('erro {0}', [res.status]) };
   }
 
   /** Situação de uma mensagem (GET /api/messages/:id). null = o servidor não a conhece (404). Sem conexão: lança. */
@@ -348,7 +349,7 @@ export class OfficeStore {
     }
     const res = await fetch(`/api/messages/${encodeURIComponent(id)}`);
     if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`erro ${res.status}`);
+    if (!res.ok) throw new Error(tr('erro {0}', [res.status]));
     return (await res.json()) as OutboxMessage;
   }
 
@@ -358,15 +359,15 @@ export class OfficeStore {
 
   private mockSend(agentId: string, text: string): { message: OutboxMessage } | { error: string } {
     const a = this.agent(agentId);
-    if (!a) return { error: 'agente desconhecido: ele já saiu do escritório?' };
-    if (!a.canMessage || a.kind !== 'main' || a.status === 'offline') return { error: 'este agente não recebe mensagens agora' };
+    if (!a) return { error: tr('agente desconhecido: ele já saiu do escritório?') };
+    if (!a.canMessage || a.kind !== 'main' || a.status === 'offline') return { error: tr('este agente não recebe mensagens agora') };
     const now = Date.now();
     const msg: OutboxMessage = { id: `mock-${now.toString(36)}-${++this.mockSeq}`, agentId, status: 'queued', createdAt: now, updatedAt: now };
     this.mockOutbox.set(msg.id, msg);
     setTimeout(() => {
       const sim = this.mockSim;
       const ok = !!sim?.receiveMessage(agentId, text);
-      Object.assign(msg, { status: ok ? 'delivered' : 'failed', updatedAt: Date.now() }, ok ? {} : { error: 'o agente saiu do escritório' });
+      Object.assign(msg, { status: ok ? 'delivered' : 'failed', updatedAt: Date.now() }, ok ? {} : { error: tr('o agente saiu do escritório') });
       if (ok && sim) this.applySnapshot(sim.snapshot());
     }, 1_000);
     return { message: { ...msg } };
@@ -402,7 +403,7 @@ export class OfficeStore {
   nicknames = nicknamesEnabled();
 
   private setSnapshot(raw: OfficeSnapshot): void {
-    const snap = this.nicknames ? applyNicknames(raw) : raw;
+    const snap = this.nicknames && !raw.agents.some((a) => a.id.startsWith('world:')) ? applyNicknames(raw) : raw;
     this.snapshot = snap;
     this.agentIndex = new Map(snap.agents.map((a) => [a.id, a]));
     this.roomIndex = new Map(snap.rooms.map((r) => [r.id, r]));
@@ -442,6 +443,8 @@ export class OfficeStore {
   }
 
   private startSSE(): void {
+    // Rede de volta (Wi-Fi, VPN): não espera o próximo intervalo para religar.
+    if (typeof addEventListener === 'function') addEventListener('online', this.onOnline);
     this.setConnection('connecting');
     let es: EventSourceLike;
     try {

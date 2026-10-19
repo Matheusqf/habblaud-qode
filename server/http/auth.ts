@@ -173,12 +173,15 @@ export function hooksBearerAllowed(path: string, method: string): boolean {
   if (m === 'GET' && /^\/api\/permissions\/[^/]+\/wait$/.test(path)) return true;
   // Mod do Claude Code (register.ts) — resumo só-leitura; principal de máquina, não UI.
   if (path === '/api/mod/summary' && m === 'GET') return true;
+  // Auxiliar do host (spawn/files/ditado): principal de máquina, nunca cookie de browser.
+  if (m === 'POST' && /^\/api\/host\/(spawn|files|dictation)\/(poll|ack)$/.test(path)) return true;
   return false;
 }
 
-/** Rotas SSE da sessão do operador — todas rastreadas para fecho na revogação/expiração. */
+/** Rotas SSE da sessão do operador — fail-closed: qualquer stream sob `/api/` entra na revogação. */
 export function isSessionSsePath(path: string): boolean {
-  return path === '/api/stream' || path.endsWith('/terminal');
+  if (!path.startsWith('/api/')) return false;
+  return path === '/api/stream' || path.endsWith('/terminal') || path.endsWith('/stream');
 }
 
 interface Session {

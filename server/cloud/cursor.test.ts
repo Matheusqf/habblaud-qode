@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildCloudCollectors } from './collectors';
 import { loadCloudConfig } from './contract';
 import { CursorCollector, type FetchLike } from './cursor';
+import { CloudSource, type CloudOffice } from './source';
 import { CANARY, cursorDetails, cursorListFixture, cursorListPage2, FIX_NOW } from './fixtures';
 
 const cfg = { projects: new Set(['matheusqf/habblaud-qode']), ttlMs: 180_000 };
@@ -198,5 +199,78 @@ describe('CursorCollector', () => {
     };
     const out = await new CursorCollector({ apiKey: 'k', cfg, fetch: f }).poll(FIX_NOW);
     expect(out.map((o) => o.id)).toEqual(['bc-multi00003']);
+  });
+  it('repro ZikaBOT: A autorizado → página parcial com 500 novos (cache expulso) → lista completa com A IDLE > 24 h → A NÃO fecha', async () => {
+    const A = 'bc-aaaa-autorizado';
+    let phase: 'recent' | 'flood' | 'old' = 'recent';
+    const fresh = Array.from({ length: 1001 }, (_, i) => ({ id: `bc-new-${String(i).padStart(5, '0')}`, status: 'IDLE', updatedAt: '2026-10-16T12:30:00Z' }));
+    let detailFail = false;
+    const f: FetchLike = async (url) => {
+      const u = new URL(url);
+      const p = u.pathname.split('/');
+      if (p.length === 3) {
+        if (phase === 'recent') return { ok: true, status: 200, text: async () => JSON.stringify({ items: [{ id: A, status: 'IDLE', updatedAt: '2026-10-16T12:30:00Z' }] }) };
+        if (phase === 'flood') {
+          // páginas cheias de ids novos (autorizados), até ao teto: inventário parcial
+          const n = Number(u.searchParams.get('cursor') ?? '0');
+          return { ok: true, status: 200, text: async () => JSON.stringify({ items: fresh.slice(n * 50, n * 50 + 50), nextCursor: String(n + 1) }) };
+        }
+        return { ok: true, status: 200, text: async () => JSON.stringify({ items: [{ id: A, status: 'IDLE', updatedAt: '2026-10-01T00:00:00Z' }] }) };
+      }
+      if (detailFail) return { ok: false, status: 503, text: async () => '' };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ repos: [{ url: 'https://github.com/matheusqf/habblaud-qode' }] }) };
+    };
+    const c = new CursorCollector({ apiKey: 'k', cfg, fetch: f });
+    const present = new Set<string>();
+    const closed: string[] = [];
+    const office: CloudOffice = {
+      addMain: (m) => void present.add(m.id),
+      setObservedStatus: () => undefined,
+      closeMain: (id) => (closed.push(id), void present.delete(id)),
+      has: (id) => present.has(id),
+    };
+    let now = FIX_NOW;
+    const src = new CloudSource({ office, collectors: [c], now: () => now, pollMs: 1 });
+    await src.tick();
+    expect(present.has(`cloud:cursor:${A}`)).toBe(true);
+    phase = 'flood';
+    now += 10;
+    await src.tick();
+    expect(c.lastPartial).toBe(true);
+    // simula a expulsão do cache (o teto atual é maior que uma página cheia, mas a correção não pode depender dele)
+    (c as unknown as { projectOf: Map<string, string | null> }).projectOf.delete(A);
+    phase = 'old';
+    now += 10;
+    await src.tick();
+    expect(c.lastPartial).toBe(false);
+    expect([...c.lastWindowExcluded]).toEqual([A]); // revalidado por GET de detalhe
+    expect(closed).not.toContain(`cloud:cursor:${A}`);
+    // Detalhe indisponível na revalidação: incerteza ≠ ausência (parcial), A continua
+    (c as unknown as { projectOf: Map<string, string | null> }).projectOf.delete(A);
+    detailFail = true;
+    now += 10;
+    await src.tick();
+    expect(c.lastPartial).toBe(true);
+    expect(closed).not.toContain(`cloud:cursor:${A}`);
+  });
+  it('cache de projeto: uma página cheia (inventário máximo de um poll) não expulsa entradas autorizadas', async () => {
+    const ids = Array.from({ length: 500 }, (_, i) => `bc-cache-${String(i).padStart(4, '0')}`);
+    let first = true;
+    const f: FetchLike = async (url) => {
+      const u = new URL(url);
+      const p = u.pathname.split('/');
+      if (p.length === 3) {
+        if (first) return { ok: true, status: 200, text: async () => JSON.stringify({ items: [{ id: 'bc-keep-000001', status: 'IDLE', updatedAt: '2026-10-16T12:30:00Z' }] }) };
+        const n = Number(u.searchParams.get('cursor') ?? '0');
+        const items = ids.slice(n * 50, n * 50 + 50).map((id) => ({ id, status: 'IDLE', updatedAt: '2026-10-16T12:30:00Z' }));
+        return { ok: true, status: 200, text: async () => JSON.stringify(n < 9 ? { items, nextCursor: String(n + 1) } : { items }) };
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify({ repos: [{ url: 'https://github.com/matheusqf/habblaud-qode' }] }) };
+    };
+    const c = new CursorCollector({ apiKey: 'k', cfg, fetch: f });
+    await c.poll(FIX_NOW);
+    first = false;
+    await c.poll(FIX_NOW);
+    expect((c as unknown as { projectOf: Map<string, string | null> }).projectOf.get('bc-keep-000001')).toBe('matheusqf/habblaud-qode');
   });
 });
