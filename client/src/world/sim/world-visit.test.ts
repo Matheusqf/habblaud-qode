@@ -180,35 +180,46 @@ describe('visita a um prédio do mundo no Sim', () => {
     expect([...sim.chars.values()].map((c) => c.info.name).sort()).toEqual(['Beatriz', 'Camila', 'Marina', 'Rafael', 'Thiago']);
   });
 
-  it('trace da saída Larissa/Gustavo: caminhos válidos, sem teleporte', () => {
+  it('trace da saída Larissa/Gustavo e da entrada da Camila: tiles caminháveis, sem teleporte desde t=0', () => {
     const { sim, clock, snap } = enter(sampleBuildingDetail());
     run(sim, clock, 3);
     const floors = sampleBuildingDetail().floors.filter((f) => f.label !== 'aurora');
+    floors.push({
+      id: 'f_3d4e5f6071',
+      label: 'orion',
+      agents: [{ id: 'a_0badf00d', kind: 'main', provider: 'claude', status: 'working', look: 'f', name: 'Camila', parts: {} }],
+    });
     const { snapshot } = applyBuildingPatch(snap, { rev: 13, floors }, clock.now);
     sim.applySnapshot(snapshot, clock.now);
-    run(sim, clock, MISSING_DEBOUNCE_MS / 1000 + 1);
-    const names = ['Larissa', 'Gustavo'] as const;
-    const start = Object.fromEntries(names.map((n) => [n, { x: charByName(sim, n).x, y: charByName(sim, n).y }]));
+    const names = ['Larissa', 'Gustavo', 'Camila'] as const;
+    const start: Record<string, { x: number; y: number }> = {};
+    for (const n of names) {
+      const ch = charByName(sim, n);
+      expect(ch, n).toBeDefined();
+      start[n] = { x: ch.x, y: ch.y };
+    }
     const maxStep = RUN_SPEED / 30 + 2;
     let steps = 0;
     let maxJump = 0;
     run(sim, clock, 180, () => {
       steps++;
+      const grid = sim.building.grid;
       for (const n of names) {
         const ch = charByName(sim, n);
         if (!ch) continue;
         const prev = start[n];
         const jump = Math.hypot(ch.x - prev.x, ch.y - prev.y);
         if (jump > maxJump) maxJump = jump;
-        expect(jump, `${n} salto`).toBeLessThanOrEqual(maxStep);
+        expect(jump, `${n} salto t=${steps}`).toBeLessThanOrEqual(maxStep);
         start[n] = { x: ch.x, y: ch.y };
-        const grid = sim.building.grid;
-        if (!ch.inside) expect(grid.walkable(ch.tx, ch.ty) || ch.leaving, `${n} tile`).toBe(true);
+        if (!ch.inside) expect(grid.walkable(ch.tx, ch.ty), `${n} tile ${ch.tx},${ch.ty} leaving=${ch.leaving}`).toBe(true);
       }
-      return names.every((n) => !charByName(sim, n));
+      return !charByName(sim, 'Larissa') && !charByName(sim, 'Gustavo') && !!charByName(sim, 'Camila')?.homeSpot && charByName(sim, 'Camila')!.atSpot === charByName(sim, 'Camila')!.homeSpot;
     });
-    expect(names.every((n) => !charByName(sim, n))).toBe(true);
-    expect(steps, 'saiu em tempo simulado curto').toBeLessThan(180 * 30);
+    expect(charByName(sim, 'Larissa')).toBeUndefined();
+    expect(charByName(sim, 'Gustavo')).toBeUndefined();
+    expect(charByName(sim, 'Camila')?.atSpot).toBe(charByName(sim, 'Camila')?.homeSpot);
+    expect(steps, 'saiu/chegou em tempo simulado curto').toBeLessThan(180 * 30);
     expect(maxJump, 'sem teleporte').toBeLessThan(TILE * 2);
   });
 
