@@ -6,6 +6,7 @@ import * as C from './common';
 import * as O from './office';
 import * as W from './wall';
 import * as D from './decor';
+import * as Q from './qode-decor';
 
 /** Quantas variações de detalhes (seed) cada kind tem; os demais ignoram a seed. */
 export const SEED_VARIATIONS: Partial<Record<FurnitureKind, number>> = {
@@ -142,6 +143,14 @@ function build(kind: FurnitureKind, variant: string | undefined, state: number, 
       return D.batFrame();
     case 'pumpkin_garland':
       return D.pumpkinGarland();
+    case 'gig_poster':
+      return Q.gigPoster(variant);
+    case 'mini_poster':
+      return Q.miniPoster(variant);
+    case 'neon_sign':
+      return Q.neonSign(variant);
+    case 'mascot':
+      return Q.mascot(variant);
   }
 }
 

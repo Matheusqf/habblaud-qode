@@ -204,7 +204,12 @@ export type FurnitureKind =
   | 'dartboard' // 1 tile (parede). Alvo de dardos.
   | 'cobweb' // 1 tile (parede). Teia no canto. variants: 'left' | 'right'
   | 'bat_frame' // 1 tile (parede). Quadro com morcego.
-  | 'pumpkin_garland'; // 3 tiles (parede). Guirlanda de abóboras.
+  | 'pumpkin_garland' // 3 tiles (parede). Guirlanda de abóboras.
+  // --- decoração da marca (pacote de tema com `decor`; o neutro não usa)
+  | 'gig_poster' // 2 tiles (parede). Pôster de show/marca. variants: 'qode_jr' | 'worktodo'
+  | 'mini_poster' // 1 tile (parede). Versão pequena do pôster da marca. variants: 'qode_jr' | 'worktodo'
+  | 'neon_sign' // 2 tiles (parede). Néon numa chapa escura. variants: 'qode' | 'worktodo'
+  | 'mascot'; // 1x1 mascote de chão (baixo, não tapa a parede). variants: 'blob' | 'tangerine' | 'check' | 'sticky'
 
 export interface FurnitureDef {
   mount: 'floor' | 'wall';
@@ -286,6 +291,10 @@ export const FURNITURE: Readonly<Record<FurnitureKind, FurnitureDef>> = {
   cobweb: { mount: 'wall', footprint: { w: 1, h: 0 }, blocks: false, variants: ['left', 'right'] },
   bat_frame: { mount: 'wall', footprint: { w: 1, h: 0 }, blocks: false },
   pumpkin_garland: { mount: 'wall', footprint: { w: 3, h: 0 }, blocks: false },
+  gig_poster: { mount: 'wall', footprint: { w: 2, h: 0 }, blocks: false, variants: ['qode_jr', 'worktodo'] },
+  mini_poster: { mount: 'wall', footprint: { w: 1, h: 0 }, blocks: false, variants: ['qode_jr', 'worktodo'] },
+  neon_sign: { mount: 'wall', footprint: { w: 2, h: 0 }, blocks: false, variants: ['qode', 'worktodo'] },
+  mascot: { mount: 'floor', footprint: { w: 1, h: 1 }, blocks: true, variants: ['blob', 'tangerine', 'check', 'sticky'] },
 };
 
 export type FloorKind =

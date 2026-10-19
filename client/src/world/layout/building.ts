@@ -5,6 +5,8 @@ import { BLOCKED, FREE, SEAT, WalkGrid } from '../path/grid';
 import { furnitureBlocks, furnitureIsSeat } from './builder';
 import { layoutCafe, layoutLounge, layoutReception, layoutRestroom } from './core';
 import { layoutCorridor } from './corridor';
+import { applyBrandDecor } from './brand-decor';
+import { currentDecor } from '../decor';
 import { buildingRect } from './geometry';
 import type { AreaLayout, SpotDef, TileRect } from './types';
 
@@ -20,9 +22,16 @@ export interface BuildingLayout {
 
 let coreCache: AreaLayout[] | null = null;
 
+/** Decoração da marca do pacote de tema em vigor no núcleo (recepção, copa, lounge; ?decor=off desliga). */
+function decorated(area: AreaLayout): AreaLayout {
+  const set = currentDecor()?.core;
+  if (set) applyBrandDecor(area, set);
+  return area;
+}
+
 /** Áreas fixas do núcleo (calculadas uma vez). */
 export function coreAreas(): AreaLayout[] {
-  return (coreCache ??= [layoutReception(), layoutRestroom(), layoutCafe(), layoutLounge()]);
+  return (coreCache ??= [decorated(layoutReception()), layoutRestroom(), decorated(layoutCafe()), decorated(layoutLounge())]);
 }
 
 /** Marca na grade as células caminháveis de uma área, os bloqueios e os assentos. */

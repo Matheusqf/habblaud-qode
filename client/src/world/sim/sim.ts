@@ -10,9 +10,12 @@ import { RECEPTION_ID } from '../layout/core';
 import { columnsFor, inRect } from '../layout/geometry';
 import { layoutProjectRoom } from '../layout/room';
 import { currentRoomStyle, currentSeason } from '../season';
+import { currentDecor, roomDecorSet } from '../decor';
 
 const SEASON = currentSeason();
 const ROOM_STYLE = currentRoomStyle();
+/** Decoração da marca (pacote de tema; ?decor=off desliga). Avaliada uma vez. */
+const DECOR = currentDecor();
 const VIBE = vibeEnabled();
 const AREAS = parseAreas(buildAreasJson());
 /** Nome exibido da sala: a área configurada (se houver) ou o nome do servidor. */
@@ -274,7 +277,7 @@ export class Sim {
     }
     // a primeira vaga livre do prédio (o slot do servidor só dá a ordem de chegada)
     const slot = this.freeSlot();
-    const layout = layoutProjectRoom({ id: r.id, slot, seed: r.seed, season: SEASON, style: ROOM_STYLE }, theme);
+    const layout = layoutProjectRoom({ id: r.id, slot, seed: r.seed, season: SEASON, style: ROOM_STYLE, decor: roomDecorSet(DECOR, r.name) }, theme);
     const rs = new RoomState(r, theme, layout, first ? 'ready' : 'building', now, first, slot);
     this.rooms.set(r.id, rs);
     return rs;
@@ -691,7 +694,7 @@ export class Sim {
   moveRoom(room: RoomState, slot: number, now: number): void {
     const before = room.layout;
     const ghostId = `${room.id}#mudança${++this.moveSeq}`;
-    const ghostLayout = layoutProjectRoom({ id: ghostId, slot: room.slot, seed: room.seed, season: SEASON, style: ROOM_STYLE }, room.theme);
+    const ghostLayout = layoutProjectRoom({ id: ghostId, slot: room.slot, seed: room.seed, season: SEASON, style: ROOM_STYLE, decor: roomDecorSet(DECOR, room.info.name) }, room.theme);
     const ghost = new RoomState({ ...room.info, id: ghostId, seed: room.seed }, room.theme, ghostLayout, 'ready', now, false, room.slot);
     ghost.ghost = true;
     ghost.listed = false;
@@ -707,7 +710,7 @@ export class Sim {
     });
 
     room.slot = slot;
-    room.layout = layoutProjectRoom({ id: room.id, slot, seed: room.seed, season: SEASON, style: ROOM_STYLE }, room.theme);
+    room.layout = layoutProjectRoom({ id: room.id, slot, seed: room.seed, season: SEASON, style: ROOM_STYLE, decor: roomDecorSet(DECOR, room.info.name) }, room.theme);
     room.setPhase('building', now);
     room.lightOn = false;
     room.lightAt = -1e9;

@@ -55,13 +55,32 @@ id diferente do resolvido, JSON inválido ou fora do schema = ignorado, sem queb
     "fx": "off"                  //   'vibe' | 'off'  (?fx=, VITE_HABBLAUD_FX)
   },
   "nicknames": true,             // apelidos de protagonistas (?nicknames=0/1 muda na hora)
-  "seasonal": true               // eventos sazonais: Halloween auto em outubro (?season=halloween/off)
+  "seasonal": true,              // eventos sazonais: Halloween auto em outubro (?season=halloween/off)
+  "decor": {                     // opcional: decoração da marca (?decor=off desliga)
+    "core": "qode",              //   núcleo do prédio (recepção, copa, lounge): 'qode' | 'worktodo'
+    "rooms": { "worktodo": "worktodo" } // nome exibido da sala, em minúsculas -> conjunto
+  }
 }
 ```
 
 O tema sazonal em vigor (`?season=auto`, o padrão) avalia UMA vez ao abrir a página; sem recarga
 automática. Prioridade nos padrões de cenário: parâmetro da URL > var de build
 (`VITE_HABBLAUD_OFFICE`, `VITE_HABBLAUD_FX`) > `scenery` do pacote > nada.
+
+## Decoração da marca (`decor`)
+
+Pôsteres, néon e mascotes desenhados em código (`client/src/art/furniture/qode-decor.ts`; nenhum asset externo). O
+conjunto `qode` traz o pôster homenagem “QODE JR”, o néon “QODE </>” e os mascotes Bloby e Tanja; `worktodo` traz o
+néon “WORK/TODO” com ✓, o pôster checklist e os mascotes Checko e Postit. A colocação
+(`client/src/world/layout/brand-decor.ts`) é só decoração: na face da parede norte, cada item vai para um trecho
+sem passagem, sem quadro/janela/placa/interruptor e sem móvel alto na frente, podendo ocupar o lugar de pôsteres e
+relógios decorativos (o quadro da recepção, usado pela cena Visita, fica). Se nada de 2 tiles couber, entra a versão
+de 1 tile. Até 3 mascotes substituem lixeiras, vasinhos ou abóboras simples (mesmo footprint 1x1, mesmo bloqueio): os
+lugares, ids e caminhos são os mesmos com ou sem `decor`. O pacote neutro não tem `decor`; o `qode` decora o núcleo e
+as salas `qode`, `qode office`, `qode-office`, `habblaud-qode` e `worktodo`.
+
+Validação (pacotes JSON): só as chaves `core` e `rooms`; conjuntos `qode` | `worktodo`; até 24 salas, nomes em
+minúsculas com até 60 caracteres. Valor fora disso recusa o pacote inteiro.
 
 ## Onde o pacote entra
 

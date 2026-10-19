@@ -51,6 +51,24 @@ export interface ThemePackScenery {
   fx?: ThemePackFx;
 }
 
+/** Conjunto de decoração de sala (pôsteres, néon e mascotes desenhados em código; nenhum asset de terceiros). */
+export type ThemePackDecorSet = 'qode' | 'worktodo';
+export const DECOR_SETS: readonly ThemePackDecorSet[] = ['qode', 'worktodo'];
+
+/**
+ * Decoração extra por pacote (opcional; o neutro não tem). `core` decora o núcleo do prédio (recepção, copa e lounge);
+ * `rooms` mapeia o NOME exibido da sala (minúsculas, comparação exata) a um conjunto. Só decoração:
+ * não cria nem remove lugares, e `?decor=off` desliga na hora de abrir a página.
+ */
+export interface ThemePackDecor {
+  core?: ThemePackDecorSet;
+  rooms?: Readonly<Record<string, ThemePackDecorSet>>;
+}
+
+/** Limites do mapa `decor.rooms` (pacotes JSON). */
+export const DECOR_ROOMS_MAX = 24;
+export const DECOR_ROOM_NAME_MAX = 60;
+
 export interface ThemePack {
   /** Id curto (usado em ?theme= e VITE_HABBLAUD_THEME). */
   id: string;
@@ -64,6 +82,43 @@ export interface ThemePack {
   nicknames: boolean;
   /** Temas sazonais: Halloween auto em outubro; false = nunca (URL ?season=halloween pode forçar). */
   seasonal: boolean;
+  /** Decoração extra (pôsteres/néon/mascotes) por sala; ausente = nenhuma. */
+  decor?: ThemePackDecor;
+}
+
+const isDecorSet = (v: unknown): v is ThemePackDecorSet => typeof v === 'string' && (DECOR_SETS as readonly string[]).includes(v);
+
+/** Valida `decor` (JSON): undefined = ausente; null = inválido (o pacote inteiro é recusado). */
+function validateDecor(value: unknown): ThemePackDecor | undefined | null {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) return null;
+  for (const k of Object.keys(value)) if (k !== 'core' && k !== 'rooms') return null;
+  const out: { core?: ThemePackDecorSet; rooms?: Record<string, ThemePackDecorSet> } = {};
+  if (value.core !== undefined) {
+    if (!isDecorSet(value.core)) return null;
+    out.core = value.core;
+  }
+  if (value.rooms !== undefined) {
+    if (!isRecord(value.rooms)) return null;
+    const entries = Object.entries(value.rooms);
+    if (entries.length > DECOR_ROOMS_MAX) return null;
+    // objeto sem protótipo: nomes como `constructor` nunca herdam nada
+    const rooms = Object.create(null) as Record<string, ThemePackDecorSet>;
+    for (const [name, set] of entries) {
+      if (name.length === 0 || name.length > DECOR_ROOM_NAME_MAX || name !== name.toLowerCase() || !isDecorSet(set)) return null;
+      rooms[name] = set;
+    }
+    out.rooms = rooms;
+  }
+  return out;
+}
+
+/** Conjunto de decoração da sala com este nome exibido (comparação em minúsculas), ou undefined. Puro. */
+export function decorForRoom(decor: ThemePackDecor | undefined, roomName: string): ThemePackDecorSet | undefined {
+  const rooms = decor?.rooms;
+  if (!rooms) return undefined;
+  const key = roomName.trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(rooms, key) ? rooms[key] : undefined;
 }
 
 /** Id válido: minúsculas, dígitos e hífen (o mesmo que a URL aceita sem escape). */
@@ -121,6 +176,9 @@ export function validateThemePack(value: unknown): ThemePack | undefined {
     scenery = s as ThemePackScenery;
   }
 
+  const decor = validateDecor(v.decor);
+  if (decor === null) return undefined;
+
   return {
     id: v.id,
     name: v.name,
@@ -130,6 +188,7 @@ export function validateThemePack(value: unknown): ThemePack | undefined {
     scenery,
     nicknames: v.nicknames,
     seasonal: v.seasonal,
+    ...(decor !== undefined ? { decor } : {}),
   };
 }
 
@@ -223,6 +282,11 @@ export const QODE_PACK: ThemePack = {
   scenery: { office: 'gather', rooms: 'openspace', garden: 'river', fx: 'off' },
   nicknames: true,
   seasonal: true,
+  // pôster-homenagem "QODE JR" + néon no núcleo (recepção/copa/lounge) e nas salas do próprio QODE; néon/mascotes da marca na sala WorkToDo
+  decor: {
+    core: 'qode',
+    rooms: { 'qode': 'qode', 'qode office': 'qode', 'qode-office': 'qode', 'habblaud-qode': 'qode', 'worktodo': 'worktodo' },
+  },
 };
 
 // Map (não objeto literal): ids como `constructor`, `toString` ou `__proto__` não herdam do Object.prototype.
