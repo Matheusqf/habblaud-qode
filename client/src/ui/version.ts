@@ -8,6 +8,7 @@ import { h, setAttr, setHidden, setText, setTitle, setVariant } from './dom';
 import { formatDateTime, relativeTime } from './format';
 import { pixelIcon } from './icons';
 import { safeLocalStorage } from './prefs';
+import { tr } from '../../../shared/i18n';
 
 /** Última versão nova já avisada neste navegador (o aviso sai uma vez por versão). */
 export const UPDATE_SEEN_KEY = 'habblaud:update-seen';
@@ -32,33 +33,33 @@ export type UpdateTone = 'new' | 'ok' | 'pending' | 'warn' | 'off';
 
 /** Linha de estado da seção "Sobre". */
 export function updateStatusLine(version: string, s: UpdateStatus | undefined, now: number): { tone: UpdateTone; text: string } {
-  if (!s) return { tone: 'off', text: 'Este servidor não verifica versões novas.' };
+  if (!s) return { tone: 'off', text: tr('Este servidor não verifica versões novas.') };
   const checked = s.checkedAt ? ` · verificado ${relativeTime(s.checkedAt, now)}` : '';
   switch (s.state) {
     case 'off':
       return {
         tone: 'off',
         text: s.repo
-          ? 'Verificação de versão nova desligada (HABBLAUD_UPDATE_CHECK=0).'
-          : 'Verificação de versão nova desligada: o package.json não aponta um repositório no GitHub.',
+          ? tr('Verificação de versão nova desligada (HABBLAUD_UPDATE_CHECK=0).')
+          : tr('Verificação de versão nova desligada: o package.json não aponta um repositório no GitHub.'),
       };
     case 'pending':
-      return { tone: 'pending', text: 'Verificando se há versão nova…' };
+      return { tone: 'pending', text: tr('Verificando se há versão nova…') };
     case 'error':
-      if (s.available && s.latest) return { tone: 'new', text: `Nova versão disponível: v${s.latest}. A última verificação falhou (${s.error ?? 'erro'}).` };
-      return { tone: 'warn', text: `Não deu para verificar agora: ${s.error ?? 'erro desconhecido'}${s.checkedAt ? ` · última verificação ${relativeTime(s.checkedAt, now)}` : ''}.` };
+      if (s.available && s.latest) return { tone: 'new', text: tr('Nova versão disponível: v{0}. A última verificação falhou ({1}).', [s.latest, s.error ?? tr('erro')]) };
+      return { tone: 'warn', text: tr('Não deu para verificar agora: {0}{1}.', [s.error ?? tr('erro desconhecido'), s.checkedAt ? tr(' · última verificação {0}', [relativeTime(s.checkedAt, now)]) : '']) };
     case 'ok':
-      if (s.available && s.latest) return { tone: 'new', text: `Nova versão disponível: v${s.latest}${s.publishedAt ? `, publicada em ${formatDateTime(s.publishedAt)}` : ''}.` };
-      if (!s.latest) return { tone: 'ok', text: `Nenhuma versão publicada no GitHub ainda${checked}.` };
-      if (s.latest !== version) return { tone: 'ok', text: `Você está à frente da última versão publicada (v${s.latest})${checked}.` };
-      return { tone: 'ok', text: `Você está na versão mais recente${checked}.` };
+      if (s.available && s.latest) return { tone: 'new', text: tr('Nova versão disponível: v{0}{1}.', [s.latest, s.publishedAt ? tr(', publicada em {0}', [formatDateTime(s.publishedAt)]) : '']) };
+      if (!s.latest) return { tone: 'ok', text: tr('Nenhuma versão publicada no GitHub ainda{0}.', [checked]) };
+      if (s.latest !== version) return { tone: 'ok', text: tr('Você está à frente da última versão publicada (v{0}){1}.', [s.latest, checked]) };
+      return { tone: 'ok', text: tr('Você está na versão mais recente{0}.', [checked]) };
   }
 }
 
 /** Dica do número de versão na barra superior. */
 export function versionChipTitle(version: string, s: UpdateStatus | undefined, now: number): string {
-  if (s?.available && s.latest) return `Nova versão do ${PRODUCT_NAME}: v${s.latest} (você usa a v${version}). Clique para ver as novidades e como atualizar.`;
-  return `${PRODUCT_NAME} v${version}. ${updateStatusLine(version, s, now).text} Clique para ver detalhes.`;
+  if (s?.available && s.latest) return tr('Nova versão do {0}: v{1} (você usa a v{2}). Clique para ver as novidades e como atualizar.', [PRODUCT_NAME, s.latest, version]);
+  return tr('{0} v{1}. {2} Clique para ver detalhes.', [PRODUCT_NAME, version, updateStatusLine(version, s, now).text]);
 }
 
 /** Número da versão na barra superior; vira o selo "Nova versão" quando há release mais nova. */
@@ -81,12 +82,12 @@ export class VersionChip implements UiComponent {
     setHidden(this.el, !info);
     const fresh = !!info?.updates?.available && !!info.updates.latest;
     this.settingsBtn.classList.toggle('has-update', fresh);
-    const label = fresh ? 'Configurações (nova versão disponível)' : 'Configurações';
+    const label = fresh ? tr('Configurações (nova versão disponível)') : tr('Configurações');
     setAttr(this.settingsBtn, 'aria-label', label);
     setTitle(this.settingsBtn, label);
     if (!info) return;
     this.el.classList.toggle('is-new', fresh);
-    setText(this.text, fresh ? 'Nova versão' : `v${info.version}`);
+    setText(this.text, fresh ? tr('Nova versão') : `v${info.version}`);
     const title = versionChipTitle(info.version, info.updates, this.ctx.now());
     setTitle(this.el, title);
     setAttr(this.el, 'aria-label', title);
@@ -114,7 +115,7 @@ export class UpdateToaster implements UiComponent {
     } catch {
       // Sem armazenamento: avisa uma vez por página aberta.
     }
-    this.push({ id: `update:${s.latest}`, level: 'success', text: `Nova versão do ${PRODUCT_NAME}: v${s.latest}. Veja as novidades e como atualizar em Configurações › Sobre.`, at: this.ctx.now() });
+    this.push({ id: `update:${s.latest}`, level: 'success', text: tr('Nova versão do {0}: v{1}. Veja as novidades e como atualizar em Configurações › Sobre.', [PRODUCT_NAME, s.latest]), at: this.ctx.now() });
   }
 }
 
@@ -132,7 +133,7 @@ export class AboutGroup {
 
   constructor(private ctx: UiContext) {
     this.name = h('strong', { class: 'ui-about__version' });
-    this.checkBtn = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: 'Verificar agora', on: { click: () => void this.check() } });
+    this.checkBtn = h('button', { class: 'ui-btn ui-btn--sm', type: 'button', text: tr('Verificar agora'), on: { click: () => void this.check() } });
     this.status = h('p', { class: 'ui-about__status', role: 'status' });
     this.notes = h('a', { class: 'ui-link-btn', attrs: { target: '_blank', rel: 'noopener noreferrer' } });
     this.fresh = h(
@@ -142,20 +143,20 @@ export class AboutGroup {
       h(
         'p',
         { class: 'ui-set__hint' },
-        `Para atualizar, na pasta do ${PRODUCT_NAME}: `,
+        tr('Para atualizar, na pasta do {0}: ', [PRODUCT_NAME]),
         h('code', { class: 'ui-usage-setup__cmd', text: 'git pull' }),
-        ' e de novo ',
+        tr(' e de novo '),
         h('code', { class: 'ui-usage-setup__cmd', text: 'npm run docker:up' }),
-        ' (sem Docker: ',
+        tr(' (sem Docker: '),
         h('code', { class: 'ui-usage-setup__cmd', text: 'npm run build && npm start' }),
         ').',
       ),
     );
-    this.repo = h('a', { class: 'ui-link-btn', text: 'Código no GitHub', attrs: { target: '_blank', rel: 'noopener noreferrer' } });
+    this.repo = h('a', { class: 'ui-link-btn', text: tr('Código no GitHub'), attrs: { target: '_blank', rel: 'noopener noreferrer' } });
     this.el = h(
       'div',
       { class: 'ui-set-group ui-about', attrs: { id: 'ui-about' } },
-      h('h3', { text: 'Sobre', tabIndex: -1 }),
+      h('h3', { text: tr('Sobre'), tabIndex: -1 }),
       h('div', { class: 'ui-about__head' }, h('span', { class: 'ui-about__name' }, `${PRODUCT_NAME} `, this.name), this.checkBtn),
       this.status,
       this.fresh,
@@ -170,7 +171,7 @@ export class AboutGroup {
     const s = info.updates;
     setText(this.name, `v${info.version}`);
     const line = this.failure ? { tone: 'warn' as const, text: this.failure } : updateStatusLine(info.version, s, this.ctx.now());
-    setText(this.status, this.checking ? 'Consultando o GitHub…' : line.text);
+    setText(this.status, this.checking ? tr('Consultando o GitHub…') : line.text);
     setVariant(this.status, 'is-', this.checking ? 'pending' : line.tone);
     setHidden(this.checkBtn, !s || s.state === 'off');
     this.checkBtn.disabled = this.checking || this.ctx.store.connection !== 'open';
@@ -178,7 +179,7 @@ export class AboutGroup {
     const fresh = !!s?.available && !!s.latest;
     setHidden(this.fresh, !fresh);
     if (fresh) {
-      setText(this.notes, `Ver o que mudou na v${s!.latest}`);
+      setText(this.notes, tr('Ver o que mudou na v{0}', [s!.latest]));
       const url = safeGithubUrl(s!.url);
       setHidden(this.notes, !url);
       if (url) setAttr(this.notes, 'href', url);
@@ -202,9 +203,9 @@ export class AboutGroup {
     this.failure = undefined;
     this.render();
     try {
-      if (!(await this.ctx.store.checkUpdates())) this.failure = 'Não deu para falar com o servidor do QODE Office.';
+      if (!(await this.ctx.store.checkUpdates())) this.failure = tr('Não deu para falar com o servidor do {0}.', [PRODUCT_NAME]);
     } catch {
-      this.failure = 'Não deu para falar com o servidor do QODE Office.';
+      this.failure = tr('Não deu para falar com o servidor do {0}.', [PRODUCT_NAME]);
     } finally {
       this.checking = false;
       this.render();

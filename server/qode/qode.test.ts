@@ -474,8 +474,12 @@ describe('allowlist: campo novo do upstream não passa sem decisão', () => {
     const room: Required<RoomInfo> = { id: 'r', name: 'n', path: 'p', slot: 0, seed: 0, createdAt: 0, effect: { kind: 'party', text: 't', at: 0, until: 0 } };
     const feed: Required<FeedItem> = { id: 'f', agentId: 'a', roomId: 'r', agentName: 'n', roomName: 'r', account: 'a', activity };
     const notice: Required<Notice> = { id: 'n', level: 'info', text: 't', agentId: 'a', roomId: 'r', at: 0 };
-    const meta: Required<OfficeSnapshot['meta']> = { demo: false, sources: [], startedAt: 0, version: 'v', build: 'b', terminal: true, messages: true, updates: { status: 'disabled' } as never };
-    const snap: Required<OfficeSnapshot> = { rev: 0, serverTime: 0, rooms: [], agents: [], accounts: [], meta };
+    const meta: Required<OfficeSnapshot['meta']> = {
+      demo: false, sources: [], startedAt: 0, version: 'v', build: 'b', terminal: true, messages: true,
+      pty: { enabled: false, reason: 'off' }, updates: { status: 'disabled' } as never,
+      world: { enabled: false, configured: false, state: 'off' },
+    };
+    const snap: Required<OfficeSnapshot> = { rev: 0, serverTime: 0, rooms: [], agents: [], ptys: [], accounts: [], meta };
     const keys = (o: object) => Object.keys(o).sort();
     expect(keys(ACTIVITY_RULES)).toEqual(keys(activity));
     expect(keys(AGENT_RULES)).toEqual(keys(agent));
@@ -508,6 +512,23 @@ describe('allowlist: campo novo do upstream não passa sem decisão', () => {
   it('campo desconhecido num agente privado não sai', () => {
     const a = { id: 'a', kind: 'main', roomId: 'r', name: 'n', look: 'f', role: 'r', sessionId: 's', account: 'a', status: 'idle', recent: [], tasks: [], startedAt: 0, lastEventAt: 0, statusSince: 0, seed: 0, stats: { toolCalls: 0, tokensIn: 0, tokensOut: 0, subagents: 0 }, campoNovo: SENT } as AgentInfo;
     expect(JSON.stringify(privateAgent(a))).not.toContain(SENT);
+  });
+
+  it('ptys de agente privado ou com cwd privado somem do snapshot', () => {
+    const e = setup();
+    main(e, 'priv', vida(e), 'sp');
+    main(e, 'pub', clinicas(e), 'su');
+    const snap = e.office.commit().snapshot;
+    const filtered = e.qode.privacy!.snapshot({
+      ...snap,
+      ptys: [
+        { id: 't-priv', pid: 1, cwd: vida(e), account: '.claude', agentId: 'priv', startedAt: 0 },
+        { id: 't-pub', pid: 2, cwd: clinicas(e), account: '.claude', agentId: 'pub', startedAt: 0 },
+        { id: 't-leak', pid: 3, cwd: vida(e, 'nota.md'), account: '.claude', agentId: 'pub', startedAt: 0 },
+      ],
+    });
+    expect(filtered.ptys?.map((p) => p.id)).toEqual(['t-pub']);
+    expect(JSON.stringify(filtered.ptys)).not.toContain('Vida');
   });
 });
 
