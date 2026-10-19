@@ -91,6 +91,10 @@ export interface PtyManagerOptions {
   createScreen?: ScreenFactory;
   isAlive?: (pid: number) => boolean;
   sleep?: (ms: number) => Promise<void>;
+  /** Pasta privada: não abre sessão nova nem assume. */
+  blockedCwd?: (cwd: string) => boolean;
+  /** Terminal que não lista nem transmite (agente/cwd privado). O processo continua. */
+  hidden?: (info: PtyInfo) => boolean;
 }
 
 /** Saída bruta guardada por terminal quando não há o @xterm/headless (ver rawScreen). */
@@ -218,7 +222,17 @@ export class PtyManager {
     for (const [id, t] of this.ptys) {
       if (t.info.exitedAt !== undefined && now - t.info.exitedAt > EXITED_KEEP_MS) this.drop(id);
     }
-    return [...this.ptys.values()].map((t) => ({ ...t.info }));
+    return [...this.ptys.values()].filter((t) => !this.hidden(t.info)).map((t) => ({ ...t.info }));
+  }
+
+  /**
+   * Corta streams de terminais que passaram a privados. Não mata o processo: a família pode voltar a pública
+   * só se a política o permitir; a lista e o attach já recusam enquanto `hidden` for verdade.
+   */
+  enforcePrivacy(): void {
+    for (const pty of this.ptys.values()) {
+      if (this.hidden(pty.info)) this.detachClients(pty);
+    }
   }
 
   /** Abre uma sessão nova do Claude Code na pasta (`cwd` absoluto), na conta pedida (ou na padrão). */
@@ -264,7 +278,12 @@ export class PtyManager {
     await Promise.resolve();
     if (!this.opts.spawn) throw new PtyError(503, tr('terminal desligado: {0}', [this.opts.disabledReason ?? tr('indisponível')]));
     const own = this.byAgent(agentId);
-    if (own) return { ...own.info };
+    if (own) {
+      if (this.hidden(own.info) || (own.info.cwd && this.opts.blockedCwd?.(own.info.cwd))) {
+        throw new PtyError(404, tr('agente não encontrado'));
+      }
+      return { ...own.info };
+    }
     const agent = this.mainAgent(agentId);
     if (!SESSION_ID.test(agent.sessionId)) throw new PtyError(409, tr('sessão sem id válido para retomar'));
     if (!agent.cwd) throw new PtyError(409, tr('não sei a pasta desta sessão'));
@@ -384,6 +403,7 @@ export class PtyManager {
       // tratado abaixo
     }
     if (!isDir) throw new PtyError(400, tr('pasta não encontrada: {0}', [cwd]));
+    if (this.opts.blockedCwd?.(cwd)) throw new PtyError(403, tr('pasta de projeto privado'));
     const accounts = this.opts.accounts();
     const account = typeof p.account === 'string' ? accounts.find((a) => a.id === p.account) : (accounts.find((a) => a.isDefault) ?? accounts[0]);
     if (!account) throw new PtyError(400, tr('conta desconhecida'));
@@ -494,9 +514,32 @@ export class PtyManager {
     }
   }
 
+  private hidden(info: PtyInfo): boolean {
+    return !!this.opts.hidden?.(info);
+  }
+
+  private detachClients(pty: Pty): void {
+    for (const c of pty.clients) {
+      try {
+        c.end();
+      } catch {
+        // já fechado
+      }
+    }
+    pty.clients.clear();
+    for (const c of pty.pending.keys()) {
+      try {
+        c.end();
+      } catch {
+        // já fechado
+      }
+    }
+    pty.pending.clear();
+  }
+
   private get(id: string): Pty {
     const pty = this.ptys.get(id);
-    if (!pty) throw new PtyError(404, tr('terminal não encontrado'));
+    if (!pty || this.hidden(pty.info)) throw new PtyError(404, tr('terminal não encontrado'));
     return pty;
   }
 
