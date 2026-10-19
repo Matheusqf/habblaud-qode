@@ -19,7 +19,7 @@ import { setupQode } from '../qode';
 import { createApiHandler } from './app';
 import { createAuth, loadAuthFile, writePasswordFile } from './auth';
 import { createRemoteDto } from './remote-dto';
-import { createReadOnlyRouter, RO_COOKIE } from './remote-ro';
+import { createReadOnlyRouter, roAuthFileSource, RO_COOKIE } from './remote-ro';
 import { createRemoteView } from './remote-view';
 import { Hub } from './sse';
 
@@ -53,7 +53,7 @@ function req(port: number, method: string, path: string, headers: Record<string,
   });
 }
 
-async function setup() {
+async function setup(o: { onAuthRead?: (dataDir: string) => void } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'qode-ro-int-'));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   const home = join(dir, 'home');
@@ -75,9 +75,10 @@ async function setup() {
     roomAlias: (p) => aliases.get(p),
     version: 't',
     startedAt: Date.now(),
-    accounts: () => [{ id: '.claude', short: 'C', name: 'Conta C', email: `dono-${CANARY}@example.com`, organization: CANARY, color: '#f08a3c', configDir: join(home, `.claude-${CANARY}`), sessions: 1, usageStatus: 'ok' }],
+    // Canários também nos campos livres da conta (short/name: override do operador pode trazer e-mail/caminho).
+    accounts: () => [{ id: '.claude', short: `/Users/${CANARY}`, name: `dono-${CANARY}@example.com`, email: `dono-${CANARY}@example.com`, organization: CANARY, color: '#f08a3c', configDir: join(home, `.claude-${CANARY}`), sessions: 1, usageStatus: 'ok' }],
     sources: () => [{ label: 'claude', path: join(home, `.claude-${CANARY}`, 'projects'), sessions: 1, ok: true }],
-    accountName: () => 'Conta C',
+    accountName: () => `dono-${CANARY}@example.com`,
     terminal: true,
     messages: () => new Set([MAIN]),
     permissions: () => permissions?.snapshot() ?? new Map(),
@@ -107,8 +108,11 @@ async function setup() {
   cleanups.push(() => view.stop());
   const shellHits: string[] = [];
   const ro = createReadOnlyRouter({
-    password: () => loadAuthFile(dataDir)?.password,
-    authGeneration: () => loadAuthFile(dataDir)?.generation,
+    authFile: () => {
+      const snap = roAuthFileSource(dataDir)();
+      o.onAuthRead?.(dataDir);
+      return snap;
+    },
     view,
     shell: (rq, rs, url) => {
       shellHits.push(url.pathname);
@@ -136,6 +140,8 @@ async function setup() {
 
   // Agente LOCAL público (projeto Loja) com texto livre canário, e um agente local num projeto privado.
   office.addMain({ id: MAIN, account: '.claude', sessionId: SESSION, cwd: loja, role: 'Agente principal', startedAt: Date.now(), status: 'working' });
+  // Nome do personagem escolhido pelo operador = texto livre (canário e-mail + caminho).
+  expect(office.setCharacter(MAIN, { name: `${CANARY}@example.com`, seed: 7, parts: {} })).toEqual({ result: 'ok' });
   office.addActivity(MAIN, { id: `${MAIN}#a1`, kind: 'read', icon: '📖', text: `Lendo ${loja}/${CANARY}.ts`, detail: CANARY, tool: CANARY, at: Date.now() }, true);
   office.addMain({ id: '.claude:sess-priv', account: '.claude', sessionId: 'sess-priv', cwd: segredo, role: 'Agente principal', startedAt: Date.now(), status: 'working' });
   hub.flush();
@@ -218,6 +224,11 @@ describe('C9 integração real: RO + Hub + PermissionRegistry + auth', () => {
     }
     expect(snap.rooms.every((x) => x.id.startsWith('s-') && x.path === x.name)).toBe(true);
     expect(snap.accounts[0]).not.toHaveProperty('email');
+    // Pseudónimos (review pós-#13/#14 P1): nome de agente e short/name de conta nunca são o texto de origem.
+    expect(snap.agents.map((a) => a.name).sort()).toEqual(['Agente 1', 'Agente 2']);
+    expect([snap.accounts[0].short, snap.accounts[0].name]).toEqual(['A', 'Conta A']);
+    expect(r.body).not.toContain('/Users/');
+    expect(r.body).not.toContain('@example.com');
     expect(snap.accounts[0].configDir).toBe('');
     expect(snap.meta.sources).toEqual([]);
     expect(snap.meta.terminal).toBe(false);
@@ -243,7 +254,13 @@ describe('C9 integração real: RO + Hub + PermissionRegistry + auth', () => {
     const snaps = s.events.filter((x) => x.event === 'snapshot');
     expect(snaps.length).toBeGreaterThanOrEqual(2);
     expect(s.events.some((x) => x.event === 'feed')).toBe(true);
-    expect(s.events.map((x) => x.data).join('\n')).not.toContain(CANARY);
+    const all = s.events.map((x) => x.data).join('\n');
+    expect(all).not.toContain(CANARY);
+    expect(all).not.toContain('@example.com');
+    expect(all).not.toContain('/Users/');
+    const feeds = s.events.filter((x) => x.event === 'feed').flatMap((x) => JSON.parse(x.data) as Array<{ agentName: string }>);
+    expect(feeds.length).toBeGreaterThan(0);
+    expect(feeds.every((f) => /^Agente \d+$/.test(f.agentName))).toBe(true);
     const last = JSON.parse(snaps[snaps.length - 1].data) as OfficeSnapshot;
     expect(last.agents.some((a) => a.activity?.kind === 'edit')).toBe(true);
   });
@@ -271,6 +288,28 @@ describe('C9 integração real: RO + Hub + PermissionRegistry + auth', () => {
     writeFileSync(join(e.dataDir, 'auth.json'), '{}');
     const r = await req(e.proxyPort, 'POST', '/api/auth/login', { origin: `https://${ORIGIN}`, 'content-type': 'application/json' }, JSON.stringify({ password: `${PASSWORD}-nova` }));
     expect(r.status).toBe(401);
+  });
+
+  it('P1 pós-#13/#14: auth:set-password atómico ENTRE as leituras do login não emite sessão (senha antiga + generation nova)', async () => {
+    let reads = 0;
+    let rotated = false;
+    const e = await setup({
+      onAuthRead: (dir) => {
+        // Só no 1.º login: troca atómica (tmp + rename) do auth.json REAL logo após o snapshot.
+        if (!rotated && ++reads === 1) {
+          rotated = true;
+          writePasswordFile(dir, `${PASSWORD}-rodada`);
+        }
+      },
+    });
+    const before = loadAuthFile(e.dataDir)?.generation;
+    const r = await req(e.proxyPort, 'POST', '/api/auth/login', { origin: `https://${ORIGIN}`, 'content-type': 'application/json' }, JSON.stringify({ password: PASSWORD }));
+    expect(r.status).toBe(401);
+    expect(r.headers['set-cookie']).toBeUndefined();
+    expect(loadAuthFile(e.dataDir)?.generation).not.toBe(before);
+    // A senha antiga já não vale; a nova sim.
+    expect((await req(e.proxyPort, 'POST', '/api/auth/login', { origin: `https://${ORIGIN}`, 'content-type': 'application/json' }, JSON.stringify({ password: PASSWORD }))).status).toBe(401);
+    expect((await req(e.proxyPort, 'POST', '/api/auth/login', { origin: `https://${ORIGIN}`, 'content-type': 'application/json' }, JSON.stringify({ password: `${PASSWORD}-rodada` }))).status).toBe(204);
   });
 
   it('shell no navegador: GET / sem sessão serve o HTML; /api/auth/status no formato do gate do cliente', async () => {

@@ -393,6 +393,29 @@ describe('securityPreflight / boot', () => {
     expect(securityPreflight({ ...base, dataDir: empty, env: { HABBLAUD_AUTH: '1' } }).join()).toMatch(/senha ausente/);
   });
 
+  it('P2 pós-#13/#14: só HABBLAUD_REMOTE_RO (AUTH/REMOTE off) exige auth.json válido no boot', () => {
+    const ro = { HABBLAUD_REMOTE_RO: '1', HABBLAUD_REMOTE_RO_PORT: '4399' };
+    // auth.json válido → nada a reportar aqui (o resto do RO é do remoteRoPreflight)
+    expect(securityPreflight({ ...base, env: ro })).toEqual([]);
+    // ausente
+    const empty = mkdtempSync(join(tmpdir(), 'qode-sec-ro-empty-'));
+    expect(securityPreflight({ ...base, dataDir: empty, env: ro }).join()).toMatch(/senha ausente.*HABBLAUD_REMOTE_RO/);
+    // corrompido (JSON partido) e JSON válido mas sem registo scrypt/generation
+    const broken = mkdtempSync(join(tmpdir(), 'qode-sec-ro-broken-'));
+    writeFileSync(join(broken, 'auth.json'), '{"password": {"algo": "scr');
+    expect(securityPreflight({ ...base, dataDir: broken, env: ro }).join()).toMatch(/auth\.json inválido/);
+    const hollow = mkdtempSync(join(tmpdir(), 'qode-sec-ro-hollow-'));
+    writeFileSync(join(hollow, 'auth.json'), '{}');
+    expect(securityPreflight({ ...base, dataDir: hollow, env: ro }).join()).toMatch(/auth\.json inválido/);
+    // não regular (diretório no lugar do ficheiro)
+    const dirAuth = mkdtempSync(join(tmpdir(), 'qode-sec-ro-dir-'));
+    mkdirSync(join(dirAuth, 'auth.json'));
+    expect(securityPreflight({ ...base, dataDir: dirAuth, env: ro }).join()).toMatch(/auth\.json inválido/);
+    // RO desligado: sem exigência (comportamento atual)
+    expect(securityPreflight({ ...base, dataDir: empty, env: { HABBLAUD_REMOTE_RO: '0' } })).toEqual([]);
+    expect(securityPreflight({ ...base, dataDir: empty, env: {} })).toEqual([]);
+  });
+
   it('ALLOWED_HOSTS sem AUTH → erro (não fica aberto)', () => {
     expect(securityPreflight({ ...base, allowedHosts: new Set(['tunel.example']), env: {} }).join()).toMatch(/ALLOWED_HOSTS exige HABBLAUD_AUTH/);
   });

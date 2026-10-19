@@ -1,7 +1,7 @@
 // B4: preflight de segurança — corre SEMPRE quando HABBLAUD_AUTH / HABBLAUD_REMOTE / ALLOWED_HOSTS
 // (não depende de HABBLAUD_QODE_REQUIRED). Rejeita configs inseguras antes de arrancar serviços.
 import { lstatSync } from 'node:fs';
-import { isLoopbackBind } from '../config';
+import { isLoopbackBind, isTruthy } from '../config';
 import { authEnabled, authFile, loadAuthFile, remoteEnabled, resolveHooksToken } from './auth';
 
 export interface SecurityPreflightInput {
@@ -12,6 +12,24 @@ export interface SecurityPreflightInput {
   /** true = Vite middleware / npm run dev. */
   dev: boolean;
   allowedHosts: ReadonlySet<string>;
+}
+
+/**
+ * Problemas do auth.json (vazio = presente, ficheiro regular e válido). Partilhado com o preflight da entrada
+ * só-leitura (remote-ro.ts), que depende do MESMO auth.json para o login.
+ */
+export function authFileProblems(dataDir: string, flags = 'HABBLAUD_AUTH/HABBLAUD_REMOTE'): string[] {
+  let present = false;
+  try {
+    lstatSync(authFile(dataDir));
+    present = true;
+  } catch {
+    /* ausente */
+  }
+  if (!present) return [`senha ausente: rode \`npm run auth:set-password\` antes de ${flags}`];
+  if (!loadAuthFile(dataDir))
+    return ['auth.json inválido: precisa ser ficheiro regular com registo scrypt/parâmetros/hash/generation válidos (rode `npm run auth:set-password`)'];
+  return [];
 }
 
 /** Lista de problemas (vazia = pode iniciar). */
@@ -27,7 +45,12 @@ export function securityPreflight(input: SecurityPreflightInput): string[] {
     errors.push('HABBLAUD_ALLOWED_HOSTS exige HABBLAUD_AUTH=1 (hosts extras sem auth não são permitidos)');
   }
 
-  if (!auth && !remote) return errors;
+  if (!auth && !remote) {
+    // Review ZikaBOT pós-#13/#14 P2: só HABBLAUD_REMOTE_RO (sem AUTH/REMOTE) também exige auth.json válido —
+    // fail-closed no boot, não só login recusado depois.
+    if (isTruthy(env.HABBLAUD_REMOTE_RO)) errors.push(...authFileProblems(input.dataDir, 'HABBLAUD_REMOTE_RO'));
+    return errors;
+  }
 
   // Remoto fail-closed: precisa AUTH explícita (não basta HABBLAUD_REMOTE sozinho no authEnabled).
   if (remote && !authFlag) {
@@ -44,18 +67,7 @@ export function securityPreflight(input: SecurityPreflightInput): string[] {
     errors.push('HABBLAUD_ALLOWED_HOSTS precisa estar vazio enquanto o perfil remoto canónico não estiver definido (Tailscale Serve TBD)');
   }
 
-  let present = false;
-  try {
-    lstatSync(authFile(input.dataDir));
-    present = true;
-  } catch {
-    /* ausente */
-  }
-  if (!present) {
-    errors.push('senha ausente: rode `npm run auth:set-password` antes de HABBLAUD_AUTH/HABBLAUD_REMOTE');
-  } else if (!loadAuthFile(input.dataDir)) {
-    errors.push('auth.json inválido: precisa ser ficheiro regular com registo scrypt/parâmetros/hash/generation válidos (rode `npm run auth:set-password`)');
-  }
+  errors.push(...authFileProblems(input.dataDir));
   if (!resolveHooksToken(input.dataDir, input.env.HABBLAUD_HOOKS_TOKEN)) {
     errors.push('token de hooks ausente/inválido: HABBLAUD_HOOKS_TOKEN (≥32) ou <dataDir>/hooks.token regular (rode `npm run auth:set-password`)');
   }
