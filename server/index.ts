@@ -219,7 +219,7 @@ const worldUplink =
         locale: () => getLocale() as WorldLocale,
         store: worldStore,
         canAct: () => config.terminal,
-        agents: () => office.list(),
+        agents: () => qode.officeView(office).list(),
         subscribe: (cb) => office.onChange(cb),
         booting: () => office.isBooting(),
         tokens: () => worldTokens.read(),
@@ -256,19 +256,22 @@ const history = config.terminal
 if (history && codex) history.add(new CodexHistory({ accounts: () => accounts.entriesOf('codex'), openAgentOf: (acc, sid) => openMainAgent(office.list(), acc, sid) }));
 // Entregas: o fim de cada pedido, lido dos transcripts do histórico (mesma trava do terminal). Os arquivos entregues
 // são lidos aqui (Node, ou pasta de conta montada no Docker) ou pelo auxiliar do host.
-const deliveries = history
-  ? new DeliveryIndex({
-      sessions: () => history.list(),
-      resolve: (account, sessionId) => {
-        const r = history.resolve(account, sessionId);
-        return 'path' in r ? r : undefined;
-      },
-      isBusy: (id) => {
-        const st = office.list().find((a) => a.id === id)?.status;
-        return st === 'working' || st === 'waiting' || st === 'shell';
-      },
-      agentName: (id) => office.list().find((a) => a.id === id)?.name,
-    })
+const historyView = history && qode.history(history);
+const deliveries = historyView
+  ? new DeliveryIndex(
+      qode.deliveries({
+        sessions: () => historyView.list(),
+        resolve: (account, sessionId) => {
+          const r = historyView.resolve(account, sessionId);
+          return 'path' in r ? r : undefined;
+        },
+        isBusy: (id) => {
+          const st = office.list().find((a) => a.id === id)?.status;
+          return st === 'working' || st === 'waiting' || st === 'shell';
+        },
+        agentName: (id) => office.list().find((a) => a.id === id)?.name,
+      }),
+    )
   : undefined;
 const deliveryFiles = deliveries
   ? new FileFetcher({
@@ -364,13 +367,16 @@ const ptys = spawnPty
       claudeBin: claudeBin ?? 'claude',
       accounts: () => accounts.entries().map((a) => ({ id: a.id, dir: a.dir, isDefault: isDefaultDir(a.dir, config.home) })),
       agent: (id) => {
-        const a = office.get(id);
+        const a = qode.officeView(office).get(id);
         return a && { id: a.id, kind: a.kind, account: a.account, sessionId: a.sessionId, cwd: office.roomPath(a.roomId) };
       },
+      blockedCwd: (cwd) => qode.blockedCwd(cwd),
+      hidden: (info) => qode.hiddenPty(info),
       onChange: () => office.markDirty(),
       createScreen: ptyScreen,
     })
   : undefined;
+if (ptys) office.onChange(() => ptys.enforcePrivacy());
 late.ptys = ptys;
 late.ptyOff = ptyOff;
 
@@ -415,7 +421,7 @@ const api = createApiHandler({
   tasks: setupTaskRegistry(process.env, config.host, config.dataDir),
   terminal: config.terminal,
   terminals,
-  sessions: history && qode.history(history),
+  sessions: historyView,
   timeline: createTimelineHandler({ dir: timelineDir, recording: !!timeline }),
   permissions: permissions ? createPermissionRoutes(qode.permissionRoutes(permissions)) : undefined,
   messages: messages ? createMessageRoutes(messages) : undefined,
