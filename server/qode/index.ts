@@ -490,9 +490,12 @@ export function setupQode(o: QodeOptions): QodeSetup {
     hiddenPty: (info) => {
       if (!privacy.active) return false;
       if (cfg.invalid) return true;
-      if (privacy.isPrivate(info.agentId)) return true;
-      if (info.fromAgent && privacy.isPrivate(info.fromAgent)) return true;
-      return privacy.mentions(info.cwd) || isPrivatePath(cfg, info.cwd);
+      if (privacy.mentions(info.cwd) || isPrivatePath(cfg, info.cwd)) return true;
+      if (info.resumed && privacy.sessionPrivate(info.resumed)) return true;
+      // Agente vivo: classificação atual. Ausente: origem/sessão já vistas, senão fail-closed.
+      if (privacy.originPrivate(info.agentId)) return true;
+      if (info.fromAgent && privacy.originPrivate(info.fromAgent)) return true;
+      return false;
     },
     officeView: (office) => ({
       get: (id) => {

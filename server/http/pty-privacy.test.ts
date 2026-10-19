@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { AccountsService } from '../accounts/service';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
-import { Office } from '../model/office';
+import { OFFLINE_GRACE_MS, Office } from '../model/office';
 import { RoomAliases } from '../model/room-aliases';
 import { PtyManager, type PtyProcess } from '../pty/manager';
 import { setupQode } from '../qode/index';
@@ -172,6 +172,153 @@ describe('PTY + privacidade QODE (app real)', () => {
 
       const streamAgain = await fetch(`${base}/api/pty/${pub.id}/stream`);
       expect(streamAgain.status).toBeGreaterThanOrEqual(400);
+    } finally {
+      ptys.stopAll();
+      hub.stop();
+      await new Promise<void>((ok) => {
+        server.closeAllConnections();
+        server.close(() => ok());
+      });
+      tmp.cleanup();
+    }
+  });
+
+  it('takeover público continua após o agente antigo sair; taint da família corta o stream', async () => {
+    const tmp = tempDir('qode-pty-takeover-');
+    const home = join(tmp.dir, 'home');
+    const dataDir = join(tmp.dir, 'data');
+    const clinicas = join(home, 'Documents', 'GitHub', 'clinicas');
+    mkdirSync(clinicas, { recursive: true });
+    mkdirSync(dataDir, { recursive: true });
+    copyFileSync(EXAMPLE, join(dataDir, 'qode.config.json'));
+
+    let clock = 1_790_000_000_000;
+    const aliases = new RoomAliases(null);
+    let office!: Office;
+    const qode = setupQode({ env: {}, dataDir, home, roomAliases: aliases, office: () => office });
+    office = new Office({
+      names: new NameStore(null),
+      roomAlias: (p) => aliases.get(p),
+      version: 't',
+      startedAt: clock,
+      accounts: () => [],
+      sources: () => [],
+      accountName: () => undefined,
+      terminal: true,
+      roomOf: qode.roomOf,
+      privacy: qode.privacy,
+      now: () => clock,
+    });
+    const OLD = '.claude:4242';
+    office.addMain({
+      id: OLD,
+      account: '.claude',
+      sessionId: SESSION,
+      cwd: clinicas,
+      role: 'Agente principal',
+      startedAt: clock,
+      status: 'working',
+    });
+    expect(qode.privacy!.isPrivate(OLD)).toBe(false);
+
+    const alive = new Set([4242]);
+    let nextPid = 9000;
+    const view = qode.officeView(office);
+    const ptys = new PtyManager({
+      spawn: () => new FakeProc(++nextPid),
+      claudeBin: process.execPath,
+      accounts: () => [{ id: '.claude', dir: join(tmp.dir, 'conta'), isDefault: true }],
+      agent: (id) => {
+        const a = view.get(id);
+        return a && { id: a.id, kind: a.kind, account: a.account, sessionId: a.sessionId, cwd: office.roomPath(a.roomId) };
+      },
+      blockedCwd: (cwd) => qode.blockedCwd(cwd),
+      hidden: (info) => qode.hiddenPty(info),
+      onChange: () => office.markDirty(),
+      readSession: () => ({ sessionId: SESSION, startedAt: clock - 800 }),
+      procInfo: async (pid) => (alive.has(pid) ? { startMs: clock - 800, name: 'claude' } : undefined),
+      isAlive: (pid) => alive.has(pid),
+      killPid: (pid) => void alive.delete(pid),
+      forceKill: (pid) => void alive.delete(pid),
+      sleep: async () => {},
+    });
+    office.onChange(() => ptys.enforcePrivacy());
+
+    const claudeDir = join(tmp.dir, '.claude');
+    mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
+    const accounts = new AccountsService({ dirs: [claudeDir], home, env: {}, onChange: () => undefined });
+    const hub = new Hub(office, { throttleMs: 10 });
+    hub.start();
+    const api = createApiHandler({
+      office,
+      hub,
+      accounts,
+      sources: () => [],
+      version: 't',
+      inDocker: false,
+      terminal: true,
+      pty: createPtyRoutes(ptys),
+    });
+    const server = http.createServer((req, res) => {
+      if (!api(req, res, new URL(req.url ?? '/', 'http://x'))) {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      const takeover = await fetch(`${base}/api/agents/.claude%3A4242/takeover`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cols: 80, rows: 24 }),
+      });
+      expect(takeover.status).toBe(201);
+      const pub = (await takeover.json()) as { id: string; agentId: string; fromAgent?: string; resumed?: string };
+      expect(pub.fromAgent).toBe(OLD);
+      expect(pub.resumed).toBe(SESSION);
+
+      office.addMain({
+        id: pub.agentId,
+        account: '.claude',
+        sessionId: SESSION,
+        cwd: clinicas,
+        role: 'Agente principal',
+        startedAt: clock,
+        status: 'working',
+      });
+      expect(qode.privacy!.isPrivate(pub.agentId)).toBe(false);
+
+      const stream = await fetch(`${base}/api/pty/${pub.id}/stream`);
+      expect(stream.status).toBe(200);
+      const reader = stream.body!.getReader();
+      await reader.read();
+
+      office.closeMain(OLD);
+      clock += OFFLINE_GRACE_MS;
+      office.tick();
+      expect(office.get(OLD)).toBeUndefined();
+      office.markDirty();
+
+      const peek = reader.read();
+      const stillOpen = await Promise.race([
+        peek.then((v) => v.done),
+        new Promise<boolean>((ok) => setTimeout(() => ok(false), 40)),
+      ]);
+      expect(stillOpen, 'stream continua após o agente antigo sair').toBe(false);
+
+      const listed = (await (await fetch(`${base}/api/pty`)).json()) as { ptys: Array<{ id: string }> };
+      expect(listed.ptys.some((p) => p.id === pub.id)).toBe(true);
+
+      qode.privacy!.taint(pub.agentId);
+      office.markDirty();
+
+      let done = stillOpen === true;
+      for (let i = 0; i < 20 && !done; i++) done = (await reader.read()).done;
+      expect(done, 'taint da família fecha o stream').toBe(true);
+
+      const again = await fetch(`${base}/api/pty/${pub.id}/stream`);
+      expect(again.status, 'reconexão recusada').toBeGreaterThanOrEqual(400);
     } finally {
       ptys.stopAll();
       hub.stop();

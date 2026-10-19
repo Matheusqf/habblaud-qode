@@ -260,6 +260,14 @@ export class Privacy implements OfficePrivacy {
     return true;
   }
 
+  /**
+   * Origem de um PTY ou referência a um agente que pode já ter saído: classificação conhecida da
+   * sessão/família, fail-closed se nunca foi visto como público.
+   */
+  originPrivate(id: string): boolean {
+    return this.refPrivate(id, undefined);
+  }
+
   /** Agente que já saiu do escritório: vale o que se sabia dele e a sala. */
   private refPrivate(agentId: string | undefined, roomId: string | undefined): boolean {
     if (!this.active) return false;
