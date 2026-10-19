@@ -24,6 +24,9 @@ import { Hub } from './sse';
 import { Office } from '../model/office';
 import { NameStore } from '../model/names';
 import { AccountsService } from '../accounts/service';
+import { FileFetcher } from '../deliveries/fetcher';
+import { DictationService } from '../dictation/dictation';
+import { SpawnService } from '../spawn/spawn';
 import { setQuiet } from '../log';
 
 setQuiet(true);
@@ -48,7 +51,7 @@ async function startAuthServer(enabled = true, now?: () => number, secureCookies
   const server = http.createServer((req, res) => {
     const path = (req.url ?? '/').split('?')[0];
     if (auth.handle(req, res, path)) return;
-    if (path === '/api/stream' || path.endsWith('/terminal')) {
+    if (path === '/api/stream' || path.endsWith('/terminal') || /\/stream$/.test(path)) {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.write(': ok\n\n');
       return;
@@ -124,7 +127,17 @@ describe('hash de senha', () => {
     expect(isSessionSsePath('/api/stream')).toBe(true);
     expect(isSessionSsePath('/api/agents/x/terminal')).toBe(true);
     expect(isSessionSsePath('/api/sessions/a/b/terminal')).toBe(true);
+    expect(isSessionSsePath('/api/pty/abc/stream')).toBe(true);
+    expect(isSessionSsePath('/api/pty/abc/input')).toBe(false);
     expect(isSessionSsePath('/api/snapshot')).toBe(false);
+    expect(hooksBearerAllowed('/api/host/spawn/poll', 'POST')).toBe(true);
+    expect(hooksBearerAllowed('/api/host/spawn/ack', 'POST')).toBe(true);
+    expect(hooksBearerAllowed('/api/host/files/poll', 'POST')).toBe(true);
+    expect(hooksBearerAllowed('/api/host/files/ack', 'POST')).toBe(true);
+    expect(hooksBearerAllowed('/api/host/dictation/poll', 'POST')).toBe(true);
+    expect(hooksBearerAllowed('/api/host/dictation/ack', 'POST')).toBe(true);
+    expect(hooksBearerAllowed('/api/host/spawn/poll', 'GET')).toBe(false);
+    expect(hooksBearerAllowed('/api/spawn', 'POST')).toBe(false);
   });
 });
 
@@ -233,6 +246,68 @@ describe('middleware HTTP', () => {
     for (let i = 0; i < 8 && !done; i++) done = (await reader.read()).done;
     expect(done).toBe(true);
     expect((await fetch(`${base}/api/snapshot`, { headers: { cookie } })).status).toBe(401);
+  });
+
+  async function readUntilDone(reader: ReadableStreamDefaultReader<Uint8Array>, n = 8, ms = 250): Promise<boolean> {
+    let done = false;
+    for (let i = 0; i < n && !done; i++) {
+      const next = reader.read();
+      const result = await Promise.race([
+        next.then((v) => v),
+        new Promise<ReadableStreamReadResult<Uint8Array>>((ok) => setTimeout(() => ok({ done: false, value: new Uint8Array() }), ms)),
+      ]);
+      done = result.done;
+    }
+    return done;
+  }
+
+  it('SSE /api/pty/:id/stream fecha no logout, na rotação e na expiração', async () => {
+    let t = 1_000_000;
+    const { base, auth, dataDir } = await startAuthServer(true, () => t);
+    const cookie = cookieOf(await login(base, PW));
+    const sse = await fetch(`${base}/api/pty/sess-1/stream`, { headers: { cookie } });
+    expect(sse.status).toBe(200);
+    const reader = sse.body!.getReader();
+    await reader.read();
+    await fetch(`${base}/api/auth/logout`, { method: 'POST', headers: { cookie } });
+    expect(await readUntilDone(reader)).toBe(true);
+
+    const cookie2 = cookieOf(await login(base, PW));
+    const sse2 = await fetch(`${base}/api/pty/sess-2/stream`, { headers: { cookie: cookie2 } });
+    const r2 = sse2.body!.getReader();
+    await r2.read();
+    writePasswordFile(dataDir, PW + ' nova');
+    expect(auth.checkPasswordRotation()).toBe(true);
+    expect(await readUntilDone(r2)).toBe(true);
+
+    const cookie3 = cookieOf(await login(base, PW + ' nova'));
+    const sse3 = await fetch(`${base}/api/pty/sess-3/stream`, { headers: { cookie: cookie3 } });
+    const r3 = sse3.body!.getReader();
+    await r3.read();
+    t += 9 * 3600_000;
+    expect(auth.sweepExpired()).toBe(1);
+    expect(await readUntilDone(r3)).toBe(true);
+  });
+
+  it('controlo negativo: stream de outra sessão continua aberto após revoke da primeira', async () => {
+    const { base, auth } = await startAuthServer();
+    const a = cookieOf(await login(base, PW));
+    const b = cookieOf(await login(base, PW));
+    const sseA = await fetch(`${base}/api/pty/a/stream`, { headers: { cookie: a } });
+    const sseB = await fetch(`${base}/api/stream`, { headers: { cookie: b } });
+    const rA = sseA.body!.getReader();
+    const rB = sseB.body!.getReader();
+    await rA.read();
+    await rB.read();
+    expect(auth.revokeToken(a.split('=')[1])).toBe(true);
+    expect(await readUntilDone(rA)).toBe(true);
+    const peek = rB.read();
+    const raced = await Promise.race([
+      peek.then((v) => v.done),
+      new Promise<boolean>((ok) => setTimeout(() => ok(false), 40)),
+    ]);
+    expect(raced).toBe(false);
+    expect(auth.sessionCount()).toBe(1);
   });
 
   it('rotação de senha invalida cookie e fecha streams', async () => {
@@ -353,7 +428,20 @@ describe('app completo + CSRF', () => {
     late.office = office;
     const hub = new Hub(office, { throttleMs: 10 });
     hub.start();
-    const api = createApiHandler({ office, hub, accounts, sources: () => [], version: '9.9.9', inDocker: false });
+    const spawn = new SpawnService({});
+    const files = new FileFetcher({ direct: true });
+    const dictation = new DictationService({});
+    const api = createApiHandler({
+      office,
+      hub,
+      accounts,
+      sources: () => [],
+      version: '9.9.9',
+      inDocker: false,
+      spawn,
+      files,
+      dictation,
+    });
     const guard = createRequestGuard({ allowedHosts: new Set() });
     const auth = createAuth({ enabled: authOn, dataDir, hooksToken: HOOK });
     auths.push(auth);
@@ -426,5 +514,26 @@ describe('app completo + CSRF', () => {
     let done = false;
     for (let i = 0; i < 8 && !done; i++) done = (await reader.read()).done;
     expect(done).toBe(true);
+  });
+
+  it('host jobs: Bearer (máquina) entra; cookie (browser) não consome poll/ack', async () => {
+    const env = await startFull(true);
+    const jobs = ['/api/host/spawn/poll', '/api/host/files/poll', '/api/host/dictation/poll'] as const;
+    const acks = ['/api/host/spawn/ack', '/api/host/files/ack', '/api/host/dictation/ack'] as const;
+    const jsonH = { 'Content-Type': 'application/json' };
+    try {
+      for (const path of [...jobs, ...acks]) {
+        const cookie = await fetch(`${env.base}${path}`, { method: 'POST', headers: { ...jsonH, cookie: env.cookie }, body: '{}' });
+        expect(cookie.status, `cookie ${path}`).toBe(401);
+        const bearer = await fetch(`${env.base}${path}`, {
+          method: 'POST',
+          headers: { ...jsonH, authorization: `Bearer ${HOOK}` },
+          body: path.endsWith('/ack') ? JSON.stringify({ results: [], files: [], dictations: [] }) : '{}',
+        });
+        expect(bearer.status, `bearer ${path}`).toBe(200);
+      }
+    } finally {
+      await env.close();
+    }
   });
 });
