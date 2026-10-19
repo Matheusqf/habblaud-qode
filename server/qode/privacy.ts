@@ -92,6 +92,7 @@ export const SNAPSHOT_RULES: Record<keyof OfficeSnapshot, 'keep' | 'filter'> = {
   serverTime: 'keep',
   rooms: 'filter',
   agents: 'filter',
+  ptys: 'filter',
   accounts: 'keep',
   meta: 'keep',
 };
@@ -104,7 +105,9 @@ export const META_RULES: Record<keyof OfficeSnapshot['meta'], 'keep'> = {
   build: 'keep',
   terminal: 'keep',
   messages: 'keep',
+  pty: 'keep',
   updates: 'keep',
+  world: 'keep',
 };
 
 const KIND_TEXT: Record<ActivityKind, string> = {
@@ -340,8 +343,13 @@ export class Privacy implements OfficePrivacy {
       return r;
     });
     const agents = s.agents.map((a) => (priv.has(a.id) ? privateAgent(a) : a));
+    const ptys = this.cfg.invalid
+      ? []
+      : (s.ptys ?? []).filter((p) => !priv.has(p.agentId) && !(p.fromAgent && priv.has(p.fromAgent)) && !this.mentions(p.cwd));
     const out: Record<string, unknown> = {};
-    for (const k of Object.keys(SNAPSHOT_RULES) as Array<keyof OfficeSnapshot>) out[k] = k === 'rooms' ? rooms : k === 'agents' ? agents : s[k];
+    for (const k of Object.keys(SNAPSHOT_RULES) as Array<keyof OfficeSnapshot>) {
+      out[k] = k === 'rooms' ? rooms : k === 'agents' ? agents : k === 'ptys' ? ptys : s[k];
+    }
     return out as unknown as OfficeSnapshot;
   }
 
