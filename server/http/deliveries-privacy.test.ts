@@ -39,6 +39,12 @@ const say = (id: string, s: number, text: string) => ({
   timestamp: ts(s),
   message: { id: `m-${id}`, role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text }] },
 });
+const shot = (id: string, s: number, data: string) => ({
+  type: 'user',
+  uuid: id,
+  timestamp: ts(s),
+  message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't-x', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data } }] }] },
+});
 
 afterEach(() => {
   setQuiet(true);
@@ -207,6 +213,149 @@ describe('entregas + privacidade QODE (API real)', () => {
       }
       const guess = await fetch(`${base}/api/deliveries/file/${'f'.repeat(20)}`);
       expect([404, 400]).toContain(guess.status);
+    } finally {
+      hub.stop();
+      await new Promise<void>((ok) => {
+        server.closeAllConnections();
+        server.close(() => ok());
+      });
+      tmp.cleanup();
+    }
+  });
+
+  it('anexo já indexado (file público ou capture) some depois do taint, sem relistar', async () => {
+    const tmp = tempDir('qode-deliv-taint-');
+    const home = join(tmp.dir, 'home');
+    const dataDir = join(tmp.dir, 'data');
+    const clinicas = join(home, 'Documents', 'GitHub', 'clinicas');
+    mkdirSync(clinicas, { recursive: true });
+    mkdirSync(dataDir, { recursive: true });
+    copyFileSync(EXAMPLE, join(dataDir, 'qode.config.json'));
+
+    const INDEXED = 'CANARIO-ANEXO-INDEXADO-7e4a';
+    const publicFile = join(clinicas, 'parecer.md');
+    writeFileSync(publicFile, `# Parecer\n${INDEXED}\n`);
+    const publicJsonl = join(tmp.dir, 'pub.jsonl');
+    writeFileSync(
+      publicJsonl,
+      [
+        user('u1', 0, 'Atualize o parecer da clínica'),
+        tool('a1', 1, 'Edit', { file_path: publicFile, old_string: 'a', new_string: 'b' }),
+        tool('a2', 2, 'SendUserFile', { files: [publicFile], caption: 'Parecer' }),
+        shot('r1', 3, Buffer.from(INDEXED).toString('base64')),
+        say(
+          'a3',
+          4,
+          '**O parecer está pronto** e foi enviado. Veja o ficheiro da pasta.\n\nEm poucas palavras: o parecer público da clínica agora mostra o último dia certo, e o texto está na pasta do projeto para a BA conferir.',
+        ),
+      ]
+        .map((l) => JSON.stringify(l))
+        .join('\n') + '\n',
+    );
+
+    const aliases = new RoomAliases(null);
+    let office!: Office;
+    const qode = setupQode({ env: {}, dataDir, home, roomAliases: aliases, office: () => office });
+    office = new Office({
+      names: new NameStore(null),
+      roomAlias: (p) => aliases.get(p),
+      version: 't',
+      startedAt: 0,
+      accounts: () => [],
+      sources: () => [],
+      accountName: () => undefined,
+      terminal: true,
+      roomOf: qode.roomOf,
+      privacy: qode.privacy,
+    });
+    office.addMain({ id: '.claude:2', account: '.claude', sessionId: 'sess-pub', cwd: clinicas, role: 'Agente principal', startedAt: now, status: 'idle' });
+    expect(qode.privacy!.isPrivate('.claude:2')).toBe(false);
+
+    const rawHistory = {
+      list: async () =>
+        [
+          {
+            account: '.claude',
+            sessionId: 'sess-pub',
+            project: clinicas,
+            projectDir: '-Documents-GitHub-clinicas',
+            title: 'Parecer',
+            lastAt: now,
+            size: 800,
+            open: true,
+            agentId: '.claude:2',
+          },
+        ] satisfies RecentSession[],
+      resolve: (account: string, sessionId: string) =>
+        account === '.claude' && sessionId === 'sess-pub' ? { path: publicJsonl, createParser: createTerminalParser } : { status: 404 as const, error: 'ausente' },
+    };
+    const historyView = qode.history(rawHistory);
+    const deliveries = new DeliveryIndex(
+      qode.deliveries({
+        sessions: () => historyView.list(),
+        resolve: (account, sessionId) => {
+          const r = historyView.resolve(account, sessionId);
+          return 'path' in r ? r : undefined;
+        },
+        isBusy: () => false,
+        agentName: (id) => office.list().find((a) => a.id === id)?.name,
+      }),
+    );
+    const fetcher = new FileFetcher({ direct: true });
+    const claudeDir = join(tmp.dir, '.claude');
+    mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
+    const accounts = new AccountsService({ dirs: [claudeDir], home, env: {}, onChange: () => undefined });
+    const hub = new Hub(office, { throttleMs: 10 });
+    hub.start();
+    const api = createApiHandler({
+      office,
+      hub,
+      accounts,
+      sources: () => [],
+      version: 't',
+      inDocker: false,
+      terminal: true,
+      deliveries,
+      files: fetcher,
+    });
+    const server = http.createServer((req, res) => {
+      if (!api(req, res, new URL(req.url ?? '/', 'http://x'))) {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      const listed = (await (await fetch(`${base}/api/deliveries`)).json()) as {
+        deliveries: Array<{ attachments: Array<{ id: string; capture?: boolean; name: string }> }>;
+      };
+      const atts = listed.deliveries.flatMap((d) => d.attachments);
+      const fileAtt = atts.find((a) => !a.capture && a.name === 'parecer.md');
+      const capAtt = atts.find((a) => a.capture);
+      expect(fileAtt, 'ficheiro com caminho público indexado').toBeDefined();
+      expect(capAtt, 'capture indexada').toBeDefined();
+
+      const beforeFile = await fetch(`${base}/api/deliveries/file/${fileAtt!.id}`);
+      expect(beforeFile.status).toBe(200);
+      expect(await beforeFile.text()).toContain(INDEXED);
+      const beforeCap = await fetch(`${base}/api/deliveries/file/${capAtt!.id}`);
+      expect(beforeCap.status).toBe(200);
+
+      qode.privacy!.taint('.claude:2');
+      office.markDirty();
+
+      const afterFile = await fetch(`${base}/api/deliveries/file/${fileAtt!.id}`);
+      const afterFileText = await afterFile.text();
+      expect(afterFile.status, 'file após taint sem relistar').toBeGreaterThanOrEqual(400);
+      expect(afterFileText).not.toContain(INDEXED);
+      expect(afterFileText.toLowerCase()).not.toContain('documents/github/clinicas');
+
+      const afterCap = await fetch(`${base}/api/deliveries/file/${capAtt!.id}`);
+      const afterCapText = await afterCap.text();
+      expect(afterCap.status, 'capture após taint sem relistar').toBeGreaterThanOrEqual(400);
+      expect(afterCapText).not.toContain(INDEXED);
+      expect(afterCapText).not.toContain(Buffer.from(INDEXED).toString('base64'));
     } finally {
       hub.stop();
       await new Promise<void>((ok) => {

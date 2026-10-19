@@ -49,9 +49,17 @@ export interface DeliveryIndexOptions {
   hidePath?: (path: string) => boolean;
 }
 
+/** Sessão/agente de onde o anexo saiu: a política atual revalida isto em cada GET, mesmo sem relistar. */
+export interface AttachmentOrigin {
+  account: string;
+  sessionId: string;
+  agentId?: string;
+  project?: string;
+}
+
 export type StoredAttachment =
-  | { kind: 'capture'; type: string; data: Buffer; name: string }
-  | { kind: 'file'; path: string; name: string; type: string };
+  | { kind: 'capture'; type: string; data: Buffer; name: string; origin: AttachmentOrigin }
+  | { kind: 'file'; path: string; name: string; type: string; origin: AttachmentOrigin };
 
 interface Turn {
   start: TerminalEntry & { kind: 'user' };
@@ -247,12 +255,27 @@ export class DeliveryIndex {
 
   constructor(private readonly opts: DeliveryIndexOptions) {}
 
-  /** Anexo pelo id opaco (só os das entregas da última listagem; caminhos privados não saem). */
+  /** Anexo pelo id opaco: a política atual manda, incluindo capture e caminho que parece público. */
   attachment(id: string): StoredAttachment | undefined {
     const att = this.files.get(id);
     if (!att) return undefined;
+    if (this.originHidden(att.origin)) return undefined;
     if (att.kind === 'file' && this.opts.hidePath?.(att.path)) return undefined;
     return att;
+  }
+
+  private originHidden(origin: AttachmentOrigin): boolean {
+    if (!this.opts.hideSession) return false;
+    return this.opts.hideSession({
+      account: origin.account,
+      sessionId: origin.sessionId,
+      projectDir: '',
+      lastAt: 0,
+      size: 0,
+      open: false,
+      ...(origin.agentId ? { agentId: origin.agentId } : {}),
+      ...(origin.project ? { project: origin.project } : {}),
+    });
   }
 
   async list(): Promise<DeliveryInfo[]> {
@@ -312,6 +335,12 @@ export class DeliveryIndex {
     if (!t.tools || text.length < MIN_TEXT || (t.marksStop && !t.ended)) return undefined;
     if (this.opts.hideText?.(text) || this.opts.hideText?.(t.start.text)) return undefined;
     const id = `${s.account}:${s.sessionId}:${t.start.id}`;
+    const origin: AttachmentOrigin = {
+      account: s.account,
+      sessionId: s.sessionId,
+      ...(s.agentId ? { agentId: s.agentId } : {}),
+      ...(s.project ? { project: s.project } : {}),
+    };
     const attachments: DeliveryAttachment[] = [];
     const paths = new Map<string, string | undefined>();
     for (const f of t.files) if (!pathProblem(f.path) && !this.opts.hidePath?.(f.path) && !paths.has(f.path)) paths.set(f.path, f.caption);
@@ -320,14 +349,14 @@ export class DeliveryIndex {
       const ft = fileType(path);
       if (!ft) continue;
       const aid = shortId(`${id}|${path}`);
-      files.set(aid, { kind: 'file', path, name: baseName(path), type: ft.type });
+      files.set(aid, { kind: 'file', path, name: baseName(path), type: ft.type, origin });
       attachments.push({ id: aid, name: baseName(path), kind: ft.kind, ...(caption ? { caption } : {}) });
     }
     t.captures.forEach((c, i) => {
       const aid = shortId(`${id}|capture|${i}`);
       const ext = c.type.split('/')[1] === 'jpeg' ? 'jpg' : c.type.split('/')[1];
       const name = `tela-${i + 1}.${ext}`;
-      files.set(aid, { kind: 'capture', type: c.type, data: Buffer.from(c.data, 'base64'), name });
+      files.set(aid, { kind: 'capture', type: c.type, data: Buffer.from(c.data, 'base64'), name, origin });
       attachments.push({ id: aid, name, kind: 'image', caption: tr('Tela capturada pelo agente'), capture: true });
     });
     const headline = headlineOf(text);
