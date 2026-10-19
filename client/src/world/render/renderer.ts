@@ -12,6 +12,7 @@ import { currentGarden, currentOfficePreset } from '../season';
 const GARDEN = currentGarden();
 import { slotAt } from '../layout/geometry';
 import type { ExteriorProp } from '../layout/types';
+import { SIGNAGE_AREA_ID, signageDrawSize } from '../layout/wall-extent';
 import { screenModeFor } from '../sim/behavior';
 import type { Character } from '../sim/character';
 import type { RoomState } from '../sim/room-state';
@@ -685,15 +686,10 @@ export class Renderer {
   /** Placa com o nome (o texto nítido é escrito pelo overlay em espaço de tela). */
   private drawSign(vis: AreaVis, w: WallVis, slide: number): void {
     const { ctx } = this;
-    if (!vis.room && this.assets?.signage && vis.id === 'core:recepcao') {
+    if (!vis.room && this.assets?.signage && vis.id === SIGNAGE_AREA_ID) {
       const a = this.assets.signage;
-      const maxW = 5 * TILE;
-      const maxH = 24;
-      // escala inteira (pixels nítidos) sempre que couber
-      const fit = Math.min(maxW / a.w, maxH / a.h);
-      const k = fit >= 1 ? Math.floor(fit) : fit;
-      const dw = Math.round(a.w * k);
-      const dh = Math.round(a.h * k);
+      // escala inteira (pixels nítidos) sempre que couber; mesma conta que a decoração reserva (wall-extent)
+      const { w: dw, h: dh, k } = signageDrawSize(a.w, a.h);
       ctx.save();
       ctx.imageSmoothingEnabled = k < 1;
       ctx.drawImage(a.img, Math.round(w.cx - dw / 2), Math.round(w.baseY - 8 - dh) + slide, dw, dh);
@@ -709,7 +705,7 @@ export class Renderer {
   /** Retângulo (px de mundo) da área de texto da placa de uma área, se houver. */
   signRect(vis: AreaVis): { x: number; y: number; w: number; h: number } | null {
     if (!vis.sign) return null;
-    if (!vis.room && this.assets?.signage && vis.id === 'core:recepcao') return null;
+    if (!vis.room && this.assets?.signage && vis.id === SIGNAGE_AREA_ID) return null;
     const s = wallSprites(this.art, 'sign', vis.sign.variant, 0, vis.sign.seed);
     if (!s) return null;
     const o = wallItemOrigin(vis.sign, s.base);
