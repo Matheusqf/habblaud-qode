@@ -41,6 +41,12 @@ export interface DeliveryIndexOptions {
   /** O agente está no meio de um pedido (o último pedido ainda não é entrega). */
   isBusy: (agentId: string) => boolean;
   agentName?: (agentId: string) => string | undefined;
+  /** Sessão que a política QODE não deixa ler (projeto/família privada). */
+  hideSession?: (s: RecentSession) => boolean;
+  /** Texto (pedido, manchete, resposta) que cita caminho ou token privado. */
+  hideText?: (text: string) => boolean;
+  /** Caminho de anexo que não pode sair (ficheiro ou pasta privada). */
+  hidePath?: (path: string) => boolean;
 }
 
 export type StoredAttachment =
@@ -241,9 +247,12 @@ export class DeliveryIndex {
 
   constructor(private readonly opts: DeliveryIndexOptions) {}
 
-  /** Anexo pelo id opaco (só os das entregas da última listagem). */
+  /** Anexo pelo id opaco (só os das entregas da última listagem; caminhos privados não saem). */
   attachment(id: string): StoredAttachment | undefined {
-    return this.files.get(id);
+    const att = this.files.get(id);
+    if (!att) return undefined;
+    if (att.kind === 'file' && this.opts.hidePath?.(att.path)) return undefined;
+    return att;
   }
 
   async list(): Promise<DeliveryInfo[]> {
@@ -252,6 +261,7 @@ export class DeliveryIndex {
     const files = new Map<string, StoredAttachment>();
     const seen = new Set<string>();
     for (const s of sessions) {
+      if (this.opts.hideSession?.(s)) continue;
       const src = this.opts.resolve(s.account, s.sessionId);
       if (!src) continue;
       seen.add(src.path);
@@ -300,11 +310,12 @@ export class DeliveryIndex {
   private toDelivery(s: RecentSession, t: Turn, files: Map<string, StoredAttachment>): DeliveryInfo | undefined {
     const text = t.text.trim();
     if (!t.tools || text.length < MIN_TEXT || (t.marksStop && !t.ended)) return undefined;
+    if (this.opts.hideText?.(text) || this.opts.hideText?.(t.start.text)) return undefined;
     const id = `${s.account}:${s.sessionId}:${t.start.id}`;
     const attachments: DeliveryAttachment[] = [];
     const paths = new Map<string, string | undefined>();
-    for (const f of t.files) if (!pathProblem(f.path) && !paths.has(f.path)) paths.set(f.path, f.caption);
-    for (const p of linkedFiles(text, s.project)) if (!paths.has(p)) paths.set(p, undefined);
+    for (const f of t.files) if (!pathProblem(f.path) && !this.opts.hidePath?.(f.path) && !paths.has(f.path)) paths.set(f.path, f.caption);
+    for (const p of linkedFiles(text, s.project)) if (!this.opts.hidePath?.(p) && !paths.has(p)) paths.set(p, undefined);
     for (const [path, caption] of paths) {
       const ft = fileType(path);
       if (!ft) continue;
